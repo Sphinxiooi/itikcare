@@ -62,11 +62,15 @@ For a one-off production-style build (minified, no watch):
   recent farm records
 
 The UI (sidebar layout, login screen, and all four pages above) matches the Figma
-prototype in `prototype/`. Two intentional deviations from the mockup: the weather
+prototype in `prototype/`. Three intentional deviations from the mockup: the weather
 box on the dashboard reads from today's own DailyLog entry rather than a live
 third-party weather API (spec explicitly scopes temperature/humidity as manual
-entry, no external integrations), and there's no self-registration/"Create Account"
-flow (accounts are admin-created via `/admin/`, per the spec's single-farm scope).
+entry, no external integrations); there's no self-registration/"Create Account"
+flow (accounts are admin-created via `/admin/`, per the spec's single-farm scope);
+and the mockup's "Refresh" button on the Next 3-day Forecast card is omitted,
+since regenerating a forecast is a periodic retraining/pipeline action (see
+`train_forecast_model`), not something that makes sense to trigger inline from a
+page request.
 
 The Random Forest model and the rule engine are both stubs (see
 `forecasting/management/commands/train_forecast_model.py` and

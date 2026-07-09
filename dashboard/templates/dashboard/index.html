@@ -78,7 +78,7 @@
 <div class="grid grid-cols-1 lg:grid-cols-3 gap-6 mt-6">
     <div class="lg:col-span-2 bg-white border border-gray-200 rounded-xl p-6">
         <h2 class="text-lg font-bold text-gray-900">Egg Yield Trend</h2>
-        <p class="text-sm text-gray-500 mb-4">Last 10 logged days</p>
+        <p class="text-sm text-gray-500 mb-4">Last 10 days + next 3-day forecast</p>
         {% if recent_logs %}
         <canvas id="trendChart" height="220"></canvas>
         {% else %}
@@ -105,19 +105,74 @@
     </div>
 </div>
 
+<div class="bg-white border border-gray-200 rounded-xl p-6 mt-6">
+    <div class="flex justify-between items-center mb-4">
+        <div>
+            <h2 class="text-lg font-bold text-gray-900">Recent Farm Records</h2>
+            <p class="text-sm text-gray-500">Last 5 daily entries</p>
+        </div>
+        <a href="{% url 'farm_records' %}" class="text-sm font-medium text-emerald-700 hover:underline">View all</a>
+    </div>
+    {% if recent_records %}
+    <div class="overflow-x-auto">
+        <table class="w-full text-sm text-left">
+            <thead class="bg-emerald-700 text-white">
+                <tr>
+                    <th class="py-2.5 px-3 rounded-l-md">Date</th>
+                    <th class="py-2.5 px-3">Egg Count</th>
+                    <th class="py-2.5 px-3">Feed (kg)</th>
+                    <th class="py-2.5 px-3">Temp / Humidity</th>
+                    <th class="py-2.5 px-3">Flock Count</th>
+                    <th class="py-2.5 px-3 rounded-r-md">Avg. Age (wk)</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for log in recent_records %}
+                <tr class="border-b border-gray-100 last:border-0">
+                    <td class="py-2.5 px-3">{{ log.date }}</td>
+                    <td class="py-2.5 px-3">{{ log.egg_count }}</td>
+                    <td class="py-2.5 px-3">{{ log.feed_intake_kg }}</td>
+                    <td class="py-2.5 px-3">{{ log.temperature_c }}°C / {{ log.humidity_pct }}%</td>
+                    <td class="py-2.5 px-3">{{ log.flock_size }}</td>
+                    <td class="py-2.5 px-3">{{ log.flock_age_weeks }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% else %}
+    <p class="text-sm text-gray-500">No farm records yet.</p>
+    {% endif %}
+</div>
+
 {% if recent_logs %}
 <script>
     new Chart(document.getElementById("trendChart"), {
         type: "line",
         data: {
             labels: {{ trend_labels_json|safe }},
-            datasets: [{
-                label: "Actual egg yield",
-                data: {{ trend_actual_json|safe }},
-                borderColor: "#047857",
-                backgroundColor: "#047857",
-                tension: 0.3,
-            }],
+            datasets: [
+                {
+                    label: "Actual egg yield",
+                    data: {{ trend_actual_json|safe }},
+                    borderColor: "#047857",
+                    backgroundColor: "#047857",
+                    borderWidth: 2,
+                    pointRadius: 4,
+                    tension: 0.3,
+                    spanGaps: false,
+                },
+                {
+                    label: "Predicted egg yield",
+                    data: {{ trend_predicted_json|safe }},
+                    borderColor: "#2a78d6",
+                    backgroundColor: "#2a78d6",
+                    borderWidth: 2,
+                    pointRadius: 4,
+                    tension: 0.3,
+                    spanGaps: false,
+                },
+            ],
         },
         options: {
             plugins: { legend: { position: "bottom" } },

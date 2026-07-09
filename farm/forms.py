@@ -15,6 +15,10 @@ class DailyLogForm(forms.ModelForm):
     flock_size directly — the view carries it forward from the flock's most recent
     DailyLog instead, since day-to-day flock size rarely changes and re-typing it
     every day isn't what the design asks for.
+
+    Exception: a flock's very first-ever entry has no prior DailyLog to carry
+    flock_size forward from, so the view passes ``require_flock_size=True`` in that
+    one case and this form adds the field dynamically. Every later entry omits it.
     """
 
     class Meta:
@@ -22,11 +26,11 @@ class DailyLogForm(forms.ModelForm):
         fields = ["date", "egg_count", "feed_intake_kg", "flock_age_weeks", "temperature_c", "humidity_pct"]
         widgets = {
             "date": forms.DateInput(attrs={"type": "date", "class": INPUT_CLASSES}),
-            "egg_count": forms.NumberInput(attrs={"class": INPUT_CLASSES}),
-            "feed_intake_kg": forms.NumberInput(attrs={"class": INPUT_CLASSES, "step": "0.1"}),
-            "flock_age_weeks": forms.NumberInput(attrs={"class": INPUT_CLASSES}),
-            "temperature_c": forms.NumberInput(attrs={"class": INPUT_CLASSES, "step": "0.1"}),
-            "humidity_pct": forms.NumberInput(attrs={"class": INPUT_CLASSES, "step": "0.1"}),
+            "egg_count": forms.NumberInput(attrs={"class": INPUT_CLASSES, "min": "0", "max": "1000"}),
+            "feed_intake_kg": forms.NumberInput(attrs={"class": INPUT_CLASSES, "step": "0.1", "min": "0", "max": "150"}),
+            "flock_age_weeks": forms.NumberInput(attrs={"class": INPUT_CLASSES, "min": "1", "max": "150"}),
+            "temperature_c": forms.NumberInput(attrs={"class": INPUT_CLASSES, "step": "0.1", "min": "0", "max": "45"}),
+            "humidity_pct": forms.NumberInput(attrs={"class": INPUT_CLASSES, "step": "0.1", "min": "0", "max": "100"}),
         }
         labels = {
             "egg_count": "Today's Egg Count",
@@ -35,6 +39,17 @@ class DailyLogForm(forms.ModelForm):
             "temperature_c": "Temperature (°C)",
             "humidity_pct": "Humidity (%)",
         }
+
+    def __init__(self, *args, require_flock_size=False, **kwargs):
+        super().__init__(*args, **kwargs)
+        if require_flock_size:
+            self.fields["flock_size"] = forms.IntegerField(
+                min_value=1,
+                max_value=100000,
+                label="Flock Size (number of ducks)",
+                help_text="First entry for this flock — later entries carry this forward automatically.",
+                widget=forms.NumberInput(attrs={"class": INPUT_CLASSES, "min": "1"}),
+            )
 
 
 class DailyLogEditForm(forms.ModelForm):
@@ -52,9 +67,9 @@ class DailyLogEditForm(forms.ModelForm):
         widgets = {
             "date": forms.DateInput(attrs={"type": "date", "class": INPUT_CLASSES}),
             "flock_size": forms.NumberInput(attrs={"class": INPUT_CLASSES}),
-            "flock_age_weeks": forms.NumberInput(attrs={"class": INPUT_CLASSES}),
-            "egg_count": forms.NumberInput(attrs={"class": INPUT_CLASSES}),
-            "feed_intake_kg": forms.NumberInput(attrs={"class": INPUT_CLASSES, "step": "0.1"}),
-            "temperature_c": forms.NumberInput(attrs={"class": INPUT_CLASSES, "step": "0.1"}),
-            "humidity_pct": forms.NumberInput(attrs={"class": INPUT_CLASSES, "step": "0.1"}),
+            "flock_age_weeks": forms.NumberInput(attrs={"class": INPUT_CLASSES, "min": "1", "max": "150"}),
+            "egg_count": forms.NumberInput(attrs={"class": INPUT_CLASSES, "min": "0", "max": "1000"}),
+            "feed_intake_kg": forms.NumberInput(attrs={"class": INPUT_CLASSES, "step": "0.1", "min": "0", "max": "150"}),
+            "temperature_c": forms.NumberInput(attrs={"class": INPUT_CLASSES, "step": "0.1", "min": "0", "max": "45"}),
+            "humidity_pct": forms.NumberInput(attrs={"class": INPUT_CLASSES, "step": "0.1", "min": "0", "max": "100"}),
         }

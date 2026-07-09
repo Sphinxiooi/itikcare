@@ -40,12 +40,29 @@ def index(request):
         else []
     )
     today_log = recent_logs[0] if recent_logs else None
+    recent_records = recent_logs[:5]
 
-    # Trend chart data: oldest-to-newest actual yield for the last 10 logged days.
+    # Trend chart data: oldest-to-newest across the last 10 logged days plus the next
+    # 3 forecast days, so the chart can show "actual" (from DailyLog) and "predicted"
+    # (from Forecast) side by side, matching the Figma two-line chart. Predicted
+    # values are only available where a Forecast row happens to exist for that date
+    # — expected to be mostly gaps until the RF pipeline is wired up for real.
+    actual_by_date = {log.date: float(log.egg_count) for log in recent_logs}
+    trend_dates = set(actual_by_date) | {f.forecast_date for f in upcoming_forecasts}
+    predicted_by_date = {}
+    if trend_dates:
+        predicted_by_date = {
+            f.forecast_date: float(f.predicted_daily_yield)
+            for f in Forecast.objects.filter(
+                flock=active_flock, forecast_date__range=(min(trend_dates), max(trend_dates))
+            )
+        }
+    trend_dates = sorted(trend_dates)
     # (strftime's day-without-zero-padding directive isn't portable across platforms,
     # so the day number is appended manually instead of using "%-d"/"%#d".)
-    trend_labels = [f"{log.date.strftime('%b')} {log.date.day}" for log in reversed(recent_logs)]
-    trend_actual = [float(log.egg_count) for log in reversed(recent_logs)]
+    trend_labels = [f"{d.strftime('%b')} {d.day}" for d in trend_dates]
+    trend_actual = [actual_by_date.get(d) for d in trend_dates]
+    trend_predicted = [predicted_by_date.get(d) for d in trend_dates]
 
     context = {
         "active_nav": "dashboard",
@@ -55,7 +72,9 @@ def index(request):
         "upcoming_forecasts": upcoming_forecasts,
         "recommendations": recommendations,
         "recent_logs": recent_logs,
+        "recent_records": recent_records,
         "trend_labels_json": json.dumps(trend_labels),
         "trend_actual_json": json.dumps(trend_actual),
+        "trend_predicted_json": json.dumps(trend_predicted),
     }
     return render(request, "dashboard/index.html", context)

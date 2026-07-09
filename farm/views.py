@@ -9,13 +9,23 @@ from .models import DailyLog, DailyLogEdit, Flock
 # for the DailyLogEdit.old_value/new_value CharFields.
 AUDITED_FIELDS = ["date", "flock_size", "flock_age_weeks", "egg_count", "feed_intake_kg", "temperature_c", "humidity_pct"]
 
+# A live entry more than this many days after the flock's previous log is treated as
+# the start of a new caging period (i.e. the flock was free-ranged in between and has
+# just been re-caged — itikcare-spec.md section 10). Chosen from the historical CSV
+# import: every gap that stayed within one caging_period was <= 5 days, and every real
+# caging-period boundary was >= 43 days, so 14 sits safely in between either reading.
+CAGING_PERIOD_GAP_DAYS = 14
+
 
 @login_required
 def log_daily_data(request):
     """Create today's DailyLog entry.
 
-    flock_size isn't collected on this form (see forms.DailyLogForm docstring) — it's
-    carried forward from the active flock's most recent DailyLog.
+    flock_size isn't collected on this form for repeat entries (see
+    forms.DailyLogForm docstring) — it's carried forward from the active flock's most
+    recent DailyLog. caging_period is likewise never farmer-entered: it continues the
+    previous log's value, unless the gap since that log is long enough to imply a
+    free-range-then-recage cycle happened in between (CAGING_PERIOD_GAP_DAYS).
     """
 
     active_flock = Flock.objects.filter(is_active=True).order_by("-generation_number").first()
@@ -24,24 +34,37 @@ def log_daily_data(request):
         return redirect("dashboard")
 
     previous_log = DailyLog.objects.filter(flock=active_flock).order_by("-date").first()
+    is_first_entry = previous_log is None
 
     if request.method == "POST":
-        form = DailyLogForm(request.POST)
+        form = DailyLogForm(request.POST, require_flock_size=is_first_entry)
         if form.is_valid():
-            if DailyLog.objects.filter(flock=active_flock, date=form.cleaned_data["date"]).exists():
+            new_date = form.cleaned_data["date"]
+            if DailyLog.objects.filter(flock=active_flock, date=new_date).exists():
                 form.add_error("date", "A record for this date already exists — edit it from Farm Records instead.")
             else:
                 daily_log = form.save(commit=False)
                 daily_log.flock = active_flock
-                daily_log.flock_size = previous_log.flock_size if previous_log else active_flock.daily_logs.count()
+                if is_first_entry:
+                    daily_log.flock_size = form.cleaned_data["flock_size"]
+                    daily_log.caging_period = 1
+                else:
+                    daily_log.flock_size = previous_log.flock_size
+                    gap_days = (new_date - previous_log.date).days
+                    daily_log.caging_period = (
+                        previous_log.caging_period + 1
+                        if gap_days > CAGING_PERIOD_GAP_DAYS
+                        else previous_log.caging_period
+                    )
                 daily_log.recorded_by = request.user
                 daily_log.save()
                 messages.success(request, "Daily data saved.")
                 return redirect("dashboard")
     else:
-        form = DailyLogForm(initial={
-            "flock_age_weeks": previous_log.flock_age_weeks if previous_log else None,
-        })
+        form = DailyLogForm(
+            initial={"flock_age_weeks": previous_log.flock_age_weeks if previous_log else None},
+            require_flock_size=is_first_entry,
+        )
 
     context = {"active_nav": "log_daily_data", "form": form}
     return render(request, "farm/log_daily_data.html", context)

@@ -1,4 +1,5 @@
 from django.conf import settings
+from django.core.validators import MaxValueValidator, MinValueValidator
 from django.db import models
 
 
@@ -35,11 +36,37 @@ class DailyLog(models.Model):
     flock = models.ForeignKey(Flock, on_delete=models.PROTECT, related_name="daily_logs")
     date = models.DateField()
     flock_size = models.PositiveIntegerField(help_text="Total duck count that day (includes males).")
-    flock_age_weeks = models.PositiveIntegerField()
-    egg_count = models.PositiveIntegerField()
-    feed_intake_kg = models.DecimalField(max_digits=6, decimal_places=2)
-    temperature_c = models.DecimalField(max_digits=4, decimal_places=1)
-    humidity_pct = models.DecimalField(max_digits=4, decimal_places=1)
+    caging_period = models.PositiveIntegerField(
+        help_text="Caging-period marker from the historical CSV (itikcare-spec.md section 10). "
+        "Used only to segment training data around free-range gaps — never fed to the "
+        "RF model as a raw feature.",
+    )
+    flock_age_weeks = models.PositiveIntegerField(
+        validators=[MinValueValidator(1), MaxValueValidator(150)],
+        help_text="Reasonable range 1-150 weeks, padded from the historical dataset's observed 23-107.",
+    )
+    egg_count = models.PositiveIntegerField(
+        validators=[MaxValueValidator(1000)],
+        help_text="Reasonable range up to 1000/day, padded from the historical dataset's observed 112-487.",
+    )
+    feed_intake_kg = models.DecimalField(
+        max_digits=6,
+        decimal_places=2,
+        validators=[MinValueValidator(0), MaxValueValidator(150)],
+        help_text="Reasonable range 0-150 kg/day, padded from the historical dataset's observed 35.5-100.0.",
+    )
+    temperature_c = models.DecimalField(
+        max_digits=4,
+        decimal_places=1,
+        validators=[MinValueValidator(0), MaxValueValidator(45)],
+        help_text="Reasonable range 0-45°C, padded from the historical dataset's observed 24.0-34.4.",
+    )
+    humidity_pct = models.DecimalField(
+        max_digits=4,
+        decimal_places=1,
+        validators=[MinValueValidator(0), MaxValueValidator(100)],
+        help_text="0-100%, a hard physical ceiling rather than just a historical range.",
+    )
     recorded_by = models.ForeignKey(
         settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name="daily_logs"
     )
