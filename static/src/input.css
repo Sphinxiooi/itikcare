@@ -1,0 +1,10 @@
+@import "tailwindcss";
+
+/* Tailwind v4 scans these paths for class names since Django's app-level
+   templates/ directories sit outside the CSS file's own folder tree. */
+@source "../../templates";
+@source "../../accounts/templates";
+@source "../../farm/templates";
+@source "../../forecasting/templates";
+@source "../../recommendations/templates";
+@source "../../dashboard/templates";

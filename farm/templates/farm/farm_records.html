@@ -1,0 +1,52 @@
+{% extends "base.html" %}
+
+{% block title %}Farm Records — ItikCare{% endblock %}
+
+{% block content %}
+<div class="bg-white border border-gray-200 rounded-xl p-6">
+    <div class="flex justify-between items-start mb-4">
+        <div>
+            <h1 class="text-2xl font-bold text-gray-900">Farm Records</h1>
+            <p class="text-sm text-gray-500">Record of daily farm observations</p>
+        </div>
+        <a href="{% url 'log_daily_data' %}" class="text-sm font-medium bg-emerald-700 text-white rounded-md px-4 py-2 hover:bg-emerald-800">
+            + Log Today's Data
+        </a>
+    </div>
+
+    {% if logs %}
+    <div class="overflow-x-auto">
+        <table class="w-full text-sm text-left">
+            <thead class="bg-emerald-700 text-white">
+                <tr>
+                    <th class="py-2.5 px-3 rounded-l-md">Date</th>
+                    <th class="py-2.5 px-3">Egg Count</th>
+                    <th class="py-2.5 px-3">Feed (kg)</th>
+                    <th class="py-2.5 px-3">Temp / Humidity</th>
+                    <th class="py-2.5 px-3">Flock Count</th>
+                    <th class="py-2.5 px-3">Avg. Age (wk)</th>
+                    <th class="py-2.5 px-3 rounded-r-md"></th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for log in logs %}
+                <tr class="border-b border-gray-100 last:border-0">
+                    <td class="py-2.5 px-3">{{ log.date }}</td>
+                    <td class="py-2.5 px-3">{{ log.egg_count }}</td>
+                    <td class="py-2.5 px-3">{{ log.feed_intake_kg }}</td>
+                    <td class="py-2.5 px-3">{{ log.temperature_c }}°C / {{ log.humidity_pct }}%</td>
+                    <td class="py-2.5 px-3">{{ log.flock_size }}</td>
+                    <td class="py-2.5 px-3">{{ log.flock_age_weeks }}</td>
+                    <td class="py-2.5 px-3 text-right">
+                        <a href="{% url 'farm_record_edit' log.pk %}" class="text-emerald-700 font-medium hover:underline">Edit</a>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% else %}
+    <p class="text-sm text-gray-500">No farm records yet.</p>
+    {% endif %}
+</div>
+{% endblock %}

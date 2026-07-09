@@ -1,0 +1,40 @@
+{% extends "base.html" %}
+
+{% block title %}Edit Record — ItikCare{% endblock %}
+
+{% block content %}
+<div class="bg-white border border-gray-200 rounded-xl p-6 max-w-3xl">
+    <h1 class="text-2xl font-bold text-gray-900">Edit Record — {{ daily_log.date }}</h1>
+    <p class="text-sm text-gray-500 mb-6">Changes are recorded in the audit trail (old value, new value, who, when).</p>
+
+    <form method="post" class="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-4">
+        {% csrf_token %}
+        {% for field in form %}
+        <div>
+            <label for="{{ field.id_for_label }}" class="block text-sm font-medium text-gray-700 mb-1">{{ field.label }}</label>
+            {{ field }}
+            {% if field.errors %}
+            <p class="text-sm text-red-600 mt-1">{{ field.errors.0 }}</p>
+            {% endif %}
+        </div>
+        {% endfor %}
+        <div class="sm:col-span-2 mt-2 flex gap-3">
+            <button type="submit" class="bg-emerald-700 text-white font-semibold rounded-lg px-8 py-2.5 hover:bg-emerald-800">
+                Save Changes
+            </button>
+            <a href="{% url 'farm_records' %}" class="text-gray-600 font-medium px-4 py-2.5 hover:text-gray-900">Cancel</a>
+        </div>
+    </form>
+
+    {% if daily_log.edits.all %}
+    <div class="mt-8 pt-6 border-t border-gray-100">
+        <h2 class="text-sm font-semibold text-gray-700 mb-3">Edit history</h2>
+        <ul class="space-y-1 text-sm text-gray-600">
+            {% for edit in daily_log.edits.all %}
+            <li>{{ edit.changed_at|date:"M j, Y H:i" }} — {{ edit.field_name }}: {{ edit.old_value }} → {{ edit.new_value }} ({{ edit.changed_by }})</li>
+            {% endfor %}
+        </ul>
+    </div>
+    {% endif %}
+</div>
+{% endblock %}

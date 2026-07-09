@@ -1,0 +1,52 @@
+{% load static %}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Log in — ItikCare</title>
+    <link rel="stylesheet" href="{% static 'dist/output.css' %}">
+</head>
+<body class="min-h-screen flex items-center justify-center bg-emerald-950 px-4">
+    <div class="w-full max-w-sm">
+        <div class="bg-emerald-800 rounded-t-2xl px-6 py-6 text-center">
+            <div class="flex items-center justify-center gap-3 mb-3">
+                <span class="flex items-center justify-center w-10 h-10 rounded-lg bg-white text-lg">🦆</span>
+                <span class="leading-tight text-left">
+                    <span class="block text-xl font-bold text-white">ItikCare</span>
+                    <span class="block text-xs font-medium text-emerald-100 -mt-1">Egg Yield Forecasting</span>
+                </span>
+            </div>
+            <p class="text-sm font-medium text-emerald-100">Web-Based Egg Yield Forecasting System</p>
+        </div>
+
+        <div class="bg-white px-6 py-6">
+            <h1 class="text-xl font-bold text-gray-900">Welcome Back, Farmer!</h1>
+            <p class="text-sm text-gray-500 mb-5">Sign in to access your dashboard</p>
+
+            <form method="post" class="space-y-4">
+                {% csrf_token %}
+                {% if form.errors %}
+                <p class="text-sm text-red-600">Your username and password didn't match. Please try again.</p>
+                {% endif %}
+                <div>
+                    <label for="{{ form.username.id_for_label }}" class="block text-sm font-medium text-gray-700 mb-1">Username</label>
+                    {{ form.username }}
+                </div>
+                <div>
+                    <label for="{{ form.password.id_for_label }}" class="block text-sm font-medium text-gray-700 mb-1">Password</label>
+                    {{ form.password }}
+                </div>
+                <button type="submit" class="w-full bg-emerald-700 text-white font-semibold rounded-lg py-2.5 hover:bg-emerald-800">
+                    Sign in to ItikCare
+                </button>
+                <input type="hidden" name="next" value="{{ next }}">
+            </form>
+        </div>
+
+        <div class="bg-emerald-800 rounded-b-2xl px-6 py-4 text-center text-sm text-emerald-100">
+            New accounts are created by your farm administrator.
+        </div>
+    </div>
+</body>
+</html>

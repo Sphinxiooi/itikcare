@@ -1,0 +1,129 @@
+{% extends "base.html" %}
+
+{% block title %}Dashboard — ItikCare{% endblock %}
+
+{% block extra_head %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
+{% endblock %}
+
+{% block content %}
+<div class="bg-white border border-gray-200 rounded-xl p-6">
+    <div class="flex flex-wrap justify-between items-start gap-4">
+        <div>
+            <h1 class="text-2xl font-bold text-gray-900">Good Day, {{ user.get_full_name|default:user.username }}!</h1>
+            <p class="text-sm text-gray-500 mt-1">📍 Patag, Libmanan, Camarines Sur</p>
+            <p class="text-sm text-gray-500">📅 {% now "F j, Y" %}</p>
+        </div>
+        {% if today_log %}
+        <div class="text-right text-sm text-gray-600">
+            <p>Temperature <span class="font-semibold text-gray-900">{{ today_log.temperature_c }}°C</span></p>
+            <p>Humidity <span class="font-semibold text-gray-900">{{ today_log.humidity_pct }}%</span></p>
+            <p class="text-xs text-gray-400 mt-1">from today's farm record</p>
+        </div>
+        {% endif %}
+    </div>
+</div>
+
+{% if not active_flock %}
+<div class="bg-amber-50 border border-amber-200 text-amber-800 text-sm rounded-md p-4 mt-6">
+    No active flock yet. Add a Flock and some DailyLog entries in the
+    <a href="/admin/" class="underline font-medium">admin</a>, or use
+    <a href="{% url 'log_daily_data' %}" class="underline font-medium">Log Daily Data</a>,
+    to see forecasts and recommendations here.
+</div>
+{% endif %}
+
+<div class="grid grid-cols-1 sm:grid-cols-3 gap-4 mt-6">
+    <div class="bg-white border border-emerald-200 rounded-xl p-4">
+        <p class="font-bold text-gray-900">Flocks Status</p>
+        {% if today_log %}<p class="text-sm text-gray-500">Feed Intake: {{ today_log.feed_intake_kg }}kg</p>{% endif %}
+        <p class="text-3xl font-bold text-emerald-700 mt-2">{{ today_log.flock_size|default:"—" }}</p>
+        <p class="text-sm text-gray-500">Ducks</p>
+    </div>
+    <div class="bg-white border border-emerald-200 rounded-xl p-4">
+        <p class="font-bold text-gray-900">Flocks Age</p>
+        {% if today_log %}<p class="text-sm text-gray-500">Avg. Age: {{ today_log.flock_age_weeks }} weeks</p>{% endif %}
+        <p class="text-3xl font-bold text-emerald-700 mt-2">{{ today_log.flock_age_weeks|default:"—" }}</p>
+        <p class="text-sm text-gray-500">Weeks</p>
+    </div>
+    <div class="bg-white border border-emerald-200 rounded-xl p-4">
+        <p class="font-bold text-gray-900">Today's Egg Forecast</p>
+        <a href="{% url 'log_daily_data' %}" class="inline-block mt-2 text-xs font-medium bg-emerald-700 text-white rounded-md px-3 py-1.5 hover:bg-emerald-800">
+            Record Today's Data
+        </a>
+        <p class="text-3xl font-bold text-emerald-700 mt-2">
+            {% if latest_forecast %}{{ latest_forecast.predicted_daily_yield }}{% else %}—{% endif %}
+        </p>
+        <p class="text-sm text-gray-500">Eggs</p>
+    </div>
+</div>
+
+<div class="bg-emerald-50 rounded-xl p-6 mt-6">
+    <div class="flex justify-between items-center mb-4">
+        <h2 class="text-lg font-bold text-gray-900">Next 3-day Forecast</h2>
+    </div>
+    <div class="grid grid-cols-1 sm:grid-cols-3 gap-4 text-center">
+        {% for forecast in upcoming_forecasts %}
+        <div>
+            <p class="text-sm text-gray-600">{{ forecast.forecast_date|date:"M j" }}</p>
+            <p class="text-3xl font-bold text-emerald-700">{{ forecast.predicted_daily_yield }}</p>
+            <p class="text-sm text-gray-500">Eggs</p>
+        </div>
+        {% empty %}
+        <p class="col-span-3 text-sm text-gray-500">No forecasts generated yet.</p>
+        {% endfor %}
+    </div>
+</div>
+
+<div class="grid grid-cols-1 lg:grid-cols-3 gap-6 mt-6">
+    <div class="lg:col-span-2 bg-white border border-gray-200 rounded-xl p-6">
+        <h2 class="text-lg font-bold text-gray-900">Egg Yield Trend</h2>
+        <p class="text-sm text-gray-500 mb-4">Last 10 logged days</p>
+        {% if recent_logs %}
+        <canvas id="trendChart" height="220"></canvas>
+        {% else %}
+        <p class="text-sm text-gray-500">No farm records yet — log daily data to see the trend here.</p>
+        {% endif %}
+    </div>
+
+    <div class="bg-white border border-gray-200 rounded-xl p-6">
+        <h2 class="text-lg font-bold text-gray-900 mb-3">💡 Quick Recommendations</h2>
+        {% if recommendations %}
+        <ul class="space-y-3">
+            {% for rec in recommendations %}
+            <li class="rounded-lg p-3 text-sm
+                {% if rec.priority == 'high' %}bg-red-50
+                {% elif rec.priority == 'medium' %}bg-amber-50
+                {% else %}bg-emerald-50{% endif %}">
+                {{ rec.message }}
+            </li>
+            {% endfor %}
+        </ul>
+        {% else %}
+        <p class="text-sm text-gray-500">No recommendations yet.</p>
+        {% endif %}
+    </div>
+</div>
+
+{% if recent_logs %}
+<script>
+    new Chart(document.getElementById("trendChart"), {
+        type: "line",
+        data: {
+            labels: {{ trend_labels_json|safe }},
+            datasets: [{
+                label: "Actual egg yield",
+                data: {{ trend_actual_json|safe }},
+                borderColor: "#047857",
+                backgroundColor: "#047857",
+                tension: 0.3,
+            }],
+        },
+        options: {
+            plugins: { legend: { position: "bottom" } },
+            scales: { y: { beginAtZero: true } },
+        },
+    });
+</script>
+{% endif %}
+{% endblock %}
