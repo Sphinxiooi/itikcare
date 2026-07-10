@@ -21,6 +21,10 @@ Design notes for the thesis defense (itikcare-spec.md sections 4, 5, 10):
   model as raw features, or it would memorise specific time periods instead of learning
   general patterns.
 * Everything is seeded with ``random_state=42`` for reproducibility.
+* **Optional hyperparameter tuning** (``tune_estimator``) is scored with an inner,
+  segment-aware CV (``segmented_time_series_splits``) built only from the training
+  partition returned by ``chronological_split`` — the held-out 20% test rows are never
+  used to pick hyperparameters, only to run the final, honest acceptance check.
 """
 
 from __future__ import annotations
@@ -31,6 +35,7 @@ from sklearn.dummy import DummyRegressor
 from sklearn.ensemble import RandomForestRegressor
 from sklearn.impute import SimpleImputer
 from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
+from sklearn.model_selection import RandomizedSearchCV, TimeSeriesSplit
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import StandardScaler
 
@@ -69,6 +74,19 @@ THRESHOLDS = {
     "rmse_pct": 0.10,  # RMSE <= 10% of average yield
     "mape": 0.15,      # MAPE <= 15%
     "r2": 0.75,        # R2 >= 0.75
+}
+
+# Search space for optional hyperparameter tuning (see tune_estimator). Only
+# n_estimators/random_state are set by default in build_estimator; these ranges cover
+# the tree-shape/regularisation knobs left at sklearn defaults otherwise. Kept small and
+# fixed (rather than tuned on the fly) so a thesis defense can point at one reasoned,
+# reproducible space instead of an ad hoc one.
+PARAM_DISTRIBUTIONS = {
+    "rf__n_estimators": [200, 300, 400, 500, 600, 800],
+    "rf__max_depth": [None, 4, 5, 6, 8, 10, 12, 16],
+    "rf__min_samples_leaf": [1, 2, 3, 4, 6, 8],
+    "rf__min_samples_split": [2, 5, 10, 15, 20, 25, 30],
+    "rf__max_features": ["sqrt", "log2", 0.4, 0.5, 0.7, 1.0],
 }
 
 
@@ -161,6 +179,51 @@ def chronological_split(df: pd.DataFrame, test_fraction: float = 0.2):
     return train, test
 
 
+def segmented_time_series_splits(df: pd.DataFrame, n_splits: int = 4, segment_col: str = SEGMENT_COLUMN):
+    """Expanding-window CV folds, computed within each caging period, for hyperparameter
+    tuning only.
+
+    This is the *inner* CV boundary used solely to score candidate hyperparameters on the
+    training partition returned by ``chronological_split`` — it must never see that
+    function's held-out test rows. Like ``chronological_split``, it never validates on a
+    row that precedes a training row within the same segment, and never mixes rows from
+    different segments into one fold, so it cannot leak information across a free-range
+    gap (spec section 10).
+
+    ``df`` must already be sorted by (segment_col, date) with a fresh 0..n-1 index (the
+    ``train`` half of ``chronological_split``'s output already satisfies this). Segments
+    too small to support ``n_splits`` validation folds contribute all of their rows to
+    every fold's training side and are never used for validation, rather than raising.
+
+    Returns a list of (train_idx, val_idx) numpy-array pairs, directly usable as the
+    ``cv`` argument to RandomizedSearchCV/GridSearchCV.
+    """
+    folds = [[] for _ in range(n_splits)]  # each entry: (train_idx_parts, val_idx_parts)
+    for i in range(n_splits):
+        folds[i] = ([], [])
+
+    for _, segment in df.groupby(segment_col, sort=False):
+        segment = segment.sort_values("date")
+        positions = segment.index.to_numpy()
+
+        if len(positions) < n_splits + 1:
+            # Too small to hold out any validation fold: always train, never validate.
+            for train_parts, _val_parts in folds:
+                train_parts.append(positions)
+            continue
+
+        splitter = TimeSeriesSplit(n_splits=n_splits)
+        for fold_i, (train_local, val_local) in enumerate(splitter.split(positions)):
+            folds[fold_i][0].append(positions[train_local])
+            folds[fold_i][1].append(positions[val_local])
+
+    return [
+        (np.concatenate(train_parts), np.concatenate(val_parts))
+        for train_parts, val_parts in folds
+        if val_parts  # drop a fold entirely if no segment was large enough to fill it
+    ]
+
+
 def build_estimator(n_estimators: int = 300, random_state: int = RANDOM_STATE) -> Pipeline:
     """A single sklearn Pipeline: impute -> scale -> Random Forest.
 
@@ -192,6 +255,45 @@ def build_estimator(n_estimators: int = 300, random_state: int = RANDOM_STATE) -
             ),
         ]
     )
+
+
+def tune_estimator(
+    train_df: pd.DataFrame,
+    feats: list[str],
+    target: str,
+    n_splits: int = 4,
+    n_iter: int = 40,
+    random_state: int = RANDOM_STATE,
+) -> tuple[Pipeline, dict]:
+    """Randomized hyperparameter search over PARAM_DISTRIBUTIONS, scored by MAE.
+
+    CV is ``segmented_time_series_splits(train_df, n_splits)`` — an inner split of the
+    *training* partition only. The real 20% test set from ``chronological_split`` is
+    never passed to this function, so hyperparameters are chosen without ever looking at
+    the held-out rows the final acceptance-threshold check runs against.
+
+    A randomized search (rather than an exhaustive grid) is used because
+    PARAM_DISTRIBUTIONS's full grid is several thousand fit combinations once every fold
+    is counted — impractical to exhaust for a routine retrain. ``scoring`` is plain MAE
+    (not the spec's %-of-mean MAE) for simplicity: within one training run the target
+    mean is constant, so ranking candidate hyperparameters by raw MAE and by MAE-%-of-mean
+    gives the same ordering.
+
+    Returns ``(best_estimator, best_params)``. ``best_estimator`` is already refit on the
+    full ``train_df`` by RandomizedSearchCV's default ``refit=True``.
+    """
+    cv = segmented_time_series_splits(train_df, n_splits=n_splits)
+    search = RandomizedSearchCV(
+        build_estimator(random_state=random_state),
+        PARAM_DISTRIBUTIONS,
+        n_iter=n_iter,
+        cv=cv,
+        scoring="neg_mean_absolute_error",
+        random_state=random_state,
+        n_jobs=-1,
+    )
+    search.fit(train_df[feats], train_df[target])
+    return search.best_estimator_, search.best_params_
 
 
 def feature_importances(fitted_pipeline: Pipeline) -> dict[str, float]:

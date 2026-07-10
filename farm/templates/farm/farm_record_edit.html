@@ -18,11 +18,14 @@
             {% endif %}
         </div>
         {% endfor %}
-        <div class="sm:col-span-2 mt-2 flex gap-3">
+        <div class="sm:col-span-2 mt-2 flex flex-wrap items-center gap-3">
             <button type="submit" class="bg-emerald-700 text-white font-semibold rounded-lg px-8 py-2.5 hover:bg-emerald-800">
                 Save Changes
             </button>
             <a href="{% url 'farm_records' %}" class="text-gray-600 font-medium px-4 py-2.5 hover:text-gray-900">Cancel</a>
+            <a href="{% url 'farm_record_delete' daily_log.pk %}" class="ml-auto text-sm font-medium text-red-700 px-4 py-2.5 hover:text-red-800 hover:underline">
+                Delete Record
+            </a>
         </div>
     </form>
 

@@ -35,7 +35,10 @@ class DailyLog(models.Model):
 
     flock = models.ForeignKey(Flock, on_delete=models.PROTECT, related_name="daily_logs")
     date = models.DateField()
-    flock_size = models.PositiveIntegerField(help_text="Total duck count that day (includes males).")
+    flock_size = models.PositiveIntegerField(
+        validators=[MinValueValidator(1), MaxValueValidator(100000)],
+        help_text="Total duck count that day (includes males).",
+    )
     caging_period = models.PositiveIntegerField(
         help_text="Caging-period marker from the historical CSV (itikcare-spec.md section 10). "
         "Used only to segment training data around free-range gaps — never fed to the "

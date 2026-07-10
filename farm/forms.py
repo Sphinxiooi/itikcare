@@ -1,6 +1,6 @@
 from django import forms
 
-from .models import DailyLog
+from .models import DailyLog, Flock
 
 INPUT_CLASSES = (
     "w-full rounded-md border border-gray-300 px-3 py-2 text-sm "
@@ -11,21 +11,18 @@ INPUT_CLASSES = (
 class DailyLogForm(forms.ModelForm):
     """Daily farm data entry form.
 
-    Matches the Figma "Log Today's Farm Data" screen, which does not collect
-    flock_size directly — the view carries it forward from the flock's most recent
-    DailyLog instead, since day-to-day flock size rarely changes and re-typing it
-    every day isn't what the design asks for.
-
-    Exception: a flock's very first-ever entry has no prior DailyLog to carry
-    flock_size forward from, so the view passes ``require_flock_size=True`` in that
-    one case and this form adds the field dynamically. Every later entry omits it.
+    flock_size is pre-filled by the view from the flock's most recent DailyLog (or
+    left blank for a flock's very first-ever entry, which has no prior log to pull
+    from) but is always editable here, so the farmer can adjust it up or down on any
+    entry to reflect ducks lost/dead or ducks added that day.
     """
 
     class Meta:
         model = DailyLog
-        fields = ["date", "egg_count", "feed_intake_kg", "flock_age_weeks", "temperature_c", "humidity_pct"]
+        fields = ["date", "flock_size", "egg_count", "feed_intake_kg", "flock_age_weeks", "temperature_c", "humidity_pct"]
         widgets = {
             "date": forms.DateInput(attrs={"type": "date", "class": INPUT_CLASSES}),
+            "flock_size": forms.NumberInput(attrs={"class": INPUT_CLASSES, "min": "1", "max": "100000"}),
             "egg_count": forms.NumberInput(attrs={"class": INPUT_CLASSES, "min": "0", "max": "1000"}),
             "feed_intake_kg": forms.NumberInput(attrs={"class": INPUT_CLASSES, "step": "0.1", "min": "0", "max": "150"}),
             "flock_age_weeks": forms.NumberInput(attrs={"class": INPUT_CLASSES, "min": "1", "max": "150"}),
@@ -33,23 +30,38 @@ class DailyLogForm(forms.ModelForm):
             "humidity_pct": forms.NumberInput(attrs={"class": INPUT_CLASSES, "step": "0.1", "min": "0", "max": "100"}),
         }
         labels = {
+            "flock_size": "Flock Size (number of ducks)",
             "egg_count": "Today's Egg Count",
             "feed_intake_kg": "Feed Intake (kg)",
             "flock_age_weeks": "Average Flock Age (weeks)",
             "temperature_c": "Temperature (°C)",
             "humidity_pct": "Humidity (%)",
         }
+        help_texts = {
+            "flock_size": "Pre-filled from your last entry — adjust if ducks were lost or added.",
+            "flock_age_weeks": "Pre-filled forward from your last entry based on today's date — adjust if needed.",
+        }
 
-    def __init__(self, *args, require_flock_size=False, **kwargs):
-        super().__init__(*args, **kwargs)
-        if require_flock_size:
-            self.fields["flock_size"] = forms.IntegerField(
-                min_value=1,
-                max_value=100000,
-                label="Flock Size (number of ducks)",
-                help_text="First entry for this flock — later entries carry this forward automatically.",
-                widget=forms.NumberInput(attrs={"class": INPUT_CLASSES, "min": "1"}),
-            )
+
+class FlockForm(forms.ModelForm):
+    """Collects a flock's start date.
+
+    Reused for three lifecycle actions handled in views.flock_profile/flock_retire:
+    correcting the active flock's started_on, starting a farm's very first flock
+    (no active flock exists yet), and starting the new generation when retiring the
+    current one. generation_number and is_active are never farmer-editable directly —
+    the view logic sets those explicitly for each action instead.
+    """
+
+    class Meta:
+        model = Flock
+        fields = ["started_on"]
+        widgets = {
+            "started_on": forms.DateInput(attrs={"type": "date", "class": INPUT_CLASSES}),
+        }
+        labels = {
+            "started_on": "Flock Start Date",
+        }
 
 
 class DailyLogEditForm(forms.ModelForm):

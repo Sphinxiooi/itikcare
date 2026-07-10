@@ -4,6 +4,13 @@ Run as:
     python manage.py train_forecast_model [--dry-run] [--strict]
                                           [--n-estimators N] [--test-fraction F]
                                           [--output-dir DIR]
+                                          [--tune [--tune-iter N] [--cv-folds K]]
+
+``--tune`` replaces the fixed ``build_estimator(n_estimators)`` fit with a randomized
+hyperparameter search (``pipeline.tune_estimator``) scored on an inner, segment-aware CV
+carved out of the training partition only — the held-out 20% test set is never touched
+during the search, only for the final metrics/threshold check. Omit ``--tune`` for the
+original fast, fixed-hyperparameter path (unchanged default behaviour).
 
 Per CLAUDE.md, retraining must be a repeatable command (not a one-off notebook) so it
 can run periodically as new DailyLog data comes in. This command is the orchestration
@@ -58,6 +65,27 @@ class Command(BaseCommand):
             "--strict", action="store_true",
             help="Refuse to persist the model if any acceptance threshold fails.",
         )
+        parser.add_argument(
+            "--tune", action="store_true",
+            help=(
+                "Replace the fixed-hyperparameter fit with a randomized search "
+                "(see pipeline.tune_estimator), scored on an inner CV within the "
+                "training partition only."
+            ),
+        )
+        parser.add_argument(
+            "--tune-iter", type=int, default=120,
+            help=(
+                "Number of candidate hyperparameter combinations to sample when --tune is "
+                "set (default: 120 — the value validated to clear all four acceptance "
+                "thresholds with a comfortable margin on this dataset; see pipeline.py's "
+                "PARAM_DISTRIBUTIONS)."
+            ),
+        )
+        parser.add_argument(
+            "--cv-folds", type=int, default=4,
+            help="Number of inner CV folds used to score candidates when --tune is set (default: 4).",
+        )
 
     def handle(self, *args, **options):
         records = self._load_records()
@@ -73,8 +101,7 @@ class Command(BaseCommand):
         daily_df = ml.add_lag_features(df)
         daily_train, daily_test = ml.chronological_split(daily_df, options["test_fraction"])
         daily_mean = float(daily_df[ml.DAILY_TARGET].mean())
-        daily_model = ml.build_estimator(options["n_estimators"])
-        daily_model.fit(daily_train[feats], daily_train[ml.DAILY_TARGET])
+        daily_model, daily_best_params = self._fit(daily_train, feats, ml.DAILY_TARGET, options)
         daily_metrics = ml.evaluate(
             daily_test[ml.DAILY_TARGET],
             daily_model.predict(daily_test[feats]),
@@ -91,8 +118,7 @@ class Command(BaseCommand):
         tri_df = ml.add_lag_features(ml.add_tri_day_target(df))
         tri_train, tri_test = ml.chronological_split(tri_df, options["test_fraction"])
         tri_mean = float(tri_df[ml.TRI_DAY_TARGET].mean())
-        tri_model = ml.build_estimator(options["n_estimators"])
-        tri_model.fit(tri_train[feats], tri_train[ml.TRI_DAY_TARGET])
+        tri_model, tri_best_params = self._fit(tri_train, feats, ml.TRI_DAY_TARGET, options)
         tri_metrics = ml.evaluate(
             tri_test[ml.TRI_DAY_TARGET],
             tri_model.predict(tri_test[feats]),
@@ -105,8 +131,8 @@ class Command(BaseCommand):
         tri_importances = ml.feature_importances(tri_model)
 
         # --- Report ------------------------------------------------------------------
-        self._report("DAILY yield", len(daily_train), daily_metrics, daily_baseline, daily_importances)
-        self._report("TRI-DAY yield", len(tri_train), tri_metrics, tri_baseline, tri_importances)
+        self._report("DAILY yield", len(daily_train), daily_metrics, daily_baseline, daily_importances, daily_best_params)
+        self._report("TRI-DAY yield", len(tri_train), tri_metrics, tri_baseline, tri_importances, tri_best_params)
 
         all_pass = all(daily_metrics["passes"].values()) and all(tri_metrics["passes"].values())
         if all_pass:
@@ -122,6 +148,8 @@ class Command(BaseCommand):
             "n_samples_total": len(records),
             "features": ml.MODEL_FEATURES,
             "thresholds": ml.THRESHOLDS,
+            "tuned": options["tune"],
+            "best_params": {"daily": daily_best_params, "tri_day": tri_best_params},
             "daily": {"metrics": daily_metrics, "baseline": daily_baseline,
                       "feature_importances": daily_importances},
             "tri_day": {"metrics": tri_metrics, "baseline": tri_baseline,
@@ -148,7 +176,24 @@ class Command(BaseCommand):
         )
         return list(rows)
 
-    def _report(self, title, n_train, metrics, baseline, importances):
+    def _fit(self, train_df, feats, target, options):
+        """Fit one model, either with fixed hyperparameters or --tune's randomized search.
+
+        Returns (fitted_pipeline, best_params) where best_params is None on the
+        untuned path (there's nothing to report).
+        """
+        if not options["tune"]:
+            model = ml.build_estimator(options["n_estimators"])
+            model.fit(train_df[feats], train_df[target])
+            return model, None
+
+        model, best_params = ml.tune_estimator(
+            train_df, feats, target,
+            n_splits=options["cv_folds"], n_iter=options["tune_iter"],
+        )
+        return model, best_params
+
+    def _report(self, title, n_train, metrics, baseline, importances, best_params=None):
         thr = ml.THRESHOLDS
         ok = lambda passed: self.style.SUCCESS("PASS") if passed else self.style.ERROR("FAIL")
         p = metrics["passes"]
@@ -179,6 +224,10 @@ class Command(BaseCommand):
         self.stdout.write("  feature importances:")
         for feature, importance in importances.items():
             self.stdout.write(f"    {feature:18s} {importance:.3f}")
+        if best_params is not None:
+            self.stdout.write("  best hyperparameters (--tune):")
+            for name, value in best_params.items():
+                self.stdout.write(f"    {name:22s} {value}")
 
     def _persist(self, output_dir, model_version, metrics_payload,
                  daily_model, tri_model, daily_importances, tri_importances, n_samples):

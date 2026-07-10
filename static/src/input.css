@@ -8,3 +8,11 @@
 @source "../../forecasting/templates";
 @source "../../recommendations/templates";
 @source "../../dashboard/templates";
+
+/* Hide the native disclosure marker on <details> used for the header profile menu — it's styled manually. */
+summary::-webkit-details-marker {
+    display: none;
+}
+summary {
+    list-style: none;
+}

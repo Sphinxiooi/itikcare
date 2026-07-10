@@ -1,0 +1,47 @@
+{% extends "base.html" %}
+
+{% block title %}Delete Record — ItikCare{% endblock %}
+
+{% block content %}
+<div class="bg-white border border-gray-200 rounded-xl p-6 max-w-3xl">
+    <h1 class="text-2xl font-bold text-gray-900">Delete Record — {{ daily_log.date }}?</h1>
+    <p class="text-sm text-gray-500 mb-6">
+        This permanently removes this daily log and its edit history. This cannot be undone.
+    </p>
+
+    <dl class="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-3 text-sm mb-6 bg-gray-50 border border-gray-100 rounded-lg p-4">
+        <div>
+            <dt class="text-gray-500">Date</dt>
+            <dd class="font-medium text-gray-900">{{ daily_log.date }}</dd>
+        </div>
+        <div>
+            <dt class="text-gray-500">Egg Count</dt>
+            <dd class="font-medium text-gray-900">{{ daily_log.egg_count }}</dd>
+        </div>
+        <div>
+            <dt class="text-gray-500">Feed (kg)</dt>
+            <dd class="font-medium text-gray-900">{{ daily_log.feed_intake_kg }}</dd>
+        </div>
+        <div>
+            <dt class="text-gray-500">Temp / Humidity</dt>
+            <dd class="font-medium text-gray-900">{{ daily_log.temperature_c }}°C / {{ daily_log.humidity_pct }}%</dd>
+        </div>
+        <div>
+            <dt class="text-gray-500">Flock Count</dt>
+            <dd class="font-medium text-gray-900">{{ daily_log.flock_size }}</dd>
+        </div>
+        <div>
+            <dt class="text-gray-500">Avg. Age (wk)</dt>
+            <dd class="font-medium text-gray-900">{{ daily_log.flock_age_weeks }}</dd>
+        </div>
+    </dl>
+
+    <form method="post" class="flex flex-wrap gap-3">
+        {% csrf_token %}
+        <button type="submit" class="bg-red-700 text-white font-semibold rounded-lg px-8 py-2.5 hover:bg-red-800">
+            Delete Record
+        </button>
+        <a href="{% url 'farm_record_edit' daily_log.pk %}" class="text-gray-600 font-medium px-4 py-2.5 hover:text-gray-900">Cancel</a>
+    </form>
+</div>
+{% endblock %}

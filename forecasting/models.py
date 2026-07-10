@@ -26,6 +26,9 @@ class Forecast(models.Model):
 
     class Meta:
         ordering = ["-forecast_date"]
+        constraints = [
+            models.UniqueConstraint(fields=["flock", "forecast_date"], name="unique_forecast_per_flock_date")
+        ]
 
     def __str__(self):
         return f"Forecast for {self.forecast_date} ({self.flock})"

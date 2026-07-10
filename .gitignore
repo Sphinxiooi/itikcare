@@ -17,6 +17,7 @@ tailwindcss.exe
 
 *.joblib
 *.pkl
+*.log
 
 .vscode/
 .idea/
