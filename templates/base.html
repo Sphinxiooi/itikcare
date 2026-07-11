@@ -30,21 +30,26 @@
                     </span>
                 </a>
             </div>
-            <details class="relative" id="profile-menu">
-                <summary class="flex items-center gap-3 cursor-pointer list-none select-none px-2 py-1.5 rounded-full hover:bg-gray-100 transition-colors">
-                    <span class="hidden sm:inline text-sm font-medium text-gray-800">{{ user.get_full_name|default:user.username }}</span>
-                    <span class="flex items-center justify-center w-9 h-9 rounded-full bg-emerald-100 text-emerald-700 text-sm font-semibold">
-                        {{ user.username|first|upper }}
-                    </span>
-                </summary>
-                <div class="absolute right-0 mt-2 w-48 bg-white border border-gray-200 rounded-xl shadow-lg py-1 z-50">
-                    <a href="{% url 'flock_profile' %}" class="flex items-center gap-2 px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 rounded-lg mx-1">
-                        Flock Profile
-                    </a>
-                </div>
-            </details>
+            <a href="{% url 'flock_profile' %}" id="profile-avatar-link" aria-haspopup="dialog" aria-expanded="false" class="flex items-center gap-3 px-2 py-1.5 rounded-full hover:bg-gray-100 transition-colors">
+                <span class="hidden sm:inline text-sm font-medium text-gray-800">{{ user.get_full_name|default:user.username }}</span>
+                <span class="flex items-center justify-center w-9 h-9 rounded-full bg-emerald-100 text-emerald-700 text-sm font-semibold">
+                    {{ user.username|first|upper }}
+                </span>
+            </a>
         </div>
     </header>
+
+    <dialog id="flock-profile-modal" class="fixed top-1/2 left-1/2 m-0 p-0 border-0 rounded-xl bg-transparent w-[90vw] max-w-2xl max-h-[85vh]">
+        <div class="relative max-h-[85vh] overflow-y-auto">
+            <button type="button" id="flock-profile-modal-close" aria-label="Close flock profile"
+                    class="absolute top-3 right-3 flex items-center justify-center w-9 h-9 rounded-full bg-emerald-100 text-emerald-700 text-sm font-semibold shadow-sm hover:bg-emerald-200 transition-colors">
+                {{ user.username|first|upper }}
+            </button>
+            <div id="flock-profile-modal-content" class="p-1">
+                <p class="bg-white border border-gray-200 rounded-xl p-6 text-sm text-gray-500">Loading…</p>
+            </div>
+        </div>
+    </dialog>
 
     <div class="flex max-w-6xl mx-auto">
         <div id="sidebar-backdrop" class="hidden fixed inset-0 top-16 bg-black/40 z-40 md:hidden"></div>
@@ -139,12 +144,88 @@
                 });
             }
 
-            var profileMenu = document.getElementById("profile-menu");
-            if (profileMenu) {
-                document.addEventListener("click", function (event) {
-                    if (profileMenu.open && !profileMenu.contains(event.target)) {
-                        profileMenu.open = false;
+            // Floating Flock Profile modal: progressive enhancement over the avatar
+            // link's normal href. If <dialog> isn't supported, or the fetch fails,
+            // the click falls through to a normal navigation to /flock/. The close
+            // control re-shows the same avatar (initial + circle) the user just
+            // clicked, rather than an X — showModal() makes the header inert while
+            // open, so the real header avatar can't be clicked again to close it.
+            var avatarLink = document.getElementById("profile-avatar-link");
+            var modal = document.getElementById("flock-profile-modal");
+            var modalContent = document.getElementById("flock-profile-modal-content");
+            var modalClose = document.getElementById("flock-profile-modal-close");
+
+            if (avatarLink && modal && modalContent && modalClose && typeof modal.showModal === "function") {
+                var prefersReducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+                function openModal() {
+                    modal.showModal();
+                    avatarLink.setAttribute("aria-expanded", "true");
+                    if (prefersReducedMotion) {
+                        modal.classList.add("is-open");
+                        return;
                     }
+                    // Double rAF: showModal() and the class add must land in separate
+                    // paints, or the browser has nothing to transition *from* and the
+                    // dialog just snaps straight to its open state.
+                    requestAnimationFrame(function () {
+                        requestAnimationFrame(function () {
+                            modal.classList.add("is-open");
+                        });
+                    });
+                }
+
+                function closeModal() {
+                    avatarLink.setAttribute("aria-expanded", "false");
+                    if (prefersReducedMotion) {
+                        modal.classList.remove("is-open");
+                        modal.close();
+                        return;
+                    }
+                    modal.classList.remove("is-open");
+                    modal.addEventListener("transitionend", function onEnd(event) {
+                        if (event.target === modal) {
+                            modal.removeEventListener("transitionend", onEnd);
+                            modal.close();
+                        }
+                    });
+                }
+
+                avatarLink.addEventListener("click", function (event) {
+                    event.preventDefault();
+                    var separator = avatarLink.href.indexOf("?") === -1 ? "?" : "&";
+                    fetch(avatarLink.href + separator + "partial=1", {
+                        headers: { "X-Requested-With": "XMLHttpRequest" },
+                    })
+                        .then(function (response) {
+                            if (!response.ok) {
+                                throw new Error("Flock profile fetch failed");
+                            }
+                            return response.text();
+                        })
+                        .then(function (html) {
+                            modalContent.innerHTML = html;
+                            openModal();
+                        })
+                        .catch(function () {
+                            window.location.href = avatarLink.href;
+                        });
+                });
+
+                modalClose.addEventListener("click", closeModal);
+                // Clicking the backdrop (the dialog element itself, outside its content)
+                // closes it — clicks on the content div are separate elements and don't
+                // bubble up as the dialog's own click target.
+                modal.addEventListener("click", function (event) {
+                    if (event.target === modal) {
+                        closeModal();
+                    }
+                });
+                // Esc fires "cancel" and closes the dialog immediately by default —
+                // intercept it so Esc fades out the same way the other close paths do.
+                modal.addEventListener("cancel", function (event) {
+                    event.preventDefault();
+                    closeModal();
                 });
             }
         })();

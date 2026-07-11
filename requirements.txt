@@ -1,6 +1,7 @@
 Django==5.2.16
 mysqlclient>=2.2.8
 python-dotenv>=1.0
+requests>=2.31
 scikit-learn
 pandas
 numpy

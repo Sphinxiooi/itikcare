@@ -30,23 +30,28 @@ def forecast_recommendations(request):
     """
 
     active_flock = Flock.objects.filter(is_active=True).order_by("-generation_number").first()
+    # While the flock is free-range in the field (is_caged=False), no forecast/trend
+    # data is fetched — see dashboard.views.index for the same gating and reasoning.
+    flock_is_caged = bool(active_flock and active_flock.is_caged)
+
     # "Latest" means the soonest still-actionable forecast, not the furthest-out one
     # — see dashboard.views.index for the same convention and reasoning.
     latest_forecast = (
         Forecast.objects.filter(flock=active_flock, forecast_date__gte=date.today())
         .order_by("forecast_date")
         .first()
-        if active_flock
+        if flock_is_caged
         else None
     )
     upcoming_forecasts = (
-        Forecast.objects.filter(flock=active_flock).order_by("forecast_date")[:3]
-        if active_flock
+        Forecast.objects.filter(flock=active_flock, forecast_date__gte=date.today())
+        .order_by("forecast_date")[:3]
+        if flock_is_caged
         else []
     )
     recent_logs = (
         list(DailyLog.objects.filter(flock=active_flock).order_by("-date")[:10])
-        if active_flock
+        if flock_is_caged
         else []
     )
     trend_labels = [f"{log.date.strftime('%b')} {log.date.day}" for log in reversed(recent_logs)]
@@ -75,6 +80,7 @@ def forecast_recommendations(request):
     context = {
         "active_nav": "forecast",
         "active_flock": active_flock,
+        "flock_is_caged": flock_is_caged,
         "latest_forecast": latest_forecast,
         "upcoming_forecasts": upcoming_forecasts,
         "feature_importances": feature_importances,

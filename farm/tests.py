@@ -5,16 +5,19 @@ including the edge cases CLAUDE.md's testing workflow calls out: no active flock
 first-ever entry with no historical data, and out-of-range manual input values.
 """
 
-from datetime import date
+from datetime import date, timedelta
 from unittest.mock import patch
 
+import requests
 from django.contrib.auth import get_user_model
-from django.test import Client, TestCase
+from django.test import Client, TestCase, override_settings
+from django.utils import timezone
 
 from forecasting.models import Forecast
 from recommendations.models import Recommendation
 
 from .models import DailyLog, DailyLogEdit, Flock
+from .weather import fetch_current_weather
 
 User = get_user_model()
 
@@ -29,6 +32,7 @@ VALID_LOG_POST = {
 }
 
 
+@override_settings(FARM_LATITUDE=None, FARM_LONGITUDE=None)
 class LogDailyDataTests(TestCase):
     def setUp(self):
         self.user = User.objects.create_user(username="farmer1", password="pw12345")
@@ -44,6 +48,19 @@ class LogDailyDataTests(TestCase):
     def test_no_active_flock_post_does_not_create_log(self):
         response = self.client.post("/log-daily-data/", VALID_LOG_POST, follow=True)
         self.assertRedirects(response, "/")
+        self.assertEqual(DailyLog.objects.count(), 0)
+
+    def test_free_range_flock_redirects_to_flock_profile_with_error(self):
+        Flock.objects.create(generation_number=1, started_on=date(2024, 1, 1), is_caged=False)
+        response = self.client.get("/log-daily-data/", follow=True)
+        self.assertRedirects(response, "/flock/")
+        messages = list(response.context["messages"])
+        self.assertTrue(any("free-range" in str(m) for m in messages))
+
+    def test_free_range_flock_post_does_not_create_log(self):
+        Flock.objects.create(generation_number=1, started_on=date(2024, 1, 1), is_caged=False)
+        response = self.client.post("/log-daily-data/", VALID_LOG_POST, follow=True)
+        self.assertRedirects(response, "/flock/")
         self.assertEqual(DailyLog.objects.count(), 0)
 
     @patch("farm.views.trigger_retrain")
@@ -77,6 +94,38 @@ class LogDailyDataTests(TestCase):
         )
         response = self.client.get("/log-daily-data/")
         self.assertEqual(response.context["form"].initial["flock_size"], 240)
+
+    @patch("farm.views.fetch_current_weather", return_value={"temperature_c": 30.5, "humidity_pct": 82.0})
+    def test_get_prefills_temperature_and_humidity_when_weather_fetch_succeeds(self, mock_fetch):
+        Flock.objects.create(generation_number=1, started_on=date(2024, 1, 1))
+        response = self.client.get("/log-daily-data/")
+        form = response.context["form"]
+        self.assertEqual(form.initial["temperature_c"], 30.5)
+        self.assertEqual(form.initial["humidity_pct"], 82.0)
+        self.assertIn("weather", form.fields["temperature_c"].help_text)
+        self.assertIn("weather", form.fields["humidity_pct"].help_text)
+
+    @patch("farm.views.fetch_current_weather", return_value=None)
+    def test_get_leaves_temperature_and_humidity_blank_when_weather_fetch_fails(self, mock_fetch):
+        Flock.objects.create(generation_number=1, started_on=date(2024, 1, 1))
+        response = self.client.get("/log-daily-data/")
+        self.assertEqual(response.status_code, 200)
+        form = response.context["form"]
+        self.assertNotIn("temperature_c", form.initial)
+        self.assertNotIn("humidity_pct", form.initial)
+        # help_text falls back to DailyLog's model-level default (unrelated to weather)
+        # rather than being overwritten -- that only happens when the fetch succeeds.
+        self.assertNotIn("weather", form.fields["temperature_c"].help_text.lower())
+        self.assertNotIn("weather", form.fields["humidity_pct"].help_text.lower())
+
+    @patch("farm.views.fetch_current_weather")
+    def test_post_never_calls_weather_fetch(self, mock_fetch):
+        Flock.objects.create(generation_number=1, started_on=date(2024, 1, 1))
+        self.client.post("/log-daily-data/", VALID_LOG_POST)
+        mock_fetch.assert_not_called()
+        log = DailyLog.objects.get(date=date(2024, 1, 1))
+        self.assertEqual(str(log.temperature_c), "28.0")
+        self.assertEqual(str(log.humidity_pct), "75.0")
 
     @patch("farm.views.date")
     def test_get_prefills_flock_age_advanced_by_calendar_weeks_since_last_log(self, mock_date):
@@ -237,10 +286,44 @@ class FarmRecordsTests(TestCase):
             flock_age_weeks=25, egg_count=150, feed_intake_kg="40.0",
             temperature_c="28.0", humidity_pct="75.0", recorded_by=self.user,
         )
-        response = self.client.get("/farm-records/")
+        response = self.client.get("/farm-records/", {"range": "all"})
         logs = list(response.context["logs"])
         self.assertEqual(len(logs), 1)
         self.assertEqual(logs[0].flock, new_flock)
+
+    def test_default_range_shows_only_last_30_days(self):
+        today = timezone.localdate()
+        flock = Flock.objects.create(generation_number=1, started_on=date(2024, 1, 1), is_active=True)
+        DailyLog.objects.create(
+            flock=flock, date=today - timedelta(days=10), flock_size=200, caging_period=1,
+            flock_age_weeks=50, egg_count=140, feed_intake_kg="35.0",
+            temperature_c="27.0", humidity_pct="70.0", recorded_by=self.user,
+        )
+        DailyLog.objects.create(
+            flock=flock, date=today - timedelta(days=45), flock_size=200, caging_period=1,
+            flock_age_weeks=48, egg_count=130, feed_intake_kg="34.0",
+            temperature_c="27.0", humidity_pct="70.0", recorded_by=self.user,
+        )
+        response = self.client.get("/farm-records/")
+        logs = list(response.context["logs"])
+        self.assertEqual(len(logs), 1)
+        self.assertEqual(response.context["selected_range"], "30")
+
+    def test_range_filter_widens_results(self):
+        today = timezone.localdate()
+        flock = Flock.objects.create(generation_number=1, started_on=date(2024, 1, 1), is_active=True)
+        DailyLog.objects.create(
+            flock=flock, date=today - timedelta(days=45), flock_size=200, caging_period=1,
+            flock_age_weeks=48, egg_count=130, feed_intake_kg="34.0",
+            temperature_c="27.0", humidity_pct="70.0", recorded_by=self.user,
+        )
+        response = self.client.get("/farm-records/", {"range": "90"})
+        logs = list(response.context["logs"])
+        self.assertEqual(len(logs), 1)
+
+    def test_invalid_range_falls_back_to_default(self):
+        response = self.client.get("/farm-records/", {"range": "bogus"})
+        self.assertEqual(response.context["selected_range"], "30")
 
 
 class FarmRecordEditTests(TestCase):
@@ -358,6 +441,7 @@ class FarmRecordDeleteTests(TestCase):
         self.assertTrue(Forecast.objects.filter(pk=later_forecast.pk).exists())
 
 
+@override_settings(FARM_LATITUDE=None, FARM_LONGITUDE=None)
 class FlockProfileTests(TestCase):
     def setUp(self):
         self.user = User.objects.create_user(username="farmer1", password="pw12345")
@@ -422,3 +506,161 @@ class FlockProfileTests(TestCase):
         response = self.client.post("/log-daily-data/", {**post_data, "date": "2024-06-01"})
         self.assertFalse(DailyLog.objects.filter(date=date(2024, 6, 1)).exists())
         self.assertIn("flock_size", response.context["form"].errors)
+
+    @patch("farm.views.trigger_retrain")
+    def test_new_generations_first_entry_continues_the_global_caging_period(self, mock_trigger_retrain):
+        """A retired flock's first live entry must NOT restart caging_period at 1.
+
+        caging_period is a globally unique segment marker (forecasting/pipeline.py
+        groups training data by caging_period alone, with no notion of `flock`), so
+        colliding with an earlier flock's period would silently merge two different
+        generations' rows into one training segment across the generation-reset gap
+        (itikcare-spec.md section 10).
+        """
+        old_flock = Flock.objects.create(generation_number=1, started_on=date(2024, 1, 1))
+        DailyLog.objects.create(
+            flock=old_flock, date=date(2024, 1, 1), flock_size=240, caging_period=3,
+            flock_age_weeks=25, egg_count=150, feed_intake_kg="40.0",
+            temperature_c="28.0", humidity_pct="75.0", recorded_by=self.user,
+        )
+        self.client.post("/flock/retire/", {"started_on": "2024-06-01"})
+
+        response = self.client.post("/log-daily-data/", {**VALID_LOG_POST, "date": "2024-06-01"})
+        self.assertRedirects(response, "/")
+        new_log = DailyLog.objects.get(date=date(2024, 6, 1))
+        self.assertEqual(new_log.caging_period, 4)
+
+    def test_toggle_caging_status_flips_a_caged_flock_to_free_range(self):
+        flock = Flock.objects.create(generation_number=1, started_on=date(2024, 1, 1))
+        self.assertTrue(flock.is_caged)
+
+        response = self.client.post("/flock/toggle-caging/")
+        self.assertRedirects(response, "/flock/")
+        flock.refresh_from_db()
+        self.assertFalse(flock.is_caged)
+
+    def test_toggle_caging_status_flips_a_free_range_flock_back_to_caged(self):
+        flock = Flock.objects.create(generation_number=1, started_on=date(2024, 1, 1), is_caged=False)
+
+        self.client.post("/flock/toggle-caging/")
+        flock.refresh_from_db()
+        self.assertTrue(flock.is_caged)
+
+    def test_toggle_caging_status_with_no_active_flock_shows_error(self):
+        response = self.client.post("/flock/toggle-caging/", follow=True)
+        self.assertRedirects(response, "/flock/")
+        messages = list(response.context["messages"])
+        self.assertTrue(any("No active flock" in str(m) for m in messages))
+
+    def test_toggle_caging_status_rejects_get(self):
+        Flock.objects.create(generation_number=1, started_on=date(2024, 1, 1))
+        response = self.client.get("/flock/toggle-caging/")
+        self.assertEqual(response.status_code, 405)
+
+    def test_profile_shows_flock_number_label_not_generation(self):
+        Flock.objects.create(generation_number=2, started_on=date(2024, 1, 1))
+        response = self.client.get("/flock/")
+        self.assertContains(response, "Flock #2")
+        self.assertNotContains(response, "Generation")
+
+    def test_resume_caging_marks_flock_caged_and_stages_confirmed_count(self):
+        flock = Flock.objects.create(generation_number=1, started_on=date(2024, 1, 1), is_caged=False)
+        response = self.client.post("/flock/resume-caging/", {"flock_size": 210}, follow=True)
+        self.assertRedirects(response, "/flock/")
+        flock.refresh_from_db()
+        self.assertTrue(flock.is_caged)
+        self.assertEqual(flock.pending_flock_size, 210)
+        messages = list(response.context["messages"])
+        self.assertTrue(any("210 ducks" in str(m) for m in messages))
+
+    def test_resume_caging_with_no_active_flock_shows_error(self):
+        response = self.client.post("/flock/resume-caging/", {"flock_size": 210}, follow=True)
+        self.assertRedirects(response, "/flock/")
+        messages = list(response.context["messages"])
+        self.assertTrue(any("No free-range flock" in str(m) for m in messages))
+
+    def test_resume_caging_on_an_already_caged_flock_makes_no_changes(self):
+        flock = Flock.objects.create(generation_number=1, started_on=date(2024, 1, 1))
+        self.assertTrue(flock.is_caged)
+        response = self.client.post("/flock/resume-caging/", {"flock_size": 210}, follow=True)
+        self.assertRedirects(response, "/flock/")
+        flock.refresh_from_db()
+        self.assertIsNone(flock.pending_flock_size)
+
+    def test_resume_caging_rejects_invalid_flock_size(self):
+        flock = Flock.objects.create(generation_number=1, started_on=date(2024, 1, 1), is_caged=False)
+        response = self.client.post("/flock/resume-caging/", {"flock_size": 0}, follow=True)
+        flock.refresh_from_db()
+        self.assertFalse(flock.is_caged)
+        self.assertIsNone(flock.pending_flock_size)
+        messages = list(response.context["messages"])
+        self.assertTrue(messages)
+
+    def test_resume_caging_rejects_get(self):
+        Flock.objects.create(generation_number=1, started_on=date(2024, 1, 1), is_caged=False)
+        response = self.client.get("/flock/resume-caging/")
+        self.assertEqual(response.status_code, 405)
+
+
+@override_settings(FARM_LATITUDE=None, FARM_LONGITUDE=None)
+class ResumeCagingPrefillTests(TestCase):
+    """Covers log_daily_data's flock_size prefill/clear interaction with
+    Flock.pending_flock_size, set by the resume_caging view."""
+
+    def setUp(self):
+        self.user = User.objects.create_user(username="farmer1", password="pw12345")
+        self.client = Client()
+        self.client.login(username="farmer1", password="pw12345")
+
+    def test_get_prefills_flock_size_from_pending_override_instead_of_previous_log(self):
+        flock = Flock.objects.create(generation_number=1, started_on=date(2024, 1, 1), pending_flock_size=210)
+        DailyLog.objects.create(
+            flock=flock, date=date(2024, 1, 1), flock_size=240, caging_period=1,
+            flock_age_weeks=25, egg_count=150, feed_intake_kg="40.0",
+            temperature_c="28.0", humidity_pct="75.0", recorded_by=self.user,
+        )
+        response = self.client.get("/log-daily-data/")
+        self.assertEqual(response.context["form"].initial["flock_size"], 210)
+
+    def test_get_prefills_flock_size_from_pending_override_on_a_first_ever_entry(self):
+        Flock.objects.create(generation_number=1, started_on=date(2024, 1, 1), pending_flock_size=210)
+        response = self.client.get("/log-daily-data/")
+        self.assertEqual(response.context["form"].initial["flock_size"], 210)
+
+    def test_saving_a_log_clears_the_pending_override(self):
+        flock = Flock.objects.create(generation_number=1, started_on=date(2024, 1, 1), pending_flock_size=210)
+        self.client.post("/log-daily-data/", {**VALID_LOG_POST, "flock_size": 210})
+        flock.refresh_from_db()
+        self.assertIsNone(flock.pending_flock_size)
+
+
+@override_settings(FARM_LATITUDE=14.1, FARM_LONGITUDE=122.9)
+class WeatherFetchTests(TestCase):
+    """Covers farm.weather.fetch_current_weather in isolation (no view/DB involvement)."""
+
+    @patch("farm.weather.requests.get")
+    def test_successful_fetch_returns_rounded_temperature_and_humidity(self, mock_get):
+        mock_get.return_value.json.return_value = {
+            "current": {"temperature_2m": 29.34, "relative_humidity_2m": 81.6}
+        }
+        result = fetch_current_weather()
+        self.assertEqual(result, {"temperature_c": 29.3, "humidity_pct": 81.6})
+
+    @override_settings(FARM_LATITUDE=None, FARM_LONGITUDE=None)
+    @patch("farm.weather.requests.get")
+    def test_missing_coordinates_returns_none_without_calling_the_api(self, mock_get):
+        self.assertIsNone(fetch_current_weather())
+        mock_get.assert_not_called()
+
+    @patch("farm.weather.requests.get", side_effect=requests.exceptions.Timeout)
+    def test_timeout_returns_none(self, mock_get):
+        self.assertIsNone(fetch_current_weather())
+
+    @patch("farm.weather.requests.get", side_effect=requests.exceptions.ConnectionError)
+    def test_connection_error_returns_none(self, mock_get):
+        self.assertIsNone(fetch_current_weather())
+
+    @patch("farm.weather.requests.get")
+    def test_malformed_response_returns_none(self, mock_get):
+        mock_get.return_value.json.return_value = {}
+        self.assertIsNone(fetch_current_weather())

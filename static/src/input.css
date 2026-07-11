@@ -9,10 +9,52 @@
 @source "../../recommendations/templates";
 @source "../../dashboard/templates";
 
-/* Hide the native disclosure marker on <details> used for the header profile menu — it's styled manually. */
-summary::-webkit-details-marker {
-    display: none;
+/* Flock Profile modal (base.html): fades/scales/rises in on open, reverses on close.
+   Centering uses `top-1/2 left-1/2` (base.html) plus `translate(-50%, -50%)` here
+   rather than the `inset-0 m-auto` trick — that trick only centers an axis whose
+   size is explicit, and this dialog's height is auto (content-driven), so auto
+   margins on top/bottom would resolve to 0 and pin it to the top of the viewport.
+   On md+ screens the sidebar (base.html, `w-64` = 16rem) is permanently docked and
+   eats the left 16rem of the viewport, so centering on the raw viewport reads as
+   shifted left relative to the visible content area — the `left` override below
+   re-centers within the space actually visible beside the sidebar. Below md the
+   sidebar is an off-canvas drawer (hidden by default), so plain 50% centering is
+   correct there. The .is-open toggle is applied by JS one frame after showModal(),
+   and removed before dialog.close(), so there are two distinct painted states for
+   the transition to animate between. */
+#flock-profile-modal {
+    opacity: 0;
+    transform: translate(-50%, calc(-50% + 0.75rem)) scale(0.96);
+    transition: opacity 240ms cubic-bezier(0.16, 1, 0.3, 1), transform 240ms cubic-bezier(0.16, 1, 0.3, 1);
 }
-summary {
-    list-style: none;
+#flock-profile-modal.is-open {
+    opacity: 1;
+    transform: translate(-50%, -50%) scale(1);
+}
+@media (min-width: 768px) {
+    #flock-profile-modal {
+        left: calc(50% + 8rem);
+    }
+}
+#flock-profile-modal::backdrop {
+    background-color: rgb(15 23 42 / 0);
+    backdrop-filter: blur(0);
+    transition: background-color 240ms ease-out, backdrop-filter 240ms ease-out;
+}
+#flock-profile-modal.is-open::backdrop {
+    background-color: rgb(15 23 42 / 0.45);
+    backdrop-filter: blur(2px);
+}
+/* Shadow lives on the card itself (the dialog element is transparent) so it applies
+   whether the content is still the "Loading…" placeholder or the fetched partial —
+   both render their own bg-white rounded-xl card as the first child. */
+#flock-profile-modal-content > :first-child {
+    box-shadow: 0 24px 48px -12px rgb(0 0 0 / 0.25), 0 4px 12px -4px rgb(0 0 0 / 0.1);
+}
+
+@media (prefers-reduced-motion: reduce) {
+    #flock-profile-modal,
+    #flock-profile-modal::backdrop {
+        transition: none;
+    }
 }

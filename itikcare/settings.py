@@ -32,6 +32,13 @@ DEBUG = os.environ.get('DJANGO_DEBUG', 'False') == 'True'
 
 ALLOWED_HOSTS = os.environ.get('DJANGO_ALLOWED_HOSTS', '').split(',')
 
+# Farm's fixed GPS coordinates -- used only to prefill temperature_c/humidity_pct
+# suggestions on the daily log form from a live weather API (farm/weather.py). Optional
+# (.get() with no default, unlike the required DB_* vars above): an environment without
+# these configured simply disables the prefill rather than failing to start.
+FARM_LATITUDE = os.environ.get('FARM_LATITUDE')
+FARM_LONGITUDE = os.environ.get('FARM_LONGITUDE')
+
 
 # Application definition
 

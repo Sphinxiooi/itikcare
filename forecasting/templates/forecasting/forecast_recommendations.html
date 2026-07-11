@@ -11,6 +11,15 @@
     <h1 class="text-2xl font-bold text-gray-900">Forecast & Recommendations</h1>
     <p class="text-sm text-gray-500 mb-4">Forecast future egg yield and receive preventive measures</p>
 
+    {% if active_flock and not flock_is_caged %}
+    <div class="bg-amber-50 border border-amber-200 text-amber-800 text-sm rounded-md p-4 mb-4">
+        🌾 This flock is currently <strong>free-range in the field</strong>. Forecasts and recommendations are
+        paused until it's caged again.
+        <a href="{% url 'flock_profile' %}" class="underline font-medium">Mark it as caged from Flock Profile</a>
+        once logging resumes.
+    </div>
+    {% endif %}
+
     <div class="flex gap-8 border-b border-gray-200">
         <button type="button" onclick="itikcareShowTab('forecast')" id="tab-btn-forecast"
                 class="pb-3 font-bold text-emerald-700 border-b-2 border-emerald-700">Forecast</button>

@@ -64,6 +64,24 @@ class FlockForm(forms.ModelForm):
         }
 
 
+class FlockResumeCagingForm(forms.Form):
+    """Confirms the current duck count when resuming caging after a free-range period.
+
+    A plain Form (not a ModelForm bound to Flock.pending_flock_size) so the field is
+    always required here, regardless of that model field's null=True/blank=True (which
+    only reflects that it's empty the rest of the time, not that it's optional at the
+    moment of resuming).
+    """
+
+    flock_size = forms.IntegerField(
+        label="Current Flock Size (ducks)",
+        help_text="Adjust if ducks were added or lost while free-range.",
+        min_value=1,
+        max_value=100000,
+        widget=forms.NumberInput(attrs={"class": INPUT_CLASSES, "min": "1", "max": "100000"}),
+    )
+
+
 class DailyLogEditForm(forms.ModelForm):
     """Edit form for an existing DailyLog.
 

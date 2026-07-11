@@ -9,4 +9,6 @@ urlpatterns = [
     path("farm-records/<int:pk>/delete/", views.farm_record_delete, name="farm_record_delete"),
     path("flock/", views.flock_profile, name="flock_profile"),
     path("flock/retire/", views.flock_retire, name="flock_retire"),
+    path("flock/toggle-caging/", views.toggle_caging_status, name="toggle_caging_status"),
+    path("flock/resume-caging/", views.resume_caging, name="resume_caging"),
 ]

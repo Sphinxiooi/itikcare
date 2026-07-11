@@ -4,9 +4,9 @@
 
 {% block content %}
 <div class="bg-white border border-gray-200 rounded-xl p-6 max-w-3xl">
-    <h1 class="text-2xl font-bold text-gray-900">Retire Generation {{ active_flock.generation_number }}?</h1>
+    <h1 class="text-2xl font-bold text-gray-900">Retire Flock #{{ active_flock.generation_number }}?</h1>
     <p class="text-sm text-gray-500 mb-6">
-        This marks the current flock as retired and starts Generation {{ active_flock.generation_number|add:1 }}.
+        This marks the current flock as retired and starts Flock #{{ active_flock.generation_number|add:1 }}.
         Your next daily log entry will ask for the new flock's size, same as a first-ever entry.
     </p>
 
@@ -14,7 +14,7 @@
         {% csrf_token %}
         {% for field in form %}
         <div>
-            <label for="{{ field.id_for_label }}" class="block text-sm font-medium text-gray-700 mb-1">{{ field.label }} for Generation {{ active_flock.generation_number|add:1 }}</label>
+            <label for="{{ field.id_for_label }}" class="block text-sm font-medium text-gray-700 mb-1">{{ field.label }} for Flock #{{ active_flock.generation_number|add:1 }}</label>
             {{ field }}
             {% if field.errors %}
             <p class="text-sm text-red-600 mt-1">{{ field.errors.0 }}</p>

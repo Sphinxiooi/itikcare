@@ -17,6 +17,16 @@ class Flock(models.Model):
     generation_number = models.PositiveIntegerField(unique=True)
     started_on = models.DateField()
     is_active = models.BooleanField(default=True)
+    is_caged = models.BooleanField(
+        default=True,
+        help_text="False while ducks are free-range in the field; daily logging and forecasts pause until it's caged again.",
+    )
+    pending_flock_size = models.PositiveIntegerField(
+        null=True,
+        blank=True,
+        help_text="Duck count confirmed when resuming caging after a free-range period; "
+        "consumed as the next DailyLog's flock_size prefill, then cleared.",
+    )
 
     class Meta:
         ordering = ["generation_number"]
