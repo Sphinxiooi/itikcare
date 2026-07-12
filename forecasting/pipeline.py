@@ -59,11 +59,20 @@ MODEL_FEATURES = FEATURES + LAG_FEATURES
 DAILY_TARGET = "egg_count"
 TRI_DAY_TARGET = "tri_day_yield"
 
-# Column that marks a contiguous caged stretch. Used only to segment the data; never a
-# model feature. In the historical data these values are globally unique per stretch
-# (gen 1 -> periods 1-2, gen 2 -> periods 3-5), but we also sort by date within each
-# segment so the logic is robust regardless.
-SEGMENT_COLUMN = "caging_period"
+# Raw caging-period marker from the DB/CSV. Unique only *within one flock's own
+# lineage* (a farmer's caging periods keep counting up across their own flock
+# retirements — see farm/views.py's log_daily_data) — NOT unique across different
+# farms/owners. Never a model feature.
+CAGING_PERIOD_COLUMN = "caging_period"
+
+# Derived column actually used to segment training data: "<flock_id>:<caging_period>".
+# Now that a training run can pool DailyLogs from more than one flock/farm (the
+# foundation farmer's history + another farmer's own data — see train_forecast_model's
+# --owner-id), two unrelated flocks could otherwise share the same raw caging_period
+# number and get silently merged into one lag/rolling/split segment. Prefixing with
+# flock_id makes every segment key globally collision-proof while leaving every
+# groupby(SEGMENT_COLUMN) below unchanged. Built by build_feature_frame.
+SEGMENT_COLUMN = "segment_key"
 
 RANDOM_STATE = 42
 
@@ -93,15 +102,23 @@ PARAM_DISTRIBUTIONS = {
 def build_feature_frame(records: list[dict]) -> pd.DataFrame:
     """Build the working DataFrame from a list of DailyLog-shaped dicts.
 
-    Each dict must contain ``date``, ``caging_period``, the five FEATURES, and
-    ``egg_count``. Decimal fields (feed/temperature/humidity) are coerced to float so
-    scikit-learn sees numeric dtypes. Kept separate from the ORM so tests can pass plain
-    dicts.
+    Each dict must contain ``date``, ``flock_id``, ``caging_period``, the five
+    FEATURES, and ``egg_count``. Decimal fields (feed/temperature/humidity) are coerced
+    to float so scikit-learn sees numeric dtypes. Kept separate from the ORM so tests
+    can pass plain dicts.
+
+    Also derives ``segment_key`` (``"<flock_id>:<caging_period>"``) here, once, so every
+    downstream function that groups by SEGMENT_COLUMN automatically gets a key that
+    can't collide across two different flocks/farms sharing the same raw caging_period
+    number (see the SEGMENT_COLUMN comment above).
     """
     df = pd.DataFrame.from_records(records)
     df["date"] = pd.to_datetime(df["date"])
     numeric = FEATURES + [DAILY_TARGET]
     df[numeric] = df[numeric].apply(pd.to_numeric, errors="coerce")
+    df[SEGMENT_COLUMN] = (
+        df["flock_id"].astype(str) + ":" + df[CAGING_PERIOD_COLUMN].astype(str)
+    )
     return df.sort_values([SEGMENT_COLUMN, "date"]).reset_index(drop=True)
 
 

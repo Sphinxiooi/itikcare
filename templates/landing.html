@@ -1,0 +1,262 @@
+{% load static %}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ItikCare — Egg Yield Forecasting</title>
+    <link rel="stylesheet" href="{% static 'dist/output.css' %}">
+    <style>
+        html { scroll-behavior: smooth; }
+
+        /* Grid-rows trick animates height without measuring scrollHeight in JS. */
+        .collapsible {
+            display: grid;
+            grid-template-rows: 0fr;
+            transition: grid-template-rows 300ms ease;
+        }
+        .collapsible.is-open {
+            grid-template-rows: 1fr;
+        }
+        .collapsible__inner {
+            overflow: hidden;
+        }
+        #learn-more-toggle[aria-expanded="true"] #learn-more-arrow {
+            transform: rotate(90deg);
+        }
+
+        @media (prefers-reduced-motion: reduce) {
+            html { scroll-behavior: auto; }
+            .collapsible { transition: none; }
+        }
+    </style>
+</head>
+<body class="bg-white text-gray-900">
+
+    <header class="sticky top-0 z-10 bg-white border-b border-gray-200">
+        <div class="max-w-6xl mx-auto flex items-center justify-between px-6 py-4">
+            <div class="flex items-center gap-3">
+                <span class="flex items-center justify-center w-10 h-10 rounded-lg bg-emerald-700 text-lg">🦆</span>
+                <span class="leading-tight">
+                    <span class="block text-xl font-bold text-emerald-700">ItikCare</span>
+                    <span class="block text-xs font-semibold text-emerald-700 -mt-1">Egg Yield Forecasting</span>
+                </span>
+            </div>
+            <a href="{% url 'login' %}"
+               class="inline-flex items-center gap-2 bg-emerald-700 text-white font-semibold text-sm rounded-lg px-4 py-2 hover:bg-emerald-800 transition-colors duration-200">
+                Login <span aria-hidden="true">→</span>
+            </a>
+        </div>
+    </header>
+
+    <main>
+        <!-- Hero -->
+        <section class="bg-emerald-50">
+            <div class="max-w-6xl mx-auto px-6 py-16 grid grid-cols-1 lg:grid-cols-2 gap-12 items-center">
+                <div>
+                    <h1 class="text-4xl sm:text-5xl font-extrabold leading-tight text-gray-900">
+                        Predict Your Egg Yield with
+                        <span class="text-emerald-700">Machine Learning</span>
+                    </h1>
+                    <p class="mt-6 text-gray-600 text-lg">
+                        ItikCare uses Random Forest Regression to forecast duck egg production
+                        and provide you with actionable recommendations.
+                    </p>
+                    <p class="mt-4 font-semibold text-gray-900">
+                        Make smarter decisions for your itik farm with ItikCare!
+                    </p>
+
+                    <div class="mt-8 flex flex-wrap gap-8">
+                        <div>
+                            <p class="text-3xl font-extrabold text-emerald-700">94%</p>
+                            <p class="text-sm text-gray-500">Accuracy</p>
+                        </div>
+                        <div>
+                            <p class="text-3xl font-extrabold text-emerald-700">3 Days</p>
+                            <p class="text-sm text-gray-500">Free Forecast</p>
+                        </div>
+                        <div>
+                            <p class="text-3xl font-extrabold text-emerald-700">Useful</p>
+                            <p class="text-sm text-gray-500">Recommendations</p>
+                        </div>
+                    </div>
+
+                    <a href="{% url 'signup' %}"
+                       class="mt-10 block w-full text-center bg-emerald-700 text-white font-semibold rounded-2xl px-8 py-4 hover:bg-emerald-800 transition-colors duration-200">
+                        Get Started
+                    </a>
+                </div>
+
+                <img src="{% static 'images/hero-ducks.jpg' %}"
+                     alt="A flock of ducks foraging on grass"
+                     class="w-full aspect-[4/3] object-cover rounded-2xl shadow-lg">
+            </div>
+        </section>
+
+        <!-- Features + How it works -->
+        <section id="features" class="bg-emerald-50">
+            <div class="max-w-6xl mx-auto px-6 py-16">
+                <div class="text-center max-w-2xl mx-auto mb-12">
+                    <h2 class="text-3xl font-extrabold text-gray-900">Transform Your Itik Farm with ItikCare</h2>
+                    <p class="mt-3 text-gray-600">
+                        ItikCare helps itik farmers make better decisions using its key features.
+                        Transform from manual to smart farming with ItikCare.
+                    </p>
+                </div>
+
+                <div class="grid grid-cols-1 lg:grid-cols-2 gap-8 items-start">
+                    <div>
+                        <h3 class="text-xl font-bold text-gray-900">Powerful Features of ItikCare</h3>
+                        <p class="mt-2 text-gray-600">
+                            Everything you need to optimize your itik farm production and profitability.
+                        </p>
+                        <ul class="mt-6 space-y-3">
+                            <li class="flex items-center gap-3 text-gray-800">
+                                <span class="flex items-center justify-center w-5 h-5 rounded-full bg-emerald-600 text-white text-xs" aria-hidden="true">✓</span>
+                                AI-Powered Forecasting
+                            </li>
+                            <li class="flex items-center gap-3 text-gray-800">
+                                <span class="flex items-center justify-center w-5 h-5 rounded-full bg-emerald-600 text-white text-xs" aria-hidden="true">✓</span>
+                                Decision Support System
+                            </li>
+                            <li class="flex items-center gap-3 text-gray-800">
+                                <span class="flex items-center justify-center w-5 h-5 rounded-full bg-emerald-600 text-white text-xs" aria-hidden="true">✓</span>
+                                Easy Data Logging
+                            </li>
+                            <li class="flex items-center gap-3 text-gray-800">
+                                <span class="flex items-center justify-center w-5 h-5 rounded-full bg-emerald-600 text-white text-xs" aria-hidden="true">✓</span>
+                                Historical Data Analysis
+                            </li>
+                            <li class="flex items-center gap-3 text-gray-800">
+                                <span class="flex items-center justify-center w-5 h-5 rounded-full bg-emerald-600 text-white text-xs" aria-hidden="true">✓</span>
+                                Continuous Learning
+                            </li>
+                        </ul>
+
+                        <div id="system-description" class="collapsible mt-2">
+                            <div class="collapsible__inner">
+                                <p class="text-gray-600 text-sm leading-relaxed pb-4">
+                                    Under the hood, ItikCare trains a Random Forest Regression model on your farm's
+                                    own daily logs to forecast egg yield one to three days ahead, and surfaces which
+                                    factors — flock age, feed intake, temperature, humidity — most influenced each
+                                    prediction. A rule-based prescriptive engine then turns those factors into
+                                    concrete recommendations, and every recommendation is traceable back to the
+                                    exact variable and rule that triggered it, so you always know why ItikCare is
+                                    telling you what it's telling you.
+                                </p>
+                            </div>
+                        </div>
+
+                        <button type="button"
+                                id="learn-more-toggle"
+                                aria-expanded="false"
+                                aria-controls="system-description"
+                                class="mt-4 inline-flex items-center gap-2 bg-emerald-700 text-white font-semibold rounded-lg px-5 py-2.5 hover:bg-emerald-800 transition-colors duration-200">
+                            <span class="learn-more-label">Learn More</span>
+                            <span id="learn-more-arrow" aria-hidden="true" class="inline-block transition-transform duration-200">→</span>
+                        </button>
+                    </div>
+
+                    <div class="bg-gradient-to-br from-emerald-700 to-emerald-800 rounded-2xl p-8 text-white">
+                        <h3 class="text-xl font-bold mb-6">How ItikCare Works?</h3>
+                        <ol class="space-y-6">
+                            <li class="flex gap-4">
+                                <span class="flex-shrink-0 flex items-center justify-center w-9 h-9 rounded-lg bg-white/15 font-bold">1</span>
+                                <div>
+                                    <p class="font-semibold">Sign In</p>
+                                    <p class="text-sm text-emerald-100">Create your own account to access your farm details.</p>
+                                </div>
+                            </li>
+                            <li class="flex gap-4">
+                                <span class="flex-shrink-0 flex items-center justify-center w-9 h-9 rounded-lg bg-white/15 font-bold">2</span>
+                                <div>
+                                    <p class="font-semibold">Log Your Farm Data</p>
+                                    <p class="text-sm text-emerald-100">Record your daily farm observations for better predictions.</p>
+                                </div>
+                            </li>
+                            <li class="flex gap-4">
+                                <span class="flex-shrink-0 flex items-center justify-center w-9 h-9 rounded-lg bg-white/15 font-bold">3</span>
+                                <div>
+                                    <p class="font-semibold">Get Predictions</p>
+                                    <p class="text-sm text-emerald-100">Random Forest model forecast egg yield for the next 3 days.</p>
+                                </div>
+                            </li>
+                            <li class="flex gap-4">
+                                <span class="flex-shrink-0 flex items-center justify-center w-9 h-9 rounded-lg bg-white/15 font-bold">4</span>
+                                <div>
+                                    <p class="font-semibold">Take Actions</p>
+                                    <p class="text-sm text-emerald-100">Receive recommendations specifically made for your farm.</p>
+                                </div>
+                            </li>
+                        </ol>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- CTA -->
+        <section class="bg-gradient-to-br from-emerald-700 to-emerald-900">
+            <div class="max-w-3xl mx-auto px-6 py-16 text-center">
+                <h2 class="text-3xl font-extrabold text-white">Ready to Modernize Your Itik Farm?</h2>
+                <p class="mt-3 text-emerald-100">
+                    Join itik farmers who are using ItikCare to increase your farm's productivity and profitability!
+                </p>
+                <a href="{% url 'signup' %}"
+                   class="mt-8 inline-flex items-center gap-2 bg-white text-emerald-800 font-semibold rounded-lg px-6 py-3 hover:bg-emerald-50 transition-colors duration-200">
+                    Start Using ItikCare <span aria-hidden="true">→</span>
+                </a>
+            </div>
+        </section>
+    </main>
+
+    <footer class="bg-emerald-950 text-gray-300">
+        <div class="max-w-6xl mx-auto px-6 py-12 grid grid-cols-1 sm:grid-cols-3 gap-10">
+            <div>
+                <div class="flex items-center gap-3">
+                    <span class="flex items-center justify-center w-10 h-10 rounded-lg bg-emerald-700 text-lg">🦆</span>
+                    <span class="leading-tight">
+                        <span class="block text-lg font-bold text-white">ItikCare</span>
+                        <span class="block text-xs font-semibold text-emerald-400 -mt-1">Egg Yield Forecasting</span>
+                    </span>
+                </div>
+            </div>
+            <div>
+                <h3 class="text-sm font-semibold text-white mb-3">Project</h3>
+                <ul class="space-y-1 text-sm text-gray-300">
+                    <li>Capstone Project</li>
+                    <li>BS Information Technology</li>
+                    <li>Central Bicol State University of Agriculture</li>
+                    <li>Sipocot Campus</li>
+                </ul>
+            </div>
+            <div>
+                <h3 class="text-sm font-semibold text-white mb-3">About the Researchers</h3>
+                <ul class="space-y-1 text-sm text-gray-300">
+                    <li>Developed by: Labay, Mark Justine C.</li>
+                    <li class="pl-[6.5em]">Peñaredondo, Jhanmae Angela S.</li>
+                    <li>Developed for: Mario A. Realizan</li>
+                    <li>Year: 2026</li>
+                </ul>
+            </div>
+        </div>
+        <div class="border-t border-emerald-900 px-6 py-4 text-center text-xs text-gray-400 space-y-0.5">
+            <p>ItikCare v1.0</p>
+            <p>Labay &amp; Peñaredondo et al.</p>
+        </div>
+    </footer>
+
+    <script>
+        const learnMoreToggle = document.getElementById('learn-more-toggle');
+        const systemDescription = document.getElementById('system-description');
+
+        if (learnMoreToggle && systemDescription) {
+            learnMoreToggle.addEventListener('click', () => {
+                const isOpen = learnMoreToggle.getAttribute('aria-expanded') === 'true';
+                learnMoreToggle.setAttribute('aria-expanded', String(!isOpen));
+                systemDescription.classList.toggle('is-open', !isOpen);
+                learnMoreToggle.querySelector('.learn-more-label').textContent = isOpen ? 'Learn More' : 'Show Less';
+            });
+        }
+    </script>
+</body>
+</html>

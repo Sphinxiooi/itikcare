@@ -22,138 +22,167 @@
         </div>
         {% endif %}
     </div>
-</div>
 
-{% if not active_flock %}
-<div class="bg-amber-50 border border-amber-200 text-amber-800 text-sm rounded-md p-4 mt-6">
-    No active flock yet. Add a Flock and some DailyLog entries in the
-    <a href="/admin/" class="underline font-medium">admin</a>, or use
-    <a href="{% url 'log_daily_data' %}" class="underline font-medium">Log Daily Data</a>,
-    to see forecasts and recommendations here.
-</div>
-{% elif not flock_is_caged %}
-<div class="bg-amber-50 border border-amber-200 text-amber-800 text-sm rounded-md p-4 mt-6">
-    🌾 This flock is currently <strong>free-range in the field</strong>. Daily logging, forecasts, and the
-    data summary are paused until it's caged again.
-    <a href="{% url 'flock_profile' %}" class="underline font-medium">Mark it as caged from Flock Profile</a>
-    once logging resumes.
-</div>
-{% endif %}
-
-{% if not active_flock or flock_is_caged %}
-<div class="grid grid-cols-1 sm:grid-cols-3 gap-4 mt-6">
-    <div class="bg-white border border-emerald-200 rounded-xl p-4">
-        <p class="font-bold text-gray-900">Flocks Status</p>
-        {% if today_log %}<p class="text-sm text-gray-500">Feed Intake: {{ today_log.feed_intake_kg }}kg</p>{% endif %}
-        <p class="text-3xl font-bold text-emerald-700 mt-2">{{ today_log.flock_size|default:"—" }}</p>
-        <p class="text-sm text-gray-500">Ducks</p>
+    {% if not active_flock %}
+    <div class="bg-amber-50 border border-amber-200 text-amber-800 text-sm rounded-md p-4 mt-6">
+        No active flock yet. Add a Flock and some DailyLog entries in the
+        <a href="/admin/" class="underline font-medium">admin</a>, or use
+        <a href="{% url 'log_daily_data' %}" class="underline font-medium">Log Daily Data</a>,
+        to see forecasts and recommendations here.
     </div>
-    <div class="bg-white border border-emerald-200 rounded-xl p-4">
-        <p class="font-bold text-gray-900">Flocks Age</p>
-        {% if today_log %}<p class="text-sm text-gray-500">Avg. Age: {{ today_log.flock_age_weeks }} weeks</p>{% endif %}
-        <p class="text-3xl font-bold text-emerald-700 mt-2">{{ today_log.flock_age_weeks|default:"—" }}</p>
-        <p class="text-sm text-gray-500">Weeks</p>
+    {% elif not flock_is_caged %}
+    <div class="bg-amber-50 border border-amber-200 text-amber-800 text-sm rounded-md p-4 mt-6">
+        🌾 This flock is currently <strong>free-range in the field</strong>. Daily logging, forecasts, and the
+        data summary are paused until it's caged again.
+        <a href="{% url 'flock_profile' %}" class="underline font-medium">Mark it as caged from Flock Profile</a>
+        once logging resumes.
     </div>
-    <div class="bg-white border border-emerald-200 rounded-xl p-4">
-        <p class="font-bold text-gray-900">Today's Egg Forecast</p>
-        <a href="{% url 'log_daily_data' %}" class="inline-block mt-2 text-xs font-medium bg-emerald-700 text-white rounded-md px-3 py-1.5 hover:bg-emerald-800">
-            Record Today's Data
-        </a>
-        <p class="text-3xl font-bold text-emerald-700 mt-2">
-            {% if latest_forecast %}{{ latest_forecast.predicted_daily_yield }}{% else %}—{% endif %}
-        </p>
-        <p class="text-sm text-gray-500">Eggs</p>
-    </div>
-</div>
-
-<div class="bg-emerald-50 rounded-xl p-6 mt-6">
-    <div class="flex justify-between items-center mb-4">
-        <h2 class="text-lg font-bold text-gray-900">3-Day Egg Yield Outlook</h2>
-    </div>
-    {% if latest_forecast %}
-    <div class="text-center">
-        <p class="text-sm text-gray-600">Total projected yield, {{ latest_forecast.forecast_date|date:"M j" }} + 2 days</p>
-        <p class="text-3xl font-bold text-emerald-700 mt-2">{{ latest_forecast.predicted_tri_day_yield }}</p>
-        <p class="text-sm text-gray-500">Eggs</p>
-    </div>
-    {% else %}
-    <p class="text-sm text-gray-500">No forecasts generated yet.</p>
     {% endif %}
-</div>
 
-<div class="grid grid-cols-1 lg:grid-cols-3 gap-6 mt-6">
-    <div class="lg:col-span-2 bg-white border border-gray-200 rounded-xl p-6">
-        <h2 class="text-lg font-bold text-gray-900">Egg Yield Trend</h2>
-        <p class="text-sm text-gray-500 mb-4">Last 10 days: actual vs. predicted</p>
-        {% if recent_logs %}
-        <canvas id="trendChart" height="220"></canvas>
-        {% else %}
-        <p class="text-sm text-gray-500">No farm records yet — log daily data to see the trend here.</p>
-        {% endif %}
-    </div>
-
-    <div class="bg-white border border-gray-200 rounded-xl p-6">
-        <h2 class="text-lg font-bold text-gray-900 mb-3">💡 Quick Recommendations</h2>
-        {% if recommendations %}
-        <ul class="space-y-3">
-            {% for rec in recommendations %}
-            <li class="rounded-lg p-3 text-sm
-                {% if rec.priority == 'high' %}bg-red-50
-                {% elif rec.priority == 'medium' %}bg-amber-50
-                {% else %}bg-emerald-50{% endif %}">
-                {{ rec.message }}
-            </li>
-            {% endfor %}
-        </ul>
-        {% else %}
-        <p class="text-sm text-gray-500">No recommendations yet.</p>
-        {% endif %}
-    </div>
-</div>
-
-<div class="bg-white border border-gray-200 rounded-xl p-6 mt-6">
-    <div class="flex justify-between items-center mb-4">
-        <div>
-            <h2 class="text-lg font-bold text-gray-900">Recent Farm Records</h2>
-            <p class="text-sm text-gray-500">Last 5 daily entries</p>
+    {% if not active_flock or flock_is_caged %}
+    <div class="grid grid-cols-1 sm:grid-cols-3 gap-4 mt-6 pt-6 border-t border-gray-100">
+        <div class="bg-emerald-50 border border-emerald-200 rounded-xl p-4">
+            <p class="font-bold text-gray-900">Flocks Status</p>
+            {% if today_log %}<p class="text-sm text-gray-500">Feed Intake: {{ today_log.feed_intake_kg }}kg</p>{% endif %}
+            <p class="text-3xl font-bold text-emerald-700 mt-2">{{ today_log.flock_size|default:"—" }}</p>
+            <p class="text-sm text-gray-500">Ducks</p>
         </div>
-        <a href="{% url 'farm_records' %}" class="text-sm font-medium text-emerald-700 hover:underline">View all</a>
+        <div class="bg-emerald-50 border border-emerald-200 rounded-xl p-4">
+            <p class="font-bold text-gray-900">Flocks Age</p>
+            {% if current_age_weeks %}<p class="text-sm text-gray-500">Avg. Age: {{ current_age_weeks }} weeks</p>{% endif %}
+            <p class="text-3xl font-bold text-emerald-700 mt-2">{{ current_age_weeks|default:"—" }}</p>
+            <p class="text-sm text-gray-500">Weeks</p>
+        </div>
+        <div class="bg-emerald-50 border border-emerald-200 rounded-xl p-4">
+            <p class="font-bold text-gray-900">Today's Egg Yield</p>
+            <a href="{% url 'log_daily_data' %}" class="inline-block mt-2 text-xs font-medium bg-emerald-700 text-white rounded-md px-3 py-1.5 hover:bg-emerald-800">
+                Record Today's Data
+            </a>
+            <p class="text-3xl font-bold text-emerald-700 mt-2">
+                {% if logged_today %}{{ logged_today.egg_count }}{% else %}—{% endif %}
+            </p>
+            <p class="text-sm text-gray-500">Eggs</p>
+        </div>
     </div>
-    {% if recent_records %}
-    <div class="overflow-x-auto">
-        <table class="w-full text-sm text-left">
-            <thead class="bg-emerald-700 text-white">
-                <tr>
-                    <th class="py-2.5 px-3 rounded-l-md">Date</th>
-                    <th class="py-2.5 px-3">Egg Count</th>
-                    <th class="py-2.5 px-3">Feed (kg)</th>
-                    <th class="py-2.5 px-3">Temp / Humidity</th>
-                    <th class="py-2.5 px-3">Flock Count</th>
-                    <th class="py-2.5 px-3 rounded-r-md">Avg. Age (wk)</th>
-                </tr>
-            </thead>
-            <tbody>
-                {% for log in recent_records %}
-                <tr class="border-b border-gray-100 last:border-0">
-                    <td class="py-2.5 px-3">{{ log.date }}</td>
-                    <td class="py-2.5 px-3">{{ log.egg_count }}</td>
-                    <td class="py-2.5 px-3">{{ log.feed_intake_kg }}</td>
-                    <td class="py-2.5 px-3">{{ log.temperature_c }}°C / {{ log.humidity_pct }}%</td>
-                    <td class="py-2.5 px-3">{{ log.flock_size }}</td>
-                    <td class="py-2.5 px-3">{{ log.flock_age_weeks }}</td>
-                </tr>
+
+    <div class="bg-emerald-50 border border-emerald-200 rounded-xl p-4 mt-6">
+        <div class="flex justify-between items-center mb-4">
+            <h2 class="text-lg font-bold text-gray-900">Next 3-Day Forecast</h2>
+        </div>
+        {% if forecast_low_confidence %}
+        <div class="bg-blue-50 border border-blue-200 text-blue-800 text-sm rounded-md p-3 mb-4">
+            ℹ️ Logging just resumed for this caging period ({{ forecast_history_days }}/3 recent days logged so
+            far), so these forecasts have less history to work with and may be less accurate. Accuracy improves
+            as daily logs build back up over the next few days.
+        </div>
+        {% endif %}
+        {% if next_day_forecasts %}
+        <div class="flex divide-x divide-emerald-200 text-center">
+            {% for day in next_day_forecasts %}
+            <div class="flex-1 px-4 first:pl-0 last:pr-0">
+                <p class="text-sm text-gray-600">
+                    {{ day.date|date:"M j" }}{% if day.is_tomorrow %} | Tomorrow{% endif %}
+                </p>
+                <p class="text-3xl font-bold text-emerald-700 mt-2">{{ day.value|default:"—" }}</p>
+                <p class="text-sm text-gray-500">Eggs</p>
+            </div>
+            {% endfor %}
+        </div>
+        {% else %}
+        <p class="text-sm text-gray-500">No forecasts generated yet.</p>
+        {% endif %}
+    </div>
+
+    <div class="grid grid-cols-1 lg:grid-cols-3 gap-6 mt-6 pt-6 border-t border-gray-100">
+        <div class="lg:col-span-2 bg-blue-50 border border-blue-200 rounded-xl p-4">
+            <div class="flex flex-wrap justify-between items-center gap-2 mb-1">
+                <h2 class="text-lg font-bold text-gray-900">Egg Yield Trend</h2>
+                <form method="get" class="flex items-center gap-2">
+                    <label for="trend_range" class="text-sm text-gray-500">Range</label>
+                    <select id="trend_range" name="trend_range" onchange="this.form.submit()"
+                            class="text-sm border border-gray-300 rounded-md px-2 py-1 text-gray-700 bg-white">
+                        {% for choice in trend_range_choices %}
+                        <option value="{{ choice }}" {% if choice == trend_range %}selected{% endif %}>
+                            Last {{ choice }} days
+                        </option>
+                        {% endfor %}
+                    </select>
+                </form>
+            </div>
+            <p class="text-sm text-gray-500 mb-4">
+                Last {{ trend_range }} days: actual vs. predicted{% if trend_has_future_forecast %} (dashed = upcoming forecast, not yet logged){% endif %}
+            </p>
+            {% if trend_logs %}
+            <canvas id="trendChart" height="220"></canvas>
+            {% else %}
+            <p class="text-sm text-gray-500">No farm records yet — log daily data to see the trend here.</p>
+            {% endif %}
+        </div>
+
+        <div class="bg-amber-50 border border-amber-200 rounded-xl p-4">
+            <h2 class="text-lg font-bold text-gray-900 mb-3">💡 Quick Recommendations</h2>
+            {% if recommendations %}
+            <ul class="space-y-3">
+                {% for rec in recommendations %}
+                <li class="rounded-lg p-3 text-sm
+                    {% if rec.priority == 'high' %}bg-red-50
+                    {% elif rec.priority == 'medium' %}bg-amber-100
+                    {% else %}bg-emerald-50{% endif %}">
+                    {{ rec.message }}
+                </li>
                 {% endfor %}
-            </tbody>
-        </table>
+            </ul>
+            {% else %}
+            <p class="text-sm text-gray-500">No recommendations yet.</p>
+            {% endif %}
+        </div>
     </div>
-    {% else %}
-    <p class="text-sm text-gray-500">No farm records yet.</p>
+
+    <div class="bg-gray-50 border border-gray-200 rounded-xl p-4 mt-6">
+        <div class="flex justify-between items-center mb-4">
+            <div>
+                <h2 class="text-lg font-bold text-gray-900">Recent Farm Records</h2>
+                <p class="text-sm text-gray-500">Last 5 daily entries</p>
+            </div>
+            <a href="{% url 'farm_records' %}" class="text-sm font-medium text-emerald-700 hover:underline">View all</a>
+        </div>
+        {% if recent_records %}
+        <div class="overflow-x-auto">
+            <table class="w-full text-sm text-left">
+                <thead class="bg-emerald-700 text-white">
+                    <tr>
+                        <th class="py-2.5 px-3 rounded-l-md">Date</th>
+                        <th class="py-2.5 px-3">Egg Count</th>
+                        <th class="py-2.5 px-3">Feed (kg)</th>
+                        <th class="py-2.5 px-3">Temp / Humidity</th>
+                        <th class="py-2.5 px-3">Flock Count</th>
+                        <th class="py-2.5 px-3 rounded-r-md">Avg. Age (wk)</th>
+                    </tr>
+                </thead>
+                <tbody class="bg-white">
+                    {% for log in recent_records %}
+                    <tr class="border-b border-gray-100 last:border-0">
+                        <td class="py-2.5 px-3">{{ log.date }}</td>
+                        <td class="py-2.5 px-3">{{ log.egg_count }}</td>
+                        <td class="py-2.5 px-3">{{ log.feed_intake_kg }}</td>
+                        <td class="py-2.5 px-3">{{ log.temperature_c }}°C / {{ log.humidity_pct }}%</td>
+                        <td class="py-2.5 px-3">{{ log.flock_size }}</td>
+                        <td class="py-2.5 px-3">{{ log.flock_age_weeks }}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% else %}
+        <p class="text-sm text-gray-500">No farm records yet.</p>
+        {% endif %}
+    </div>
     {% endif %}
 </div>
-{% endif %}
 
-{% if recent_logs %}
+{% if trend_logs %}
 <script>
+    const trendFutureStartIndex = {{ trend_future_start_index|default_if_none:"null" }};
     new Chart(document.getElementById("trendChart"), {
         type: "line",
         data: {
@@ -178,6 +207,15 @@
                     pointRadius: 4,
                     tension: 0.3,
                     spanGaps: false,
+                    // The tail beyond trendFutureStartIndex is the Next 3-Day Forecast
+                    // (no DailyLog exists for those dates yet) -- dashed so it always
+                    // reads as a projection, not a nowcast confirmed against real data.
+                    segment: {
+                        borderDash: (ctx) =>
+                            trendFutureStartIndex !== null && ctx.p1DataIndex >= trendFutureStartIndex
+                                ? [6, 6]
+                                : undefined,
+                    },
                 },
             ],
         },

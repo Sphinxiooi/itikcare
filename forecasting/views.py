@@ -4,7 +4,8 @@ from datetime import date
 from django.contrib.auth.decorators import login_required
 from django.shortcuts import render
 
-from farm.models import DailyLog, Flock
+from farm.models import DailyLog
+from farm.services import get_active_flock
 
 from .models import Forecast
 
@@ -29,7 +30,7 @@ def forecast_recommendations(request):
     no extra request) since the data for both comes from the same latest_forecast.
     """
 
-    active_flock = Flock.objects.filter(is_active=True).order_by("-generation_number").first()
+    active_flock = get_active_flock(request.user)
     # While the flock is free-range in the field (is_caged=False), no forecast/trend
     # data is fetched — see dashboard.views.index for the same gating and reasoning.
     flock_is_caged = bool(active_flock and active_flock.is_caged)

@@ -19,6 +19,9 @@
                     {% endfor %}
                 </select>
             </form>
+            <a href="{% url 'import_csv' %}" class="text-sm font-medium border border-emerald-200 text-emerald-700 rounded-md px-4 py-2 hover:bg-emerald-50 whitespace-nowrap">
+                Import CSV
+            </a>
             <a href="{% url 'log_daily_data' %}" class="text-sm font-medium bg-emerald-700 text-white rounded-md px-4 py-2 hover:bg-emerald-800 whitespace-nowrap">
                 + Log Today's Data
             </a>

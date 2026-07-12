@@ -8,14 +8,14 @@
     <link rel="stylesheet" href="{% static 'dist/output.css' %}">
     {% block extra_head %}{% endblock %}
 </head>
-<body class="min-h-screen bg-gray-50 text-gray-900">
+<body class="min-h-screen bg-transparent text-gray-900" style="background-image: url('{% static 'images/hero-ducks.jpg' %}'); background-size: cover; background-position: center; background-attachment: fixed;">
     {% url 'dashboard' as dashboard_url %}
     {% url 'log_daily_data' as log_daily_data_url %}
     {% url 'forecast_recommendations' as forecast_url %}
     {% url 'farm_records' as records_url %}
 
     <header class="sticky top-0 z-50 bg-white/95 backdrop-blur border-b border-gray-100 shadow-sm">
-        <div class="flex justify-between items-center h-16 px-4 sm:px-6 max-w-6xl mx-auto">
+        <div class="flex justify-between items-center h-16 px-4 sm:px-6">
             <div class="flex items-center gap-1">
                 <button type="button" id="sidebar-toggle" aria-expanded="false" aria-controls="sidebar"
                         class="md:hidden -ml-1 mr-1 flex items-center justify-center w-9 h-9 rounded-lg text-gray-600 hover:bg-gray-100 hover:text-emerald-700 transition-colors">
@@ -51,11 +51,11 @@
         </div>
     </dialog>
 
-    <div class="flex max-w-6xl mx-auto">
+    <div>
         <div id="sidebar-backdrop" class="hidden fixed inset-0 top-16 bg-black/40 z-40 md:hidden"></div>
         <aside id="sidebar"
                class="fixed top-16 bottom-0 left-0 z-40 w-64 -translate-x-full transition-transform duration-200 ease-in-out
-                   md:sticky md:top-16 md:bottom-auto md:translate-x-0 md:h-[calc(100vh-4rem)]
+                   md:translate-x-0
                    flex flex-col justify-between shrink-0 bg-white border-r border-gray-200 shadow-2xl md:shadow-none overflow-y-auto">
             <nav class="p-4 space-y-1">
                 <a href="{{ dashboard_url }}"
@@ -96,7 +96,7 @@
             </div>
         </aside>
 
-        <main class="flex-1 p-6 lg:p-8">
+        <main class="min-w-0 p-6 lg:p-8 md:ml-64">
             {% if messages %}
             <div class="space-y-2 mb-6">
                 {% for message in messages %}

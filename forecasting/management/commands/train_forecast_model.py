@@ -1,50 +1,75 @@
-"""Repeatable Random Forest training/retraining pipeline.
+"""Repeatable Random Forest training/retraining pipeline — one model per farmer.
 
 Run as:
-    python manage.py train_forecast_model [--dry-run] [--strict]
+    python manage.py train_forecast_model --owner-id ID [--dry-run] [--strict]
                                           [--n-estimators N] [--test-fraction F]
                                           [--output-dir DIR]
                                           [--tune [--tune-iter N] [--cv-folds K]]
+
+There is no single global model: every farmer (User) gets a separate artifact, and
+``--owner-id`` says whose. The foundation farmer (accounts.User.is_foundation_farmer,
+Mario in this deployment) trains on only their own historical DailyLogs, exactly as
+before multi-tenancy. Every other farmer's model is bootstrapped from, and every retrain
+refits fresh on, the foundation farmer's data concatenated with their own accumulated
+DailyLogs (never sklearn warm_start — a brand-new .fit() each time on the full pooled
+set) — see ``_load_records``.
 
 ``--tune`` replaces the fixed ``build_estimator(n_estimators)`` fit with a randomized
 hyperparameter search (``pipeline.tune_estimator``) scored on an inner, segment-aware CV
 carved out of the training partition only — the held-out 20% test set is never touched
 during the search, only for the final metrics/threshold check. Omit ``--tune`` for the
-original fast, fixed-hyperparameter path (unchanged default behaviour).
+original fast, fixed-hyperparameter path (unchanged default behaviour) — this is what
+the signup flow uses for a new farmer's synchronous bootstrap train.
 
 Per CLAUDE.md, retraining must be a repeatable command (not a one-off notebook) so it
 can run periodically as new DailyLog data comes in. This command is the orchestration
 layer only — the modelling logic lives in ``forecasting/pipeline.py`` and is unit-tested
 there. Stages:
 
-1. Load every DailyLog via the ORM (the rolling-retraining source: it retrains on
-   whatever is in the database now), ordered by generation then date.
-2. Segment on caging_period and build the daily and tri-day datasets. The tri-day target
-   is a 3-day forward sum that never spans a caging-period gap (itikcare-spec.md §10).
-3. Chronological 80:20 split within each caging period.
+1. Load this owner's DailyLogs (plus the foundation farmer's, unless the owner *is* the
+   foundation farmer) via the ORM, ordered by owner then generation then date.
+2. Segment on the composite segment_key (flock_id + caging_period — see pipeline.py's
+   SEGMENT_COLUMN comment for why raw caging_period alone isn't safe once more than one
+   flock/farm is pooled) and build the daily and tri-day datasets. The tri-day target is
+   a 3-day forward sum that never spans a caging-period gap (itikcare-spec.md §10).
+3. Chronological 80:20 split within each segment.
 4. Fit a RandomForestRegressor for daily yield and a separate one for tri-day yield.
 5. Evaluate both against the §5 thresholds (MAE ≤ 8%, RMSE ≤ 10%, MAPE ≤ 15%, R² ≥ 0.75),
    alongside a mean-predictor baseline.
-6. Persist both pipelines + metadata + feature importances (joblib) and a human-readable
-   metrics report (JSON), so Forecast.model_version / feature_importances can be
-   populated at prediction time and the prescriptive module can prioritise by importance.
+6. Persist both pipelines + metadata + feature importances (joblib, atomically written)
+   and a human-readable metrics report (JSON), so Forecast.model_version /
+   feature_importances can be populated at prediction time and the prescriptive module
+   can prioritise by importance.
 """
 
 import json
+import os
 from datetime import datetime
 
 import joblib
 from django.conf import settings
 from django.core.management.base import BaseCommand, CommandError
 
+from accounts.models import User
 from farm.models import DailyLog
 from forecasting import pipeline as ml
 
 
 class Command(BaseCommand):
-    help = "Train or retrain the Random Forest egg yield forecasting model."
+    help = "Train or retrain the Random Forest egg yield forecasting model for one farmer."
 
     def add_arguments(self, parser):
+        parser.add_argument(
+            "--owner-id", type=int, required=True,
+            help=(
+                "User id to train/retrain a model for. There is no single global model "
+                "any more — every farmer gets a separate artifact (see "
+                "forecasting/services.py's model_path_for). Training data is that "
+                "owner's own DailyLogs, plus the foundation farmer's (see "
+                "accounts.User.is_foundation_farmer) if the owner isn't the foundation "
+                "farmer themselves."
+            ),
+        )
         parser.add_argument(
             "--n-estimators", type=int, default=300,
             help="Number of trees in each Random Forest (default: 300).",
@@ -88,10 +113,17 @@ class Command(BaseCommand):
         )
 
     def handle(self, *args, **options):
-        records = self._load_records()
+        owner_id = options["owner_id"]
+        try:
+            owner = User.objects.get(pk=owner_id)
+        except User.DoesNotExist:
+            raise CommandError(f"No user with id={owner_id}.")
+
+        records = self._load_records(owner)
         if len(records) < 10:
             raise CommandError(
-                f"Not enough DailyLog rows to train ({len(records)} found). Import data first."
+                f"Not enough DailyLog rows to train for owner_id={owner_id} "
+                f"({len(records)} found). Import/log data first."
             )
 
         df = ml.build_feature_frame(records)
@@ -141,9 +173,10 @@ class Command(BaseCommand):
             self.stdout.write(self.style.WARNING("\nSome acceptance thresholds were NOT met (see above)."))
 
         # --- Persist -----------------------------------------------------------------
-        model_version = f"rf-{datetime.now():%Y%m%d-%H%M%S}"
+        model_version = f"rf-{owner_id}-{datetime.now():%Y%m%d-%H%M%S}"
         metrics_payload = {
             "model_version": model_version,
+            "owner_id": owner_id,
             "trained_at": datetime.now().isoformat(timespec="seconds"),
             "n_samples_total": len(records),
             "features": ml.MODEL_FEATURES,
@@ -164,15 +197,27 @@ class Command(BaseCommand):
                 "--strict is set and at least one threshold failed; refusing to persist the model."
             )
 
-        self._persist(options["output_dir"], model_version, metrics_payload,
+        self._persist(options["output_dir"], owner_id, model_version, metrics_payload,
                       daily_model, tri_model, daily_importances, tri_importances, len(records))
 
-    def _load_records(self):
-        """Pull DailyLogs into plain dicts for the pipeline (ORM stays out of pipeline.py)."""
+    def _load_records(self, owner):
+        """Pull this owner's training DailyLogs into plain dicts (ORM stays out of pipeline.py).
+
+        The foundation farmer (accounts.User.is_foundation_farmer) is training on only
+        their own historical data — unchanged behaviour from the single-tenant system.
+        Every other farmer's model is bootstrapped from + retrained on the foundation
+        farmer's data concatenated with their own, fresh each time (never warm_start),
+        per the multi-tenant plan's model-strategy decision.
+        """
+        owner_ids = {owner.id}
+        if not owner.is_foundation_farmer:
+            owner_ids.add(User.get_foundation_farmer().id)
+
         rows = (
             DailyLog.objects
-            .order_by("flock__generation_number", "date")
-            .values("date", ml.SEGMENT_COLUMN, *ml.FEATURES, ml.DAILY_TARGET)
+            .filter(flock__owner_id__in=owner_ids)
+            .order_by("flock__owner_id", "flock__generation_number", "date")
+            .values("date", "flock_id", ml.CAGING_PERIOD_COLUMN, *ml.FEATURES, ml.DAILY_TARGET)
         )
         return list(rows)
 
@@ -229,7 +274,7 @@ class Command(BaseCommand):
             for name, value in best_params.items():
                 self.stdout.write(f"    {name:22s} {value}")
 
-    def _persist(self, output_dir, model_version, metrics_payload,
+    def _persist(self, output_dir, owner_id, model_version, metrics_payload,
                  daily_model, tri_model, daily_importances, tri_importances, n_samples):
         from pathlib import Path
 
@@ -238,6 +283,7 @@ class Command(BaseCommand):
 
         artifact = {
             "model_version": model_version,
+            "owner_id": owner_id,
             "trained_at": metrics_payload["trained_at"],
             "feature_names": ml.MODEL_FEATURES,
             "n_samples": n_samples,
@@ -247,10 +293,20 @@ class Command(BaseCommand):
             "metrics": {"daily": metrics_payload["daily"]["metrics"],
                         "tri_day": metrics_payload["tri_day"]["metrics"]},
         }
-        model_path = out / "forecast_model.joblib"
-        metrics_path = out / "forecast_metrics.json"
-        joblib.dump(artifact, model_path)
-        metrics_path.write_text(json.dumps(metrics_payload, indent=2), encoding="utf-8")
+        model_path = out / f"forecast_model_{owner_id}.joblib"
+        metrics_path = out / f"forecast_metrics_{owner_id}.json"
+
+        # Multi-tenancy means several owners' retrains can now be triggered close
+        # together (each farm has its own caging_period_closed/flock_retired events).
+        # Write to a temp file in the same directory and atomically replace, so a
+        # concurrent generate_forecast() read can only ever see a complete old or
+        # complete new artifact for this owner, never a half-written one.
+        tmp_model_path = model_path.with_suffix(model_path.suffix + ".tmp")
+        tmp_metrics_path = metrics_path.with_suffix(metrics_path.suffix + ".tmp")
+        joblib.dump(artifact, tmp_model_path)
+        tmp_metrics_path.write_text(json.dumps(metrics_payload, indent=2), encoding="utf-8")
+        os.replace(tmp_model_path, model_path)
+        os.replace(tmp_metrics_path, metrics_path)
 
         self.stdout.write(self.style.SUCCESS(
             f"\nSaved model {model_version} -> {model_path}\nSaved metrics -> {metrics_path}"

@@ -40,7 +40,7 @@ Five core classes/entities:
 - **User** — authentication, role (farmer/admin)
 - **Flock** — flock size (number of ducks), flock age (weeks)
 - **DailyLog** — daily manual entry: egg count, feed intake (kg/day), temperature (°C), humidity (%), date
-- **Forecast** — model output: predicted daily yield, predicted tri-day yield, timestamp, links back to the DailyLog data it was generated from
+- **Forecast** — model output: predicted daily yield, predicted tri-day yield, timestamp, links back to the DailyLog data it was generated from. Also carries a recursive best-effort predicted_next_day1/2/3_yield breakdown (dashboard's "Next 3-Day Forecast" panel) — 3 distinct day-by-day numbers derived by re-applying the same daily model iteratively, not a separately trained model or a split of the tri-day sum (see forecasting/services.py's `_predict_next_days`).
 - **Recommendation** — output of the prescriptive module: linked to a Forecast, contains the actionable advice text and which rule/variable triggered it
 
 Relationships: a Flock has many DailyLogs → DailyLogs feed the Forecast model → each Forecast can produce one or more Recommendations.

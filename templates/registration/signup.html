@@ -4,7 +4,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Log in — ItikCare</title>
+    <title>Sign up — ItikCare</title>
     <link rel="stylesheet" href="{% static 'dist/output.css' %}">
 </head>
 <body class="min-h-screen flex items-center justify-center px-4"
@@ -22,31 +22,43 @@
         </div>
 
         <div class="bg-white px-6 py-6">
-            <h1 class="text-xl font-bold text-gray-900">Welcome Back, Farmer!</h1>
-            <p class="text-sm text-gray-500 mb-5">Sign in to access your dashboard</p>
+            <h1 class="text-xl font-bold text-gray-900">Create Your Farm Account</h1>
+            <p class="text-sm text-gray-500 mb-5">Start logging your own farm's daily data and forecasts</p>
 
             <form method="post" class="space-y-4">
                 {% csrf_token %}
-                {% if form.errors %}
-                <p class="text-sm text-red-600">Your username and password didn't match. Please try again.</p>
+                {% if form.non_field_errors %}
+                <p class="text-sm text-red-600">{{ form.non_field_errors.0 }}</p>
                 {% endif %}
                 <div>
                     <label for="{{ form.username.id_for_label }}" class="block text-sm font-medium text-gray-700 mb-1">Username</label>
                     {{ form.username }}
+                    {% if form.username.errors %}<p class="text-sm text-red-600 mt-1">{{ form.username.errors.0 }}</p>{% endif %}
                 </div>
                 <div>
-                    <label for="{{ form.password.id_for_label }}" class="block text-sm font-medium text-gray-700 mb-1">Password</label>
-                    {{ form.password }}
+                    <label for="{{ form.address.id_for_label }}" class="block text-sm font-medium text-gray-700 mb-1">Farm address <span class="font-normal text-gray-400">(optional)</span></label>
+                    {{ form.address }}
+                    {% if form.address.errors %}<p class="text-sm text-red-600 mt-1">{{ form.address.errors.0 }}</p>{% endif %}
+                    <p class="text-xs text-gray-400 mt-1">Used to personalize weather suggestions on your daily log. Leave blank to use the default farm location for now — you can update this later.</p>
+                </div>
+                <div>
+                    <label for="{{ form.password1.id_for_label }}" class="block text-sm font-medium text-gray-700 mb-1">Password</label>
+                    {{ form.password1 }}
+                    {% if form.password1.errors %}<p class="text-sm text-red-600 mt-1">{{ form.password1.errors.0 }}</p>{% endif %}
+                </div>
+                <div>
+                    <label for="{{ form.password2.id_for_label }}" class="block text-sm font-medium text-gray-700 mb-1">Confirm password</label>
+                    {{ form.password2 }}
+                    {% if form.password2.errors %}<p class="text-sm text-red-600 mt-1">{{ form.password2.errors.0 }}</p>{% endif %}
                 </div>
                 <button type="submit" class="w-full bg-emerald-700 text-white font-semibold rounded-lg py-2.5 hover:bg-emerald-800">
-                    Sign in to ItikCare
+                    Create account
                 </button>
-                <input type="hidden" name="next" value="{{ next }}">
             </form>
         </div>
 
         <div class="bg-emerald-800 rounded-b-2xl px-6 py-4 text-center text-sm text-emerald-100">
-            New to ItikCare? <a href="{% url 'signup' %}" class="font-semibold text-white hover:underline">Create a farm account</a>
+            Already have an account? <a href="{% url 'login' %}" class="font-semibold text-white hover:underline">Log in</a>
         </div>
     </div>
 </body>

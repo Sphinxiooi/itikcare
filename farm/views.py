@@ -1,9 +1,14 @@
+import csv
+import io
 import logging
 from datetime import date, timedelta
+from decimal import Decimal, InvalidOperation
 
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
-from django.db.models import Max
+from django.core.exceptions import ValidationError
+from django.db import transaction
+from django.http import HttpResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.utils import timezone
 from django.views.decorators.http import require_POST
@@ -11,8 +16,14 @@ from django.views.decorators.http import require_POST
 from forecasting.models import Forecast
 from forecasting.services import ModelNotTrainedError, generate_forecast, trigger_retrain
 
-from .forms import DailyLogEditForm, DailyLogForm, FlockForm, FlockResumeCagingForm
+from .forms import DailyLogCSVImportForm, DailyLogEditForm, DailyLogForm, FlockForm, FlockResumeCagingForm
 from .models import DailyLog, DailyLogEdit, Flock
+from .services import (
+    assign_caging_periods,
+    current_flock_age_weeks,
+    get_active_flock,
+    get_effective_coordinates,
+)
 from .weather import fetch_current_weather
 
 logger = logging.getLogger(__name__)
@@ -21,12 +32,54 @@ logger = logging.getLogger(__name__)
 # for the DailyLogEdit.old_value/new_value CharFields.
 AUDITED_FIELDS = ["date", "flock_size", "flock_age_weeks", "egg_count", "feed_intake_kg", "temperature_c", "humidity_pct"]
 
-# A live entry more than this many days after the flock's previous log is treated as
-# the start of a new caging period (i.e. the flock was free-ranged in between and has
-# just been re-caged — itikcare-spec.md section 10). Chosen from the historical CSV
-# import: every gap that stayed within one caging_period was <= 5 days, and every real
-# caging-period boundary was >= 43 days, so 14 sits safely in between either reading.
-CAGING_PERIOD_GAP_DAYS = 14
+# CSV bulk-import columns, mirroring DailyLogForm's farmer-facing fields exactly (not
+# the internal historical-dataset format import_daily_logs.py expects) — caging_period
+# is never a column here, same reasoning as the manual entry form: it's a
+# system-derived segment marker, not something a farmer should need to know about.
+CSV_IMPORT_COLUMNS = ["date", "flock_size", "flock_age_weeks", "feed_intake_kg", "egg_count", "temperature_c", "humidity_pct"]
+CSV_IMPORT_INT_FIELDS = ["flock_size", "flock_age_weeks", "egg_count"]
+CSV_IMPORT_DECIMAL_FIELDS = ["feed_intake_kg", "temperature_c", "humidity_pct"]
+MAX_CSV_IMPORT_ROWS = 5000
+
+# Recognized header names for each CSV_IMPORT_COLUMNS entry, matched case/whitespace-
+# insensitively (see _map_csv_headers). Beyond the plain template names, this also
+# accepts the original historical-dataset's column names (ItikCare_Cleaned_Dataset.csv
+# / import_daily_logs.py's FIELD_PARSERS) so a farmer's own spreadsheet — which may
+# already use that same natural naming, independent of ItikCare — doesn't need to be
+# manually renamed before uploading.
+CSV_IMPORT_HEADER_ALIASES = {
+    "date": "date",
+    "flock_size": "flock_size",
+    "number of flocks": "flock_size",
+    "flock_age_weeks": "flock_age_weeks",
+    "average age of flock (weeks)": "flock_age_weeks",
+    "feed_intake_kg": "feed_intake_kg",
+    "feed intake (kgs per day)": "feed_intake_kg",
+    "egg_count": "egg_count",
+    "egg yield (per day)": "egg_count",
+    "temperature_c": "temperature_c",
+    "temperature": "temperature_c",
+    "humidity_pct": "humidity_pct",
+    "humidity": "humidity_pct",
+}
+
+
+def _map_csv_headers(fieldnames):
+    """Match this file's header row against CSV_IMPORT_HEADER_ALIASES.
+
+    Returns (header_map, missing_columns): header_map is {canonical_name: original_
+    fieldname_as_it_appears_in_the_file} for every CSV_IMPORT_COLUMNS entry that was
+    found; missing_columns lists the canonical names that weren't. Matching is
+    case/whitespace-insensitive; if two different original headers alias to the same
+    canonical name, the first one (in file order) wins.
+    """
+    header_map = {}
+    for original in fieldnames or []:
+        canonical = CSV_IMPORT_HEADER_ALIASES.get(original.strip().lower())
+        if canonical and canonical not in header_map:
+            header_map[canonical] = original
+    missing_columns = [c for c in CSV_IMPORT_COLUMNS if c not in header_map]
+    return header_map, missing_columns
 
 
 @login_required
@@ -51,7 +104,7 @@ def log_daily_data(request):
     lookup isn't configured or fails.
     """
 
-    active_flock = Flock.objects.filter(is_active=True).order_by("-generation_number").first()
+    active_flock = get_active_flock(request.user)
     if active_flock is None:
         messages.error(request, "No active flock exists yet. Create one from Flock Profile before logging daily data.")
         return redirect("dashboard")
@@ -71,24 +124,14 @@ def log_daily_data(request):
             else:
                 daily_log = form.save(commit=False)
                 daily_log.flock = active_flock
-                is_new_period = False
-                if is_first_entry:
-                    # caging_period is a globally unique segment marker (see
-                    # forecasting/pipeline.py's SEGMENT_COLUMN grouping, which has no
-                    # notion of `flock` at all) — a flock-retirement reset must continue
-                    # the counter, not restart it at 1, or this flock's first rows would
-                    # collide with an earlier flock's period 1 and get merged into the
-                    # same training segment (itikcare-spec.md section 10).
-                    max_caging_period = DailyLog.objects.aggregate(Max("caging_period"))["caging_period__max"]
-                    daily_log.caging_period = (max_caging_period or 0) + 1
-                else:
-                    gap_days = (new_date - previous_log.date).days
-                    is_new_period = gap_days > CAGING_PERIOD_GAP_DAYS
-                    daily_log.caging_period = (
-                        previous_log.caging_period + 1
-                        if is_new_period
-                        else previous_log.caging_period
-                    )
+                # assign_caging_periods (farm/services.py) is the single source of truth
+                # for this rule, shared with the bulk CSV import view — a flock's very
+                # first entry always starts a new period (no prior date to gap-check
+                # against, and it continues this owner's overall counter across flock
+                # retirements per itikcare-spec.md section 10); later entries compare
+                # against the previous log's date.
+                daily_log.caging_period = assign_caging_periods(active_flock, request.user, [new_date])[0]
+                is_new_period = not is_first_entry and daily_log.caging_period != previous_log.caging_period
                 daily_log.recorded_by = request.user
                 daily_log.save()
                 if active_flock.pending_flock_size is not None:
@@ -116,14 +159,13 @@ def log_daily_data(request):
                     # The previous caging period just closed with this entry's gap — a
                     # complete new segment of training data now exists (itikcare-spec.md
                     # section 5's "rolling retraining as new data comes in").
-                    trigger_retrain("caging_period_closed")
+                    trigger_retrain("caging_period_closed", active_flock.owner_id)
                     messages.info(request, "A new caging period was detected; model retraining has been triggered in the background.")
                 return redirect("dashboard")
     else:
         initial = {}
         if previous_log is not None:
-            weeks_since_last_log = (date.today() - previous_log.date).days // 7
-            initial["flock_age_weeks"] = previous_log.flock_age_weeks + weeks_since_last_log
+            initial["flock_age_weeks"] = current_flock_age_weeks(previous_log)
             initial["flock_size"] = previous_log.flock_size
         if active_flock.pending_flock_size is not None:
             # Overrides previous_log.flock_size (or fills it in on a first-ever entry)
@@ -131,7 +173,8 @@ def log_daily_data(request):
             # more current than whatever was last logged before the free-range gap.
             initial["flock_size"] = active_flock.pending_flock_size
 
-        weather = fetch_current_weather()
+        lat, lon = get_effective_coordinates(request.user)
+        weather = fetch_current_weather(lat, lon)
         if weather is not None:
             initial["temperature_c"] = weather["temperature_c"]
             initial["humidity_pct"] = weather["humidity_pct"]
@@ -171,7 +214,7 @@ def farm_records(request):
     if selected_range not in RECORD_RANGE_CHOICES:
         selected_range = DEFAULT_RECORD_RANGE
 
-    active_flock = Flock.objects.filter(is_active=True).order_by("-generation_number").first()
+    active_flock = get_active_flock(request.user)
     logs = DailyLog.objects.filter(flock=active_flock).order_by("-date") if active_flock else DailyLog.objects.none()
 
     if selected_range != "all":
@@ -197,7 +240,7 @@ def farm_record_edit(request, pk):
     entry (old value, new value, who, when).
     """
 
-    daily_log = get_object_or_404(DailyLog, pk=pk)
+    daily_log = get_object_or_404(DailyLog, pk=pk, flock__owner=request.user)
     # Snapshot old values before the form touches the instance: ModelForm.is_valid()
     # calls _post_clean(), which writes cleaned data onto form.instance (the same
     # object as daily_log) even before .save() — so reading daily_log's fields after
@@ -252,7 +295,7 @@ def farm_record_delete(request, pk):
     input than when they were generated.
     """
 
-    daily_log = get_object_or_404(DailyLog, pk=pk)
+    daily_log = get_object_or_404(DailyLog, pk=pk, flock__owner=request.user)
 
     if request.method == "POST":
         log_date = daily_log.date
@@ -264,6 +307,153 @@ def farm_record_delete(request, pk):
 
     context = {"active_nav": "records", "daily_log": daily_log}
     return render(request, "farm/farm_record_delete_confirm.html", context)
+
+
+@login_required
+def import_csv(request):
+    """Bulk-import a farmer's own historical DailyLog data from a CSV file.
+
+    All-or-nothing: every row is validated (the same DailyLog.full_clean rules the
+    single-entry form uses) before anything is saved. If any row fails, nothing is
+    imported and every row's errors are shown at once, so the farmer fixes their file
+    once and re-uploads, rather than ending up with a partially-imported file.
+
+    caging_period is assigned the same way a live log_daily_data entry would (see
+    services.assign_caging_periods) — the identical >CAGING_PERIOD_GAP_DAYS-day gap
+    rule, walked across the whole sorted batch and bridged from whatever history
+    already exists for this flock, so bulk import and manual entry can never disagree
+    on where a caging-period boundary falls.
+
+    Imported rows are historical backfill, not "today's" data, so no Forecast is
+    generated per row — every Forecast is a same-day nowcast (see
+    forecasting/services.py), and retroactively forecasting old dates doesn't fit that
+    model. A single retrain is triggered after a successful import instead, so the
+    farmer's own model incorporates their real history going forward.
+    """
+
+    active_flock = get_active_flock(request.user)
+    if active_flock is None:
+        messages.error(request, "No active flock exists yet. Create one from Flock Profile before importing records.")
+        return redirect("dashboard")
+
+    row_errors = []
+
+    if request.method == "POST":
+        form = DailyLogCSVImportForm(request.POST, request.FILES)
+        if form.is_valid():
+            csv_file = form.cleaned_data["csv_file"]
+            try:
+                decoded = csv_file.read().decode("utf-8-sig")
+            except UnicodeDecodeError:
+                form.add_error("csv_file", "Could not read file as text — make sure it's a plain CSV.")
+                decoded = None
+
+            if decoded is not None:
+                reader = csv.DictReader(io.StringIO(decoded))
+                header_map, missing_columns = _map_csv_headers(reader.fieldnames)
+                if missing_columns:
+                    form.add_error("csv_file", f"Missing required column(s): {', '.join(missing_columns)}.")
+                else:
+                    rows = list(reader)
+                    if len(rows) > MAX_CSV_IMPORT_ROWS:
+                        form.add_error("csv_file", f"Too many rows (max {MAX_CSV_IMPORT_ROWS}).")
+                    elif not rows:
+                        form.add_error("csv_file", "The file has no data rows.")
+                    else:
+                        parsed, row_errors = _parse_import_rows(rows, header_map, active_flock, request.user)
+                        if not row_errors:
+                            parsed.sort(key=lambda item: item[1])
+                            dates_sorted = [item[1] for item in parsed]
+                            periods = assign_caging_periods(active_flock, request.user, dates_sorted)
+                            with transaction.atomic():
+                                for (_, _, daily_log), period in zip(parsed, periods):
+                                    daily_log.caging_period = period
+                                DailyLog.objects.bulk_create([item[2] for item in parsed])
+                            trigger_retrain("csv_import", request.user.id)
+                            messages.success(request, f"Imported {len(parsed)} record(s).")
+                            return redirect("farm_records")
+    else:
+        form = DailyLogCSVImportForm()
+
+    context = {"active_nav": "records", "form": form, "row_errors": row_errors}
+    return render(request, "farm/import_csv.html", context)
+
+
+def _parse_import_rows(rows, header_map, active_flock, owner):
+    """Validate every CSV row in-memory (no DB writes) for import_csv.
+
+    ``header_map`` (from _map_csv_headers) maps each canonical field name to whatever
+    that column is actually called in this file — so a row is always read via
+    ``row[header_map[canonical_name]]``, never a hardcoded literal column name,
+    regardless of which recognized header alias the farmer's file used.
+
+    Returns (parsed, row_errors): parsed is a list of (row_number, date, unsaved
+    DailyLog) for rows that passed every check; row_errors is a list of
+    {row, date, messages} dicts for rows that didn't. caging_period is deliberately
+    left unset here — it's assigned afterward, once the whole file is known to be
+    valid, by assign_caging_periods across the sorted batch.
+    """
+
+    parsed = []
+    row_errors = []
+    seen_dates = {}
+
+    for i, row in enumerate(rows):
+        row_number = i + 2  # header is row 1, so the first data row is row 2
+        errors = []
+
+        raw_date = (row.get(header_map["date"]) or "").strip()
+        parsed_date = None
+        try:
+            parsed_date = date.fromisoformat(raw_date)
+        except ValueError:
+            errors.append("Invalid date (expected YYYY-MM-DD).")
+
+        field_values = {}
+        for field_name in CSV_IMPORT_INT_FIELDS + CSV_IMPORT_DECIMAL_FIELDS:
+            raw_value = (row.get(header_map[field_name]) or "").strip()
+            try:
+                field_values[field_name] = (
+                    int(raw_value) if field_name in CSV_IMPORT_INT_FIELDS else Decimal(raw_value)
+                )
+            except (ValueError, InvalidOperation):
+                errors.append(f"Invalid number for {field_name}: {raw_value!r}.")
+
+        if not errors:
+            if parsed_date in seen_dates:
+                errors.append(f"Duplicate date within file (also row {seen_dates[parsed_date]}).")
+            elif DailyLog.objects.filter(flock=active_flock, date=parsed_date).exists():
+                errors.append("A record for this date already exists — edit it from Farm Records instead.")
+
+        if not errors:
+            daily_log = DailyLog(
+                flock=active_flock, recorded_by=owner, date=parsed_date, **field_values
+            )
+            try:
+                daily_log.full_clean(exclude=["flock", "recorded_by", "caging_period"])
+            except ValidationError as exc:
+                for field_messages in exc.message_dict.values():
+                    errors.extend(field_messages)
+
+        if errors:
+            row_errors.append({"row": row_number, "date": raw_date, "messages": errors})
+        else:
+            seen_dates[parsed_date] = row_number
+            parsed.append((row_number, parsed_date, daily_log))
+
+    return parsed, row_errors
+
+
+@login_required
+def download_import_csv_template(request):
+    """A small example CSV matching import_csv's expected columns exactly."""
+
+    response = HttpResponse(content_type="text/csv")
+    response["Content-Disposition"] = 'attachment; filename="itikcare_import_template.csv"'
+    writer = csv.writer(response)
+    writer.writerow(CSV_IMPORT_COLUMNS)
+    writer.writerow(["2024-01-01", "240", "25", "40.0", "150", "28.0", "75.0"])
+    return response
 
 
 @login_required
@@ -287,13 +477,14 @@ def flock_profile(request):
     template_name = (
         "farm/_flock_profile_panel.html" if request.GET.get("partial") == "1" else "farm/flock_profile.html"
     )
-    active_flock = Flock.objects.filter(is_active=True).order_by("-generation_number").first()
+    active_flock = get_active_flock(request.user)
 
     if active_flock is None:
         if request.method == "POST":
             form = FlockForm(request.POST)
             if form.is_valid():
                 flock = form.save(commit=False)
+                flock.owner = request.user
                 flock.generation_number = 1
                 flock.save()
                 messages.success(request, "Flock created.")
@@ -322,6 +513,10 @@ def flock_profile(request):
         "active_nav": "flock_profile",
         "active_flock": active_flock,
         "latest_log": latest_log,
+        # Calendar-projected, not the raw snapshot on latest_log — ducks keep aging
+        # even during a logging gap (e.g. free-range), so "Average Age" must reflect
+        # today's date, not whatever date latest_log happens to be from.
+        "current_age_weeks": current_flock_age_weeks(latest_log),
         "form": form,
         "resume_form": resume_form,
     }
@@ -337,7 +532,7 @@ def flock_retire(request):
     active flock, and the new Flock row starts with none.
     """
 
-    active_flock = Flock.objects.filter(is_active=True).order_by("-generation_number").first()
+    active_flock = get_active_flock(request.user)
     if active_flock is None:
         messages.error(request, "No active flock to retire.")
         return redirect("flock_profile")
@@ -348,13 +543,14 @@ def flock_retire(request):
             active_flock.is_active = False
             active_flock.save(update_fields=["is_active"])
             Flock.objects.create(
+                owner=active_flock.owner,
                 generation_number=active_flock.generation_number + 1,
                 started_on=form.cleaned_data["started_on"],
                 is_active=True,
             )
             # Retirement closes out this generation's entire history at once — a
             # complete new segment of training data now exists.
-            trigger_retrain("flock_retired")
+            trigger_retrain("flock_retired", active_flock.owner_id)
             messages.success(request, "Flock retired. A new generation has been started.")
             messages.info(request, "Model retraining has been triggered in the background.")
             return redirect("flock_profile")
@@ -375,7 +571,7 @@ def toggle_caging_status(request):
     flock is marked caged again.
     """
 
-    active_flock = Flock.objects.filter(is_active=True).order_by("-generation_number").first()
+    active_flock = get_active_flock(request.user)
     if active_flock is None:
         messages.error(request, "No active flock to update.")
         return redirect("flock_profile")
@@ -401,7 +597,7 @@ def resume_caging(request):
     log_daily_data entry and cleared once that entry is actually saved.
     """
 
-    active_flock = Flock.objects.filter(is_active=True).order_by("-generation_number").first()
+    active_flock = get_active_flock(request.user)
     if active_flock is None or active_flock.is_caged:
         messages.error(request, "No free-range flock to resume caging for.")
         return redirect("flock_profile")

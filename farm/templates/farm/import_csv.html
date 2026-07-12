@@ -1,0 +1,61 @@
+{% extends "base.html" %}
+
+{% block title %}Import CSV — ItikCare{% endblock %}
+
+{% block content %}
+<div class="bg-white border border-gray-200 rounded-xl p-6 max-w-3xl">
+    <h1 class="text-2xl font-bold text-gray-900">Import Records from CSV</h1>
+    <p class="text-sm text-gray-500 mb-6">
+        Bring in your own existing daily records in bulk instead of typing them in one at a time.
+    </p>
+
+    <div class="bg-emerald-50 border border-emerald-100 rounded-lg p-4 mb-6 text-sm text-emerald-900">
+        <p class="font-semibold mb-1">Before you upload</p>
+        <ul class="list-disc list-inside space-y-0.5">
+            <li>Columns required: <code>date, flock_size, flock_age_weeks, feed_intake_kg, egg_count, temperature_c, humidity_pct</code> — or the equivalent natural names (e.g. "Number of Flocks", "Average Age of Flock (weeks)", "Feed Intake (kgs per day)", "Egg Yield (per day)", "Temperature", "Humidity") if that's what your own spreadsheet already uses. Column order doesn't matter.</li>
+            <li>Dates must be in <code>YYYY-MM-DD</code> format (e.g. 2024-01-01)</li>
+            <li>Flock size: 1–100,000 &middot; Flock age: 1–150 weeks &middot; Feed intake: 0–150 kg &middot; Egg count: 0–1000 &middot; Temperature: 0–45°C &middot; Humidity: 0–100%</li>
+            <li>All rows are checked before anything is saved — if any row has a problem, nothing is imported and every issue is listed below so you can fix your file and re-upload.</li>
+        </ul>
+        <a href="{% url 'download_import_csv_template' %}" class="inline-block mt-3 text-sm font-medium border border-emerald-300 text-emerald-800 rounded-md px-4 py-2 hover:bg-emerald-100">
+            Download CSV Template
+        </a>
+    </div>
+
+    <form method="post" enctype="multipart/form-data" class="space-y-4">
+        {% csrf_token %}
+        <div>
+            <label for="{{ form.csv_file.id_for_label }}" class="block text-sm font-medium text-gray-700 mb-1">{{ form.csv_file.label }}</label>
+            {{ form.csv_file }}
+            {% if form.csv_file.help_text %}
+            <p class="text-xs text-gray-500 mt-1">{{ form.csv_file.help_text }}</p>
+            {% endif %}
+            {% if form.csv_file.errors %}
+            <p class="text-sm text-red-600 mt-1">{{ form.csv_file.errors.0 }}</p>
+            {% endif %}
+        </div>
+        <div class="flex items-center gap-3">
+            <button type="submit" class="bg-emerald-700 text-white font-semibold rounded-lg px-8 py-2.5 hover:bg-emerald-800">
+                Import Records
+            </button>
+            <a href="{% url 'farm_records' %}" class="text-gray-600 font-medium px-4 py-2.5 hover:text-gray-900">Cancel</a>
+        </div>
+    </form>
+
+    {% if row_errors %}
+    <div class="mt-8 pt-6 border-t border-gray-100">
+        <h2 class="text-sm font-semibold text-red-700 mb-3">
+            {{ row_errors|length }} row(s) need fixing — nothing was imported
+        </h2>
+        <ul class="space-y-2 text-sm">
+            {% for row_error in row_errors %}
+            <li class="bg-red-50 border border-red-200 rounded-md px-3 py-2">
+                <span class="font-medium text-red-800">Row {{ row_error.row }}{% if row_error.date %} ({{ row_error.date }}){% endif %}:</span>
+                <span class="text-red-700">{{ row_error.messages|join:"; " }}</span>
+            </li>
+            {% endfor %}
+        </ul>
+    </div>
+    {% endif %}
+</div>
+{% endblock %}

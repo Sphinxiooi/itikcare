@@ -8,6 +8,7 @@ from django.contrib import admin
 from django.contrib.auth import views as auth_views
 from django.urls import include, path
 
+from accounts import views as accounts_views
 from accounts.forms import StyledAuthenticationForm
 
 urlpatterns = [
@@ -21,6 +22,7 @@ urlpatterns = [
         name='login',
     ),
     path('accounts/logout/', auth_views.LogoutView.as_view(), name='logout'),
+    path('accounts/signup/', accounts_views.signup, name='signup'),
     path('', include('dashboard.urls')),
     path('', include('farm.urls')),
     path('', include('forecasting.urls')),

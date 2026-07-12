@@ -16,6 +16,24 @@ class Forecast(models.Model):
     forecast_date = models.DateField(help_text="The date this forecast is predicting for.")
     predicted_daily_yield = models.DecimalField(max_digits=8, decimal_places=2)
     predicted_tri_day_yield = models.DecimalField(max_digits=8, decimal_places=2)
+    predicted_next_day1_yield = models.DecimalField(
+        max_digits=8, decimal_places=2, null=True, blank=True,
+        help_text="Best-effort forecast for forecast_date + 1 day (tomorrow). Derived by "
+        "recursively re-applying the same daily_pipeline used for predicted_daily_yield, "
+        "not a separately trained model — see forecasting/services.py's "
+        "_predict_next_days. Null until a forecast generated after this field existed.",
+    )
+    predicted_next_day2_yield = models.DecimalField(
+        max_digits=8, decimal_places=2, null=True, blank=True,
+        help_text="Best-effort forecast for forecast_date + 2 days. See "
+        "predicted_next_day1_yield — this step's lag1/roll3 inputs partly depend on that "
+        "day's own prediction, so error compounds further here.",
+    )
+    predicted_next_day3_yield = models.DecimalField(
+        max_digits=8, decimal_places=2, null=True, blank=True,
+        help_text="Best-effort forecast for forecast_date + 3 days. See "
+        "predicted_next_day1_yield — the most compounded of the three recursive steps.",
+    )
     feature_importances = models.JSONField(
         help_text="RF feature importance scores at prediction time, e.g. "
         '{"temperature_c": 0.31, "feed_intake_kg": 0.22, ...}. '

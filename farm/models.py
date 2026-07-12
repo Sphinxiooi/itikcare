@@ -14,7 +14,13 @@ class Flock(models.Model):
     flock age drops sharply between generations.
     """
 
-    generation_number = models.PositiveIntegerField(unique=True)
+    owner = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        related_name="flocks",
+        help_text="The farmer this flock (and its farm) belongs to.",
+    )
+    generation_number = models.PositiveIntegerField()
     started_on = models.DateField()
     is_active = models.BooleanField(default=True)
     is_caged = models.BooleanField(
@@ -30,6 +36,11 @@ class Flock(models.Model):
 
     class Meta:
         ordering = ["generation_number"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["owner", "generation_number"], name="unique_generation_per_owner"
+            )
+        ]
 
     def __str__(self):
         return f"Generation {self.generation_number} (started {self.started_on})"

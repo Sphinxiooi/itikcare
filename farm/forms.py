@@ -82,6 +82,32 @@ class FlockResumeCagingForm(forms.Form):
     )
 
 
+MAX_CSV_IMPORT_SIZE_BYTES = 5 * 1024 * 1024  # 5 MB — generous for realistic years-of-daily-rows volumes.
+
+
+class DailyLogCSVImportForm(forms.Form):
+    """File-level validation only for a bulk DailyLog import.
+
+    Row-level parsing/validation happens in views.import_csv, not here — errors must be
+    reported per-row with row numbers, which doesn't fit Django's per-field form error
+    model for a single FileField.
+    """
+
+    csv_file = forms.FileField(
+        label="CSV File",
+        help_text="Columns: date, flock_size, flock_age_weeks, feed_intake_kg, egg_count, temperature_c, humidity_pct.",
+        widget=forms.ClearableFileInput(attrs={"class": INPUT_CLASSES, "accept": ".csv"}),
+    )
+
+    def clean_csv_file(self):
+        csv_file = self.cleaned_data["csv_file"]
+        if not csv_file.name.lower().endswith(".csv"):
+            raise forms.ValidationError("File must be a .csv file.")
+        if csv_file.size > MAX_CSV_IMPORT_SIZE_BYTES:
+            raise forms.ValidationError("File is too large (max 5 MB).")
+        return csv_file
+
+
 class DailyLogEditForm(forms.ModelForm):
     """Edit form for an existing DailyLog.
 

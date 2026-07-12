@@ -10,7 +10,7 @@
         </div>
         <div>
             <p class="text-xs font-medium text-gray-500 uppercase">Average Age</p>
-            <p class="text-lg font-semibold text-gray-900">{% if latest_log %}{{ latest_log.flock_age_weeks }} wks{% else %}—{% endif %}</p>
+            <p class="text-lg font-semibold text-gray-900">{% if current_age_weeks %}{{ current_age_weeks }} wks{% else %}—{% endif %}</p>
         </div>
         <div>
             <p class="text-xs font-medium text-gray-500 uppercase">Flock #</p>
@@ -39,6 +39,16 @@
             </button>
         </div>
     </form>
+
+    <div class="mt-8 pt-6 border-t border-gray-100">
+        <h2 class="text-sm font-semibold text-gray-700 mb-1">Already have records for this flock?</h2>
+        <p class="text-sm text-gray-500 mb-3">
+            Bring in your existing daily data in bulk instead of typing it in one day at a time.
+        </p>
+        <a href="{% url 'import_csv' %}" class="inline-block text-sm font-medium border border-emerald-200 text-emerald-700 rounded-md px-4 py-2 hover:bg-emerald-50">
+            Import CSV
+        </a>
+    </div>
 
     <div class="mt-8 pt-6 border-t border-gray-100">
         <h2 class="text-sm font-semibold text-gray-700 mb-1">Caging Status</h2>

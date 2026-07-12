@@ -98,6 +98,7 @@ class Command(BaseCommand):
             flock = flocks_by_generation.get(generation_number)
             if flock is None:
                 flock, created = Flock.objects.get_or_create(
+                    owner=recorded_by,
                     generation_number=generation_number,
                     defaults={"started_on": row_date, "is_active": False},
                 )
@@ -125,17 +126,17 @@ class Command(BaseCommand):
             daily_log.save()
             summary["logs_created"] += 1
 
-        self._set_active_flock()
+        self._set_active_flock(recorded_by)
         return summary
 
-    def _set_active_flock(self):
-        """Mark the highest-generation Flock as active, matching farm/views.py's
-        single-active-flock assumption (Flock.objects.filter(is_active=True)...first())."""
+    def _set_active_flock(self, owner):
+        """Mark this owner's highest-generation Flock as active, matching
+        farm/services.py's get_active_flock single-active-flock-per-owner assumption."""
 
-        latest_flock = Flock.objects.order_by("-generation_number").first()
+        latest_flock = Flock.objects.filter(owner=owner).order_by("-generation_number").first()
         if latest_flock is None:
             return
-        Flock.objects.exclude(pk=latest_flock.pk).update(is_active=False)
+        Flock.objects.filter(owner=owner).exclude(pk=latest_flock.pk).update(is_active=False)
         if not latest_flock.is_active:
             latest_flock.is_active = True
             latest_flock.save(update_fields=["is_active"])

@@ -13,10 +13,8 @@ User = get_user_model()
 
 @override_settings(FARM_LATITUDE=None, FARM_LONGITUDE=None)
 class DashboardIndexTests(TestCase):
-    """Covers the "3-Day Egg Yield Outlook" panel (see farm diagnostics: every
-    Forecast is a same-day nowcast, so this panel must show the single
-    predicted_tri_day_yield stat rather than iterating non-existent future-dated
-    Forecast rows)."""
+    """Covers the "Next 3-Day Forecast" panel: 3 distinct day-by-day numbers
+    (predicted_next_day1/2/3_yield), not the single predicted_tri_day_yield sum."""
 
     def setUp(self):
         self.user = User.objects.create_user(username="farmer1", password="pw12345")
@@ -27,8 +25,8 @@ class DashboardIndexTests(TestCase):
         response = self.client.get("/")
         self.assertContains(response, "No forecasts generated yet.")
 
-    def test_shows_tri_day_yield_stat_for_todays_forecast(self):
-        flock = Flock.objects.create(generation_number=1, started_on=date(2024, 1, 1))
+    def test_shows_three_next_day_forecasts(self):
+        flock = Flock.objects.create(owner=self.user, generation_number=1, started_on=date(2024, 1, 1))
         log = DailyLog.objects.create(
             flock=flock, date=date.today(), flock_size=240, caging_period=1,
             flock_age_weeks=25, egg_count=150, feed_intake_kg="40.0",
@@ -38,15 +36,44 @@ class DashboardIndexTests(TestCase):
             flock=flock, forecast_date=date.today(),
             predicted_daily_yield=Decimal("152.00"),
             predicted_tri_day_yield=Decimal("455.00"),
+            predicted_next_day1_yield=Decimal("157.00"),
+            predicted_next_day2_yield=Decimal("155.00"),
+            predicted_next_day3_yield=Decimal("172.00"),
             feature_importances={"temperature_c": 0.4},
             model_version="rf-test",
         )
         forecast.source_logs.set([log])
 
         response = self.client.get("/")
-        self.assertContains(response, "3-Day Egg Yield Outlook")
-        self.assertContains(response, "455.00")
-        self.assertNotContains(response, "Next 3-day Forecast")
+        self.assertContains(response, "Next 3-Day Forecast")
+        self.assertContains(response, "Tomorrow")
+        self.assertContains(response, "157.00")
+        self.assertContains(response, "155.00")
+        self.assertContains(response, "172.00")
+
+
+class DashboardFlockAgeTests(TestCase):
+    """Covers the "Flocks Age" card's current_age_weeks -- must be today_log.flock_age_weeks
+    projected forward by calendar weeks elapsed, not the raw stale snapshot, since
+    today_log can be several weeks old (itikcare-spec.md section 10)."""
+
+    def setUp(self):
+        self.user = User.objects.create_user(username="farmer1", password="pw12345")
+        self.client = Client()
+        self.client.login(username="farmer1", password="pw12345")
+
+    @patch("farm.services.date")
+    def test_age_card_projects_forward_from_a_stale_log(self, mock_date):
+        flock = Flock.objects.create(owner=self.user, generation_number=1, started_on=date(2023, 1, 1))
+        DailyLog.objects.create(
+            flock=flock, date=date(2024, 1, 1), flock_size=240, caging_period=1,
+            flock_age_weeks=94, egg_count=150, feed_intake_kg="40.0",
+            temperature_c="28.0", humidity_pct="75.0", recorded_by=self.user,
+        )
+        mock_date.today.return_value = date(2024, 2, 12)  # exactly 6 weeks (42 days) later
+        response = self.client.get("/")
+        self.assertEqual(response.context["current_age_weeks"], 100)
+        self.assertContains(response, "100")
 
 
 class DashboardCurrentWeatherTests(TestCase):
@@ -89,7 +116,7 @@ class DashboardFreeRangeTests(TestCase):
         self.client.login(username="farmer1", password="pw12345")
 
     def test_free_range_flock_shows_banner_and_hides_forecast_data(self):
-        flock = Flock.objects.create(generation_number=1, started_on=date(2024, 1, 1), is_caged=False)
+        flock = Flock.objects.create(owner=self.user, generation_number=1, started_on=date(2024, 1, 1), is_caged=False)
         log = DailyLog.objects.create(
             flock=flock, date=date.today(), flock_size=240, caging_period=1,
             flock_age_weeks=25, egg_count=150, feed_intake_kg="40.0",
@@ -99,6 +126,9 @@ class DashboardFreeRangeTests(TestCase):
             flock=flock, forecast_date=date.today(),
             predicted_daily_yield=Decimal("152.00"),
             predicted_tri_day_yield=Decimal("455.00"),
+            predicted_next_day1_yield=Decimal("157.00"),
+            predicted_next_day2_yield=Decimal("155.00"),
+            predicted_next_day3_yield=Decimal("172.00"),
             feature_importances={"temperature_c": 0.4},
             model_version="rf-test",
         )
@@ -106,12 +136,12 @@ class DashboardFreeRangeTests(TestCase):
 
         response = self.client.get("/")
         self.assertContains(response, "free-range in the field")
-        self.assertNotContains(response, "3-Day Egg Yield Outlook")
-        self.assertNotContains(response, "455.00")
+        self.assertNotContains(response, "Next 3-Day Forecast")
+        self.assertNotContains(response, "157.00")
         self.assertNotContains(response, "Recent Farm Records")
 
     def test_re_caging_the_flock_brings_the_summary_back(self):
-        flock = Flock.objects.create(generation_number=1, started_on=date(2024, 1, 1), is_caged=False)
+        flock = Flock.objects.create(owner=self.user, generation_number=1, started_on=date(2024, 1, 1), is_caged=False)
         DailyLog.objects.create(
             flock=flock, date=date.today(), flock_size=240, caging_period=1,
             flock_age_weeks=25, egg_count=150, feed_intake_kg="40.0",

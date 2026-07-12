@@ -27,11 +27,12 @@ from forecasting.models import Forecast
 User = get_user_model()
 
 
-def _records(start, caging_period, n, egg_start=100):
+def _records(start, caging_period, n, egg_start=100, flock_id=1):
     """A run of `n` consecutive daily rows in one caging period."""
     return [
         {
             "date": start + timedelta(days=i),
+            "flock_id": flock_id,
             "caging_period": caging_period,
             "flock_size": 250,
             "flock_age_weeks": 40,
@@ -99,6 +100,25 @@ class LagFeatureTests(SimpleTestCase):
         # Period 2's first retained row must lag on period-2 days (500s), never period 1.
         period2 = lagged[lagged["caging_period"] == 2].sort_values("date")
         self.assertGreaterEqual(period2["lag1"].min(), 500)
+
+    def test_lags_never_borrow_across_two_flocks_sharing_the_same_caging_period_number(self):
+        """Multi-tenant land-mine: a second farm's own caging_period numbering can
+        legitimately collide with another farm's (e.g. both start at 1). Without the
+        flock_id-prefixed segment_key, groupby("caging_period") alone would treat two
+        unrelated flocks' rows as one contiguous segment and leak lag1/roll3 between
+        two different farms' data.
+        """
+        recs = _records(date(2024, 2, 1), 1, 4, egg_start=100, flock_id=1)
+        # Same raw caging_period (1) as above, but a different flock, overlapping dates.
+        recs += _records(date(2024, 2, 1), 1, 4, egg_start=900, flock_id=2)
+        df = ml.build_feature_frame(recs)
+        # The two flocks must land in different segments despite sharing caging_period.
+        self.assertEqual(df["segment_key"].nunique(), 2)
+        lagged = ml.add_lag_features(df)
+        flock2 = lagged[lagged["flock_id"] == 2].sort_values("date")
+        # flock 2's lag1 values must only ever come from flock 2's own 900s range,
+        # never flock 1's 100s range.
+        self.assertGreaterEqual(flock2["lag1"].min(), 900)
 
 
 class ChronologicalSplitTests(SimpleTestCase):
@@ -205,7 +225,7 @@ class GenerateForecastTests(TestCase):
 
     def setUp(self):
         self.user = User.objects.create_user(username="farmer1", password="pw12345")
-        self.flock = Flock.objects.create(generation_number=1, started_on=date(2024, 1, 1))
+        self.flock = Flock.objects.create(owner=self.user, generation_number=1, started_on=date(2024, 1, 1))
         self.logs = [
             DailyLog.objects.create(
                 flock=self.flock, date=date(2024, 1, 1) + timedelta(days=i), caging_period=1,
@@ -259,6 +279,99 @@ class GenerateForecastTests(TestCase):
         forecast = services.generate_forecast(self.logs[3], model_path=custom_path)
         self.assertEqual(forecast.feature_importances, daily_importances)
 
+    def test_generates_next_day_forecasts_using_weather_when_todays_log(self):
+        today_log = DailyLog.objects.create(
+            flock=self.flock, date=date.today(), caging_period=1,
+            flock_size=240, flock_age_weeks=25, egg_count=170, feed_intake_kg="40.0",
+            temperature_c="33.0", humidity_pct="70.0", recorded_by=self.user,
+        )
+        weather = {
+            date.today() + timedelta(days=1): {"temperature_c": 30.0, "humidity_pct": 80.0},
+            date.today() + timedelta(days=2): {"temperature_c": 31.0, "humidity_pct": 78.0},
+            date.today() + timedelta(days=3): {"temperature_c": 32.0, "humidity_pct": 76.0},
+        }
+        with patch("forecasting.services.fetch_forecast_weather", return_value=weather) as mock_fetch:
+            forecast = services.generate_forecast(today_log, model_path=self.model_path)
+
+        mock_fetch.assert_called_once()
+        self.assertIsInstance(forecast.predicted_next_day1_yield, Decimal)
+        self.assertIsInstance(forecast.predicted_next_day2_yield, Decimal)
+        self.assertIsInstance(forecast.predicted_next_day3_yield, Decimal)
+
+    def test_next_day_forecasts_fall_back_to_carried_forward_weather_on_fetch_failure(self):
+        today_log = DailyLog.objects.create(
+            flock=self.flock, date=date.today(), caging_period=1,
+            flock_size=240, flock_age_weeks=25, egg_count=170, feed_intake_kg="40.0",
+            temperature_c="33.0", humidity_pct="70.0", recorded_by=self.user,
+        )
+        with patch("forecasting.services.fetch_forecast_weather", return_value={}) as mock_fetch:
+            forecast = services.generate_forecast(today_log, model_path=self.model_path)
+
+        mock_fetch.assert_called_once()
+        self.assertIsInstance(forecast.predicted_next_day1_yield, Decimal)
+        self.assertIsInstance(forecast.predicted_next_day2_yield, Decimal)
+        self.assertIsInstance(forecast.predicted_next_day3_yield, Decimal)
+
+    def test_backdated_log_skips_weather_forecast_fetch(self):
+        day4 = self.logs[3]  # dated 2024-01-04, never "today" -- Open-Meteo's forecast
+        # can't meaningfully inform a backdated log's future days.
+        with patch("forecasting.services.fetch_forecast_weather") as mock_fetch:
+            services.generate_forecast(day4, model_path=self.model_path)
+        mock_fetch.assert_not_called()
+
+
+class PredictNextDaysTests(SimpleTestCase):
+    """Direct unit test of the recursive lag1/roll3 feature construction in
+    services._predict_next_days, isolated from real RF prediction values via a stub
+    pipeline that just records the feature rows it was called with."""
+
+    def test_recursive_lag1_roll3_construction(self):
+        class StubLog:
+            date = date(2024, 1, 10)
+            egg_count = 150
+            flock_size = 240
+            flock_age_weeks = 25
+            feed_intake_kg = Decimal("40.0")
+            temperature_c = Decimal("30.0")
+            humidity_pct = Decimal("70.0")
+
+        class StubPrior:
+            def __init__(self, egg_count):
+                self.egg_count = egg_count
+
+        # priors ordered most-recent-first, matching _build_feature_row's
+        # .order_by("-date")[:3].
+        priors = [StubPrior(145), StubPrior(140), StubPrior(135)]
+
+        captured_rows = []
+
+        class StubPipeline:
+            def predict(self, X):
+                captured_rows.append(X.iloc[0].to_dict())
+                return [100.0 + len(captured_rows)]
+
+        day1, day2, day3 = services._predict_next_days(StubPipeline(), StubLog(), priors, {})
+
+        # day+1: lag1 = today's actual; roll3 = mean(today, prior[0], prior[1]).
+        self.assertEqual(captured_rows[0]["lag1"], 150.0)
+        self.assertAlmostEqual(captured_rows[0]["roll3"], (150 + 145 + 140) / 3)
+        self.assertEqual(day1, 101.0)
+
+        # day+2: lag1 = day1's own prediction; roll3 = mean(day1_pred, today, prior[0]).
+        self.assertEqual(captured_rows[1]["lag1"], day1)
+        self.assertAlmostEqual(captured_rows[1]["roll3"], (day1 + 150 + 145) / 3)
+        self.assertEqual(day2, 102.0)
+
+        # day+3: lag1 = day2's own prediction; roll3 = mean(day2_pred, day1_pred, today).
+        self.assertEqual(captured_rows[2]["lag1"], day2)
+        self.assertAlmostEqual(captured_rows[2]["roll3"], (day2 + day1 + 150) / 3)
+        self.assertEqual(day3, 103.0)
+
+        # No weather_by_date entries -> temperature/humidity carried forward from today.
+        for row in captured_rows:
+            self.assertEqual(row["temperature_c"], 30.0)
+            self.assertEqual(row["humidity_pct"], 70.0)
+
 
 class TriggerRetrainTests(SimpleTestCase):
     """services.trigger_retrain is a fire-and-forget launcher: these tests only check
@@ -275,12 +388,14 @@ class TriggerRetrainTests(SimpleTestCase):
 
     @patch("forecasting.services.subprocess.Popen")
     def test_launches_the_tune_strict_management_command_without_waiting(self, mock_popen):
-        services.trigger_retrain("caging_period_closed")
+        services.trigger_retrain("caging_period_closed", owner_id=7)
 
         mock_popen.assert_called_once()
         cmd = mock_popen.call_args.args[0]
         self.assertEqual(cmd[0], sys.executable)
         self.assertIn("train_forecast_model", cmd)
+        self.assertIn("--owner-id", cmd)
+        self.assertIn("7", cmd)
         self.assertIn("--tune", cmd)
         self.assertIn("--strict", cmd)
         # Fire-and-forget: never blocks on the child process.
@@ -288,10 +403,12 @@ class TriggerRetrainTests(SimpleTestCase):
         mock_popen.return_value.communicate.assert_not_called()
 
     @patch("forecasting.services.subprocess.Popen")
-    def test_writes_the_reason_to_the_retrain_log(self, mock_popen):
-        services.trigger_retrain("flock_retired")
-        self.assertIn("flock_retired", self.log_path.read_text(encoding="utf-8"))
+    def test_writes_the_reason_and_owner_to_the_retrain_log(self, mock_popen):
+        services.trigger_retrain("flock_retired", owner_id=7)
+        log_contents = self.log_path.read_text(encoding="utf-8")
+        self.assertIn("flock_retired", log_contents)
+        self.assertIn("owner_id=7", log_contents)
 
     @patch("forecasting.services.subprocess.Popen", side_effect=OSError("no such executable"))
     def test_a_launch_failure_is_swallowed_not_raised(self, mock_popen):
-        services.trigger_retrain("caging_period_closed")  # must not raise
+        services.trigger_retrain("caging_period_closed", owner_id=7)  # must not raise

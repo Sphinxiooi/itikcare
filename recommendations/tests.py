@@ -112,7 +112,7 @@ class ImportanceOrderingTests(SimpleTestCase):
 class GenerateRecommendationsTests(TestCase):
     def setUp(self):
         self.user = User.objects.create_user(username="farmer1", password="pw")
-        self.flock = Flock.objects.create(generation_number=1, started_on=date(2024, 1, 1))
+        self.flock = Flock.objects.create(owner=self.user, generation_number=1, started_on=date(2024, 1, 1))
         self.log = DailyLog.objects.create(
             flock=self.flock,
             date=date(2024, 2, 1),

@@ -2,9 +2,22 @@
 on the daily log form (see views.log_daily_data) — never a substitute for the farmer's
 own reading (itikcare-spec.md section 7: temperature/humidity are always manual entry).
 The farmer still reviews, can overwrite, and must submit the form themselves.
+
+Also provides a short-range forecast (fetch_forecast_weather) used to estimate
+temperature_c/humidity_pct for the next few days when forecasting.services recursively
+projects future egg yield — same "best effort, never a hard dependency" contract as
+fetch_current_weather.
+
+geocode_address is a third, standalone concern: turning the free-text farm address a
+farmer types at signup (accounts.views.signup) into the latitude/longitude the two
+functions above need. It's kept in this module rather than in accounts/ because it's
+still just "talk to Open-Meteo," the same HTTP/timeout/logging pattern as the rest of
+this file, and it means accounts/ never has to know Open-Meteo is the provider.
 """
 
 import logging
+from collections import defaultdict
+from datetime import date as date_cls
 
 import requests
 from django.conf import settings
@@ -12,12 +25,16 @@ from django.conf import settings
 logger = logging.getLogger(__name__)
 
 OPEN_METEO_URL = "https://api.open-meteo.com/v1/forecast"
+OPEN_METEO_GEOCODING_URL = "https://geocoding-api.open-meteo.com/v1/search"
 REQUEST_TIMEOUT_SECONDS = 5
 
 
-def fetch_current_weather():
+def fetch_current_weather(latitude=None, longitude=None):
     """Best-effort fetch of current temperature (°C) / relative humidity (%) at the
-    farm's fixed coordinates (FARM_LATITUDE/FARM_LONGITUDE).
+    given coordinates, falling back to the global FARM_LATITUDE/FARM_LONGITUDE settings
+    (the foundation farmer's location) when latitude/longitude aren't passed — see
+    farm.services.get_effective_coordinates, which callers should use to resolve a
+    specific farmer's own coordinates before calling this.
 
     Returns {"temperature_c": float, "humidity_pct": float}, rounded to 1 decimal and
     clamped to DailyLogForm's widget ranges (0-45 / 0-100), or None if coordinates
@@ -26,8 +43,8 @@ def fetch_current_weather():
     husbandry), so callers can always safely treat None as "leave the field blank for
     the farmer to fill in," same as before this existed.
     """
-    latitude = settings.FARM_LATITUDE
-    longitude = settings.FARM_LONGITUDE
+    latitude = latitude or settings.FARM_LATITUDE
+    longitude = longitude or settings.FARM_LONGITUDE
     if not latitude or not longitude:
         return None
 
@@ -57,3 +74,105 @@ def fetch_current_weather():
     temperature_c = min(max(temperature_c, 0.0), 45.0)
     humidity_pct = min(max(humidity_pct, 0.0), 100.0)
     return {"temperature_c": temperature_c, "humidity_pct": humidity_pct}
+
+
+def fetch_forecast_weather(latitude=None, longitude=None) -> dict:
+    """Best-effort short-range forecast: {date: {"temperature_c": float, "humidity_pct":
+    float}} for today and the next few days at the given coordinates, falling back to
+    the global FARM_LATITUDE/FARM_LONGITUDE settings when latitude/longitude aren't
+    passed — see fetch_current_weather's docstring for the same fallback contract.
+
+    Keyed by real calendar date (not a "day+1/day+2" offset) so a caller anchoring off
+    an arbitrary date can just do weather_by_date.get(target_date) and get nothing back
+    for a date outside Open-Meteo's real-today-anchored forecast window, instead of
+    silently misattributing a wrong day's forecast to it.
+
+    Open-Meteo has no daily-aggregate humidity variable, so both fields are pulled from
+    the hourly endpoint and averaged per calendar day here. forecast_days=4 (today plus
+    3 full future days) so the 3rd future day's 24-hour bucket is complete rather than
+    truncated. timezone=auto aligns day boundaries to the farm's local calendar day
+    (matching how farmers enter DailyLog.date) instead of defaulting to GMT.
+
+    Returns {} (never None) on any failure, so callers can always call .get(...) on the
+    result unconditionally. Never raises, same contract as fetch_current_weather.
+    """
+    latitude = latitude or settings.FARM_LATITUDE
+    longitude = longitude or settings.FARM_LONGITUDE
+    if not latitude or not longitude:
+        return {}
+
+    try:
+        response = requests.get(
+            OPEN_METEO_URL,
+            params={
+                "latitude": latitude,
+                "longitude": longitude,
+                "hourly": "temperature_2m,relative_humidity_2m",
+                "forecast_days": 4,
+                "timezone": "auto",
+            },
+            timeout=REQUEST_TIMEOUT_SECONDS,
+        )
+        response.raise_for_status()
+        hourly = response.json()["hourly"]
+        times = hourly["time"]
+        temps = hourly["temperature_2m"]
+        humidities = hourly["relative_humidity_2m"]
+    except Exception:
+        logger.warning(
+            "Weather forecast fetch failed for FARM_LATITUDE=%s FARM_LONGITUDE=%s",
+            latitude, longitude, exc_info=True,
+        )
+        return {}
+
+    temps_by_date = defaultdict(list)
+    humidities_by_date = defaultdict(list)
+    for time_str, temp, humidity in zip(times, temps, humidities):
+        if temp is None or humidity is None:
+            continue
+        day = date_cls.fromisoformat(time_str.split("T")[0])
+        temps_by_date[day].append(float(temp))
+        humidities_by_date[day].append(float(humidity))
+
+    forecast = {}
+    for day in temps_by_date:
+        if day not in humidities_by_date:
+            continue
+        temperature_c = round(sum(temps_by_date[day]) / len(temps_by_date[day]), 1)
+        humidity_pct = round(sum(humidities_by_date[day]) / len(humidities_by_date[day]), 1)
+        # Same defensive clamp as fetch_current_weather.
+        temperature_c = min(max(temperature_c, 0.0), 45.0)
+        humidity_pct = min(max(humidity_pct, 0.0), 100.0)
+        forecast[day] = {"temperature_c": temperature_c, "humidity_pct": humidity_pct}
+
+    return forecast
+
+
+def geocode_address(address):
+    """Best-effort resolve a free-text farm address to (latitude, longitude), or None
+    if the address is blank, can't be found, or the request fails/times out.
+
+    Never raises, same "best effort" contract as fetch_current_weather/
+    fetch_forecast_weather — accounts.views.signup treats None as "couldn't place this
+    address," not a reason to block account creation.
+    """
+    if not address:
+        return None
+
+    try:
+        response = requests.get(
+            OPEN_METEO_GEOCODING_URL,
+            params={"name": address, "count": 1},
+            timeout=REQUEST_TIMEOUT_SECONDS,
+        )
+        response.raise_for_status()
+        results = response.json().get("results")
+        if not results:
+            return None
+        latitude = float(results[0]["latitude"])
+        longitude = float(results[0]["longitude"])
+    except Exception:
+        logger.warning("Geocoding failed for address=%r", address, exc_info=True)
+        return None
+
+    return latitude, longitude

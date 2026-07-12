@@ -1,0 +1,124 @@
+{
+  "model_version": "rf-14-20260712-144754",
+  "owner_id": 14,
+  "trained_at": "2026-07-12T14:47:54",
+  "n_samples_total": 608,
+  "features": [
+    "flock_size",
+    "flock_age_weeks",
+    "feed_intake_kg",
+    "temperature_c",
+    "humidity_pct",
+    "lag1",
+    "roll3"
+  ],
+  "thresholds": {
+    "mae_pct": 0.08,
+    "rmse_pct": 0.1,
+    "mape": 0.15,
+    "r2": 0.75
+  },
+  "tuned": true,
+  "best_params": {
+    "daily": {
+      "rf__n_estimators": 600,
+      "rf__min_samples_split": 10,
+      "rf__min_samples_leaf": 4,
+      "rf__max_features": 1.0,
+      "rf__max_depth": 5
+    },
+    "tri_day": {
+      "rf__n_estimators": 400,
+      "rf__min_samples_split": 10,
+      "rf__min_samples_leaf": 3,
+      "rf__max_features": 0.5,
+      "rf__max_depth": 6
+    }
+  },
+  "daily": {
+    "metrics": {
+      "n": 119,
+      "target_mean": 240.76779661016948,
+      "mae": 16.754188249450078,
+      "mae_pct": 0.06958649987804233,
+      "rmse": 20.418891722652738,
+      "rmse_pct": 0.08480740368992641,
+      "mape": 0.07926397399645048,
+      "r2": 0.9524601039611368,
+      "passes": {
+        "mae": true,
+        "rmse": true,
+        "mape": true,
+        "r2": true
+      }
+    },
+    "baseline": {
+      "n": 119,
+      "target_mean": 240.76779661016948,
+      "mae": 77.37531445699294,
+      "mae_pct": 0.3213690350054264,
+      "rmse": 93.67326840487328,
+      "rmse_pct": 0.38906062074630765,
+      "mape": 0.3810130348898053,
+      "r2": -0.0005187750911648248,
+      "passes": {
+        "mae": false,
+        "rmse": false,
+        "mape": false,
+        "r2": false
+      }
+    },
+    "feature_importances": {
+      "flock_size": 0.5769233320406928,
+      "roll3": 0.14719923613257765,
+      "lag1": 0.11256225687699246,
+      "feed_intake_kg": 0.09404271084539786,
+      "flock_age_weeks": 0.06403856922613871,
+      "humidity_pct": 0.004108586410509096,
+      "temperature_c": 0.0011253084676913579
+    }
+  },
+  "tri_day": {
+    "metrics": {
+      "n": 114,
+      "target_mean": 722.9669565217391,
+      "mae": 53.89873964673314,
+      "mae_pct": 0.07455214814525543,
+      "rmse": 65.9391614908831,
+      "rmse_pct": 0.09120632816764199,
+      "mape": 0.08991166075607734,
+      "r2": 0.9455746059458013,
+      "passes": {
+        "mae": true,
+        "rmse": true,
+        "mape": true,
+        "r2": true
+      }
+    },
+    "baseline": {
+      "n": 114,
+      "target_mean": 722.9669565217391,
+      "mae": 234.21052631578954,
+      "mae_pct": 0.32395744259543763,
+      "rmse": 282.65167926154624,
+      "rmse_pct": 0.3909607164086857,
+      "mape": 0.3881513349285965,
+      "r2": -4.117511355072878e-05,
+      "passes": {
+        "mae": false,
+        "rmse": false,
+        "mape": false,
+        "r2": false
+      }
+    },
+    "feature_importances": {
+      "feed_intake_kg": 0.33366940091927366,
+      "flock_size": 0.3289461423424598,
+      "lag1": 0.1705928097603752,
+      "roll3": 0.13020481771562956,
+      "flock_age_weeks": 0.03264982406693157,
+      "temperature_c": 0.0024912940134082994,
+      "humidity_pct": 0.0014457111819219306
+    }
+  }
+}
