@@ -1,0 +1,33 @@
+{% load static %}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Something went wrong — ItikCare</title>
+    <link rel="stylesheet" href="{% static 'dist/output.css' %}">
+</head>
+<body class="min-h-screen flex items-center justify-center px-4"
+      style="background-image: linear-gradient(rgba(6,78,59,0.55), rgba(6,78,59,0.55)), url('{% static 'images/hero-ducks.jpg' %}'); background-size: cover; background-position: center; background-attachment: fixed;">
+    <div class="w-full max-w-sm bg-emerald-900/90 rounded-3xl p-3">
+        <div class="bg-emerald-800 rounded-t-2xl px-6 py-6 text-center">
+            <div class="flex items-center justify-center gap-3 mb-3">
+                <span class="flex items-center justify-center w-10 h-10 rounded-lg bg-white text-lg">🦆</span>
+                <span class="leading-tight text-left">
+                    <span class="block text-xl font-bold text-white">ItikCare</span>
+                    <span class="block text-xs font-medium text-emerald-100 -mt-1">Egg Yield Forecasting</span>
+                </span>
+            </div>
+        </div>
+
+        <div class="bg-white px-6 py-6 text-center">
+            <h1 class="text-xl font-bold text-gray-900">Something went wrong</h1>
+            <p class="text-sm text-gray-500 mt-2">We hit an unexpected error on our end. Try again in a moment — if it keeps happening, let an admin know.</p>
+        </div>
+
+        <div class="bg-emerald-800 rounded-b-2xl px-6 py-4 text-center text-sm text-emerald-100">
+            <a href="/" class="font-semibold text-white hover:underline">Back to ItikCare</a>
+        </div>
+    </div>
+</body>
+</html>

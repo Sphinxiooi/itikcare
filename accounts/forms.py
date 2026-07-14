@@ -1,5 +1,10 @@
 from django import forms
-from django.contrib.auth.forms import AuthenticationForm, UserCreationForm
+from django.contrib.auth.forms import (
+    AuthenticationForm,
+    PasswordResetForm,
+    SetPasswordForm,
+    UserCreationForm,
+)
 
 from .models import User
 
@@ -22,6 +27,25 @@ class StyledAuthenticationForm(AuthenticationForm):
         self.fields["password"].widget.attrs.update({"class": INPUT_CLASSES})
 
 
+class StyledPasswordResetForm(PasswordResetForm):
+    """PasswordResetForm with Tailwind classes — same rationale as
+    StyledAuthenticationForm above."""
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields["email"].widget.attrs.update({"class": INPUT_CLASSES})
+
+
+class StyledSetPasswordForm(SetPasswordForm):
+    """SetPasswordForm (the "choose a new password" step of the reset flow) with
+    Tailwind classes — same rationale as StyledAuthenticationForm above."""
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields["new_password1"].widget.attrs.update({"class": INPUT_CLASSES})
+        self.fields["new_password2"].widget.attrs.update({"class": INPUT_CLASSES})
+
+
 class SignupForm(UserCreationForm):
     """Self-service farmer signup.
 
@@ -38,17 +62,23 @@ class SignupForm(UserCreationForm):
     never block on this (an unresolvable address just leaves latitude/longitude unset),
     so address is never made required, and latitude/longitude aren't form fields at all
     — they're only ever set from the geocoding result, never typed in directly.
+
+    email is optional, same reasoning as address: it's the only channel the built-in
+    password-reset flow (itikcare/urls.py) can send a reset link to, so a farmer who
+    skips it simply can't self-service a forgotten password later — an admin resets it
+    manually via /admin/ instead. Never made required so signup keeps its low barrier.
     """
 
     class Meta:
         model = User
-        fields = ["username", "address"]
+        fields = ["username", "email", "address"]
         widgets = {
             "address": forms.TextInput(attrs={"placeholder": "e.g. Libmanan, Camarines Sur"}),
         }
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        for field_name in ("username", "password1", "password2", "address"):
+        for field_name in ("username", "email", "password1", "password2", "address"):
             self.fields[field_name].widget.attrs.update({"class": INPUT_CLASSES})
+        self.fields["email"].required = False
         self.fields["address"].required = False

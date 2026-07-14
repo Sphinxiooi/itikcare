@@ -1,0 +1,17 @@
+[Unit]
+Description=ItikCare (gunicorn)
+After=network.target mysql.service
+
+[Service]
+# Adjust User/Group and paths for your VM. This assumes the repo lives at
+# /home/itikcare/app and the venv was created inside it (see DEPLOYMENT.md).
+User=itikcare
+Group=itikcare
+WorkingDirectory=/home/itikcare/app
+EnvironmentFile=/home/itikcare/app/.env
+ExecStart=/home/itikcare/app/venv/bin/gunicorn -c deploy/gunicorn_conf.py itikcare.wsgi:application
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

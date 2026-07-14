@@ -32,12 +32,47 @@ DEBUG = os.environ.get('DJANGO_DEBUG', 'False') == 'True'
 
 ALLOWED_HOSTS = os.environ.get('DJANGO_ALLOWED_HOSTS', '').split(',')
 
+# CSRF_TRUSTED_ORIGINS must list the scheme (e.g. https://itikcare.example.com) once the
+# app is served from a real domain -- Django 4+ checks the Origin header against this,
+# not just ALLOWED_HOSTS. Empty by default so local dev (plain http://localhost) is
+# unaffected.
+CSRF_TRUSTED_ORIGINS = [
+    origin for origin in os.environ.get('DJANGO_CSRF_TRUSTED_ORIGINS', '').split(',') if origin
+]
+
+# The next four settings hardcode-safe-by-default (off) and are meant to be flipped on
+# one at a time during VM deployment, in this order: get the app running over plain
+# HTTP first, put it behind an HTTPS-terminating reverse proxy (nginx) and set
+# DJANGO_BEHIND_PROXY=True so Django trusts the proxy's X-Forwarded-Proto header, confirm
+# HTTPS actually works end-to-end, then set DJANGO_SECURE_SSL_REDIRECT=True and finally
+# raise DJANGO_SECURE_HSTS_SECONDS. Flipping these on before HTTPS is confirmed working
+# will lock every request out with a redirect loop or a browser-rejected cookie.
+DJANGO_BEHIND_PROXY = os.environ.get('DJANGO_BEHIND_PROXY', 'False') == 'True'
+if DJANGO_BEHIND_PROXY:
+    SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
+
+SECURE_SSL_REDIRECT = os.environ.get('DJANGO_SECURE_SSL_REDIRECT', 'False') == 'True'
+SECURE_HSTS_SECONDS = int(os.environ.get('DJANGO_SECURE_HSTS_SECONDS', '0'))
+
+# These two are safe to tie directly to DEBUG rather than a separate env var: a secure
+# cookie is simply never sent back by the browser over plain http, which is exactly
+# local dev (DEBUG=True) and never production (DEBUG=False).
+SESSION_COOKIE_SECURE = not DEBUG
+CSRF_COOKIE_SECURE = not DEBUG
+
 # Farm's fixed GPS coordinates -- used only to prefill temperature_c/humidity_pct
 # suggestions on the daily log form from a live weather API (farm/weather.py). Optional
 # (.get() with no default, unlike the required DB_* vars above): an environment without
 # these configured simply disables the prefill rather than failing to start.
 FARM_LATITUDE = os.environ.get('FARM_LATITUDE')
 FARM_LONGITUDE = os.environ.get('FARM_LONGITUDE')
+
+# "Sign in with Google" (accounts/google_oauth.py, accounts/views.py's google_login/
+# google_callback). Same optional-integration shape as FARM_LATITUDE above: an
+# environment without these configured just doesn't show the button (see
+# accounts.context_processors.google_oauth_enabled) rather than failing to start.
+GOOGLE_OAUTH_CLIENT_ID = os.environ.get('GOOGLE_OAUTH_CLIENT_ID')
+GOOGLE_OAUTH_CLIENT_SECRET = os.environ.get('GOOGLE_OAUTH_CLIENT_SECRET')
 
 
 # Application definition
@@ -60,6 +95,9 @@ AUTH_USER_MODEL = 'accounts.User'
 
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
+    # Must sit directly after SecurityMiddleware (whitenoise's own requirement) so it can
+    # serve STATIC_ROOT itself -- no separate nginx static-file block needed on the VM.
+    'whitenoise.middleware.WhiteNoiseMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
@@ -80,6 +118,7 @@ TEMPLATES = [
                 'django.template.context_processors.request',
                 'django.contrib.auth.context_processors.auth',
                 'django.contrib.messages.context_processors.messages',
+                'accounts.context_processors.google_oauth_enabled',
             ],
         },
     },
@@ -142,6 +181,27 @@ USE_TZ = True
 
 STATIC_URL = 'static/'
 STATICFILES_DIRS = [BASE_DIR / 'static']
+# Populated by `manage.py collectstatic` (gitignored, see .gitignore) -- required for
+# whitenoise/any production server; the Django dev server ignores this and serves
+# STATICFILES_DIRS directly, so local dev works with or without ever running collectstatic.
+STATIC_ROOT = BASE_DIR / 'staticfiles'
+
+STORAGES = {
+    'default': {
+        'BACKEND': 'django.core.files.storage.FileSystemStorage',
+    },
+    'staticfiles': {
+        # Deliberately the non-manifest variant: ManifestStaticFilesStorage resolves
+        # every {% static %} tag through a staticfiles.json built by `collectstatic`,
+        # which doesn't exist yet in local dev/tests (and Django's test runner forces
+        # DEBUG=False, so gating this on DEBUG wouldn't help) -- every page using
+        # {% static %} would 500 until collectstatic had been run at least once. This
+        # variant still gets gzip/brotli precompression and correct cache headers from
+        # WhiteNoiseMiddleware, just without content-hashed cache-busting filenames --
+        # an acceptable trade for a small, infrequently-redeployed app.
+        'BACKEND': 'whitenoise.storage.CompressedStaticFilesStorage',
+    },
+}
 
 # Default primary key field type
 # https://docs.djangoproject.com/en/5.2/ref/settings/#default-auto-field
@@ -152,3 +212,72 @@ DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 LOGIN_URL = 'login'
 LOGIN_REDIRECT_URL = 'dashboard'
 LOGOUT_REDIRECT_URL = 'dashboard'
+
+
+# Email -- used for the password-reset flow (accounts/urls.py) and, when DEBUG=False,
+# for ADMINS error alerts below. Falls back to printing emails to the console/runserver
+# log when DJANGO_EMAIL_HOST isn't set in .env, so the reset flow is fully testable
+# locally without a real mail provider; point EMAIL_HOST at real SMTP credentials
+# (Gmail app password, SendGrid, Mailgun, etc.) when one is available.
+EMAIL_HOST = os.environ.get('DJANGO_EMAIL_HOST')
+if EMAIL_HOST:
+    EMAIL_BACKEND = 'django.core.mail.backends.smtp.EmailBackend'
+    EMAIL_PORT = int(os.environ.get('DJANGO_EMAIL_PORT', '587'))
+    EMAIL_HOST_USER = os.environ.get('DJANGO_EMAIL_HOST_USER', '')
+    EMAIL_HOST_PASSWORD = os.environ.get('DJANGO_EMAIL_HOST_PASSWORD', '')
+    EMAIL_USE_TLS = os.environ.get('DJANGO_EMAIL_USE_TLS', 'True') == 'True'
+else:
+    EMAIL_BACKEND = 'django.core.mail.backends.console.EmailBackend'
+DEFAULT_FROM_EMAIL = os.environ.get('DJANGO_DEFAULT_FROM_EMAIL', 'webmaster@localhost')
+
+# ADMINS receives an email (via EMAIL_BACKEND above) for every unhandled 500 once
+# DEBUG=False -- without this, a production error is otherwise silent. Format in .env:
+# "Name One:one@example.com,Name Two:two@example.com".
+ADMINS = [
+    tuple(entry.split(':', 1))
+    for entry in os.environ.get('DJANGO_ADMINS', '').split(',')
+    if ':' in entry
+]
+SERVER_EMAIL = os.environ.get('DJANGO_SERVER_EMAIL', DEFAULT_FROM_EMAIL)
+
+LOGGING = {
+    'version': 1,
+    'disable_existing_loggers': False,
+    'formatters': {
+        'verbose': {
+            'format': '{asctime} {levelname} {name}: {message}',
+            'style': '{',
+        },
+    },
+    'handlers': {
+        'console': {
+            'class': 'logging.StreamHandler',
+            'formatter': 'verbose',
+        },
+        'file': {
+            'class': 'logging.handlers.RotatingFileHandler',
+            'filename': BASE_DIR / 'logs' / 'app.log',
+            'maxBytes': 5 * 1024 * 1024,
+            'backupCount': 5,
+            'formatter': 'verbose',
+        },
+        # Emails ADMINS on unhandled exceptions; no-op (and harmless) while DEBUG=True,
+        # since Django's own debug page handles those instead of this logger.
+        'mail_admins': {
+            'level': 'ERROR',
+            'class': 'django.utils.log.AdminEmailHandler',
+        },
+    },
+    'root': {
+        'handlers': ['console', 'file'],
+        'level': 'INFO',
+    },
+    'loggers': {
+        'django.request': {
+            'handlers': ['mail_admins'],
+            'level': 'ERROR',
+            'propagate': True,
+        },
+    },
+}
+(BASE_DIR / 'logs').mkdir(exist_ok=True)

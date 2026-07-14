@@ -50,29 +50,34 @@ For a one-off production-style build (minified, no watch):
 
 ## Project structure
 
-- `accounts` — custom User model (role: farmer/admin)
-- `farm` — Flock, DailyLog, DailyLogEdit (audit trail for historical data edits);
-  also owns the Log Daily Data and Farm Records (list + audited edit) pages
-- `forecasting` — Forecast model + `train_forecast_model` management command
-  (Random Forest training pipeline — currently a scaffold, not yet implemented);
+- `accounts` — custom User model (role: farmer/admin); self-service signup
+  (optional email/address — address is geocoded for weather prefill, email
+  enables self-service password reset) plus admin-created accounts via
+  `/admin/`; optional "Sign in with Google" (`accounts/google_oauth.py`,
+  see `.env.example`/`DEPLOYMENT.md`) that creates or logs into an account
+  with no local password to ever reset
+- `farm` — Flock (with caging-period/generation lifecycle), DailyLog,
+  DailyLogEdit (audit trail for historical data edits), CSV bulk import; also
+  owns the Log Daily Data and Farm Records (list + audited edit) pages.
+  `farm/weather.py` prefills temperature/humidity suggestions on the daily log
+  form from a live weather API (Open-Meteo), geocoded to each farmer's own
+  address when set, falling back to the `FARM_LATITUDE`/`FARM_LONGITUDE`
+  settings otherwise — the farmer can always override the prefilled values by
+  hand, since the spec scopes temperature/humidity as ultimately manual entry
+- `forecasting` — Forecast model, the Random Forest training pipeline
+  (`forecasting/pipeline.py`), and the `train_forecast_model` management
+  command (rolling retraining, per-owner models, `--tune`/`--strict` flags);
   also owns the Forecast & Recommendations page
-- `recommendations` — Recommendation model + rule engine (forward chaining —
-  currently a scaffold, not yet implemented)
+- `recommendations` — Recommendation model + the forward-chaining rule engine
+  (`recommendations/engine.py`, `recommendations/rules.py`), combined with RF
+  feature importance, with every recommendation traceable to the rule/variable
+  that triggered it
 - `dashboard` — main landing page aggregating forecasts, recommendations, and
   recent farm records
 
-The UI (sidebar layout, login screen, and all four pages above) matches the Figma
-prototype in `prototype/`. Three intentional deviations from the mockup: the weather
-box on the dashboard reads from today's own DailyLog entry rather than a live
-third-party weather API (spec explicitly scopes temperature/humidity as manual
-entry, no external integrations); there's no self-registration/"Create Account"
-flow (accounts are admin-created via `/admin/`, per the spec's single-farm scope);
-and the mockup's "Refresh" button on the Next 3-day Forecast card is omitted,
-since regenerating a forecast is a periodic retraining/pipeline action (see
-`train_forecast_model`), not something that makes sense to trigger inline from a
-page request.
+The UI (sidebar layout, login screen, and all pages above) matches the Figma
+prototype in `prototype/`.
 
-The Random Forest model and the rule engine are both stubs (see
-`forecasting/management/commands/train_forecast_model.py` and
-`recommendations/engine.py`) — the dashboard, forecast, and recommendations pages
-render correctly against empty data and will populate once those are implemented.
+## Deployment
+
+For running this somewhere other than your own machine, see `DEPLOYMENT.md`.

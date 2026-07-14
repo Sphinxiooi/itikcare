@@ -1,0 +1,24 @@
+# Reverse proxy only -- whitenoise (see itikcare/settings.py MIDDLEWARE/STORAGES)
+# serves STATIC_ROOT directly out of the gunicorn process, so nginx doesn't need its
+# own static file block. Copy to /etc/nginx/sites-available/itikcare, adjust
+# server_name and the certbot-managed TLS paths, then symlink into sites-enabled.
+
+server {
+    listen 80;
+    server_name itikcare.example.com;
+
+    location / {
+        proxy_pass http://127.0.0.1:8000;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        # Required for Django to see the request as HTTPS once TLS is added below and
+        # DJANGO_BEHIND_PROXY=True is set in .env -- see DEPLOYMENT.md.
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+}
+
+# After confirming the app works over plain HTTP above, run:
+#   sudo certbot --nginx -d itikcare.example.com
+# which rewrites this file to add the "listen 443 ssl;" block, a certificate, and an
+# http->https redirect for you. Only then set DJANGO_SECURE_SSL_REDIRECT=True in .env.

@@ -52,6 +52,18 @@ class User(AbstractUser):
         validators=[MinValueValidator(-180), MaxValueValidator(180)],
         help_text="Farm's GPS longitude — see latitude's help_text.",
     )
+    google_sub = models.CharField(
+        max_length=255,
+        unique=True,
+        null=True,
+        blank=True,
+        help_text="Google's stable per-account ID ('sub' claim), set the first time this "
+        "user signs in with Google (see accounts/google_oauth.py, accounts/views.py's "
+        "google_callback). Stable for the life of the Google account even if its email "
+        "changes later, unlike matching on email alone. null=True (not blank default) so "
+        "MySQL's unique index only enforces uniqueness among accounts that actually have "
+        "one linked -- most accounts never will.",
+    )
 
     class Meta:
         verbose_name = "user"
