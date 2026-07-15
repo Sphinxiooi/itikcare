@@ -7,6 +7,13 @@ from farm.models import DailyLog
 from farm.services import current_flock_age_weeks, get_active_flock, get_effective_coordinates
 from farm.weather import fetch_current_weather
 from forecasting.models import Forecast
+from recommendations.models import Recommendation
+
+# Lower rank = shown first. Independent of feature-importance order -- the dashboard's
+# single "Quick Recommendation" card is about urgency (what needs attention right now),
+# not which feature the model currently weighs most; the full importance-ordered list
+# lives on the Forecast & Recommendations page (forecasting/views.py).
+PRIORITY_RANK = {Recommendation.Priority.HIGH: 0, Recommendation.Priority.MEDIUM: 1, Recommendation.Priority.LOW: 2}
 
 
 def index(request):
@@ -47,7 +54,30 @@ def index(request):
         if flock_is_caged
         else None
     )
-    recommendations = latest_forecast.recommendations.all()[:3] if latest_forecast else []
+    # Dashboard shows only the single most urgent recommendation (highest priority,
+    # ties broken by feature importance -- matching the ordering convention on the
+    # Forecast & Recommendations page). Every fired-rule feature always has exactly one
+    # Recommendation now (recommendations/rules.py fires a LOW "all good" confirmation
+    # when nothing's wrong), so this always picks the one thing most worth surfacing
+    # here; the full set is on the Forecast & Recommendations page, not truncated there.
+    top_recommendation = None
+    if latest_forecast:
+        all_recs = list(latest_forecast.recommendations.all())
+        if all_recs:
+            importance_rank = {
+                feature: rank
+                for rank, feature in enumerate(
+                    sorted(
+                        latest_forecast.feature_importances,
+                        key=latest_forecast.feature_importances.get,
+                        reverse=True,
+                    )
+                )
+            }
+            top_recommendation = min(
+                all_recs,
+                key=lambda r: (PRIORITY_RANK.get(r.priority, 99), importance_rank.get(r.triggered_by, 99)),
+            )
 
     # Forecast confidence note: source_logs holds daily_log + up to 3 priors from the
     # same caging period (see forecasting/services.py's _build_feature_row) -- exactly
@@ -160,7 +190,7 @@ def index(request):
         "next_day_forecasts": next_day_forecasts,
         "forecast_history_days": forecast_history_days,
         "forecast_low_confidence": forecast_low_confidence,
-        "recommendations": recommendations,
+        "top_recommendation": top_recommendation,
         "recent_logs": recent_logs,
         "recent_records": recent_records,
         "trend_logs": trend_logs,

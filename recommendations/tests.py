@@ -33,9 +33,10 @@ def _inputs(**overrides):
 
 
 class TemperatureRuleTests(SimpleTestCase):
-    def test_below_moderate_threshold_fires_nothing(self):
+    def test_normal_temperature_fires_low_confirmation(self):
         fired = rules.evaluate_rules(_inputs(temperature_c=29.0), ["temperature_c"])
-        self.assertEqual(fired, [])
+        self.assertEqual(len(fired), 1)
+        self.assertEqual(fired[0].priority, Recommendation.Priority.LOW)
 
     def test_moderate_heat_fires_medium(self):
         fired = rules.evaluate_rules(_inputs(temperature_c=31.0), ["temperature_c"])
@@ -49,6 +50,11 @@ class TemperatureRuleTests(SimpleTestCase):
 
 
 class HumidityRuleTests(SimpleTestCase):
+    def test_normal_humidity_fires_low_confirmation(self):
+        fired = rules.evaluate_rules(_inputs(humidity_pct=70.0), ["humidity_pct"])
+        self.assertEqual(len(fired), 1)
+        self.assertEqual(fired[0].priority, Recommendation.Priority.LOW)
+
     def test_moderate_humidity_fires_medium(self):
         fired = rules.evaluate_rules(_inputs(humidity_pct=82.0), ["humidity_pct"])
         self.assertEqual(len(fired), 1)
@@ -61,10 +67,11 @@ class HumidityRuleTests(SimpleTestCase):
 
 
 class FeedIntakeRuleTests(SimpleTestCase):
-    def test_adequate_feed_fires_nothing(self):
+    def test_adequate_feed_fires_low_confirmation(self):
         # 42.0 / 250 = 0.168 kg/bird/day, above both thresholds.
         fired = rules.evaluate_rules(_inputs(), ["feed_intake_kg"])
-        self.assertEqual(fired, [])
+        self.assertEqual(len(fired), 1)
+        self.assertEqual(fired[0].priority, Recommendation.Priority.LOW)
 
     def test_moderate_underfeeding_fires_medium(self):
         # 38.0 / 250 = 0.152 kg/bird/day: below moderate (0.160), above severe (0.150).
@@ -80,9 +87,10 @@ class FeedIntakeRuleTests(SimpleTestCase):
 
 
 class FlockAgeRuleTests(SimpleTestCase):
-    def test_plateau_fires_nothing(self):
+    def test_plateau_fires_low_confirmation(self):
         fired = rules.evaluate_rules(_inputs(flock_age_weeks=30), ["flock_age_weeks"])
-        self.assertEqual(fired, [])
+        self.assertEqual(len(fired), 1)
+        self.assertEqual(fired[0].priority, Recommendation.Priority.LOW)
 
     def test_pre_peak_fires_low(self):
         fired = rules.evaluate_rules(_inputs(flock_age_weeks=20), ["flock_age_weeks"])
@@ -122,7 +130,7 @@ class GenerateRecommendationsTests(TestCase):
             egg_count=200,
             feed_intake_kg=35.0,  # severe underfeeding
             temperature_c=33.0,  # severe heat
-            humidity_pct=70.0,  # no humidity rule
+            humidity_pct=70.0,  # in range -> low-priority confirmation
             recorded_by=self.user,
         )
         self.forecast = Forecast.objects.create(
@@ -145,22 +153,25 @@ class GenerateRecommendationsTests(TestCase):
         created = generate_recommendations(self.forecast)
         by_feature = {r.triggered_by: r for r in created}
 
-        self.assertEqual(set(by_feature), {"temperature_c", "feed_intake_kg", "flock_age_weeks"})
+        self.assertEqual(
+            set(by_feature), {"temperature_c", "feed_intake_kg", "flock_age_weeks", "humidity_pct"}
+        )
         self.assertEqual(by_feature["temperature_c"].priority, Recommendation.Priority.HIGH)
         self.assertEqual(by_feature["feed_intake_kg"].priority, Recommendation.Priority.HIGH)
         self.assertEqual(by_feature["flock_age_weeks"].priority, Recommendation.Priority.MEDIUM)
+        self.assertEqual(by_feature["humidity_pct"].priority, Recommendation.Priority.LOW)
 
     def test_output_order_matches_feature_importance_descending(self):
         created = generate_recommendations(self.forecast)
         self.assertEqual(
             [r.triggered_by for r in created],
-            ["temperature_c", "feed_intake_kg", "flock_age_weeks"],
+            ["temperature_c", "feed_intake_kg", "flock_age_weeks", "humidity_pct"],
         )
 
     def test_regeneration_is_idempotent(self):
         generate_recommendations(self.forecast)
         generate_recommendations(self.forecast)
-        self.assertEqual(self.forecast.recommendations.count(), 3)
+        self.assertEqual(self.forecast.recommendations.count(), 4)
 
     def test_no_source_logs_yields_no_recommendations(self):
         self.forecast.source_logs.clear()

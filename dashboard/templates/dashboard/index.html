@@ -120,18 +120,17 @@
         </div>
 
         <div class="bg-amber-50 border border-amber-200 rounded-xl p-4">
-            <h2 class="text-lg font-bold text-gray-900 mb-3">💡 Quick Recommendations</h2>
-            {% if recommendations %}
-            <ul class="space-y-3">
-                {% for rec in recommendations %}
-                <li class="rounded-lg p-3 text-sm
-                    {% if rec.priority == 'high' %}bg-red-50
-                    {% elif rec.priority == 'medium' %}bg-amber-100
-                    {% else %}bg-emerald-50{% endif %}">
-                    {{ rec.message }}
-                </li>
-                {% endfor %}
-            </ul>
+            <div class="flex justify-between items-center mb-3">
+                <h2 class="text-lg font-bold text-gray-900">💡 Top Recommendation</h2>
+                <a href="{% url 'forecast_recommendations' %}" class="text-sm font-medium text-emerald-700 hover:underline">View all</a>
+            </div>
+            {% if top_recommendation %}
+            <p class="rounded-lg p-3 text-sm
+                {% if top_recommendation.priority == 'high' %}bg-red-50
+                {% elif top_recommendation.priority == 'medium' %}bg-amber-100
+                {% else %}bg-emerald-50{% endif %}">
+                {{ top_recommendation.message }}
+            </p>
             {% else %}
             <p class="text-sm text-gray-500">No recommendations yet.</p>
             {% endif %}

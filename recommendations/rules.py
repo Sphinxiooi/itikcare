@@ -15,6 +15,29 @@ Threshold design (see itikcare-spec.md section 6 and CLAUDE.md's "no black box" 
   generic textbook numbers. See the comment above each constant for the percentile it corresponds
   to. They are intentionally grouped here in one place so an adviser can review/adjust the whole
   table without touching any rule logic.
+* Every feature's rule list ends with a catch-all "in range" rule (``condition=lambda i: True``)
+  at LOW priority, so ``evaluate_rules`` always fires exactly one rule per feature — either a
+  warning or an explicit "no changes needed" confirmation. Nothing is ever silently skipped.
+* Deliberately absent, by data, not by omission:
+  - **Cold-stress / low-humidity rules.** ``ItikCare_Cleaned_Dataset.csv`` never records
+    temperature below 24.0°C or humidity below 51%RH in 551 rows — this farm's tropical climate
+    never approaches either stress condition, so a rule for it would be untestable and unreachable
+    in practice.
+  - **An "overfeeding" rule.** Feed-per-bird reaches up to 0.230 kg/bird/day in the data with no
+    associated drop in yield, so there's no egg-yield evidence to trigger on; framing it as a
+    cost-saving tip would also stray into the financial-advice territory CLAUDE.md excludes from
+    scope. Only underfeeding (which does track with yield risk) has a rule.
+* ``temperature_c`` and ``humidity_pct`` consistently have the *lowest* RF feature importance of
+  all seven model features in every trained artifact under ``models/`` (0.1%-0.8%, vs. 35-59% for
+  flock_size). Since ``evaluate_rules`` orders fired rules by importance, a HIGH-priority heat or
+  humidity warning will typically still display *below* feed/age recommendations on a given day —
+  that's expected, spec-section-6-compliant behavior (importance drives order, not severity), not
+  a bug.
+* ``PEAK_AGE_START_WEEKS``/``POST_PEAK_DECLINE_WEEKS`` come from itikcare-spec.md section 4's
+  cited literature ("peak laying period for itik is ~28-29 weeks"), independent of
+  ``flock_age_weeks``'s own comparatively modest RF importance (~5-6% across trained artifacts) —
+  the rule fires on the literature-cited age window regardless of how important the model
+  currently finds age; importance only ever affects *display order* of whatever fired.
 """
 
 from __future__ import annotations
@@ -98,6 +121,14 @@ RULES: dict[str, list[Rule]] = {
                 "climbing."
             ),
         ),
+        Rule(
+            condition=lambda i: True,
+            priority=Priority.LOW,
+            message=lambda i: (
+                f"Temperature is {i['temperature_c']:.1f}°C, within the normal range. "
+                "No changes needed."
+            ),
+        ),
     ],
     "humidity_pct": [
         Rule(
@@ -116,6 +147,14 @@ RULES: dict[str, list[Rule]] = {
                 f"Humidity is {i['humidity_pct']:.0f}%, above the moderate threshold of "
                 f"{HUMIDITY_MODERATE_PCT:.0f}%. Keep housing well-ventilated, especially if "
                 "temperature is also elevated."
+            ),
+        ),
+        Rule(
+            condition=lambda i: True,
+            priority=Priority.LOW,
+            message=lambda i: (
+                f"Humidity is {i['humidity_pct']:.0f}%, within a safe range. Keep your "
+                "current ventilation."
             ),
         ),
     ],
@@ -139,6 +178,14 @@ RULES: dict[str, list[Rule]] = {
                 "increasing the feed ration to support yield."
             ),
         ),
+        Rule(
+            condition=lambda i: True,
+            priority=Priority.LOW,
+            message=lambda i: (
+                f"Feed intake is {_feed_per_bird(i) * 1000:.0f}g/bird/day, matching your "
+                "flock's needs. No adjustment needed."
+            ),
+        ),
     ],
     "flock_age_weeks": [
         Rule(
@@ -159,6 +206,15 @@ RULES: dict[str, list[Rule]] = {
                 f"Flock age is {i['flock_age_weeks']} weeks, approaching the peak laying "
                 f"window (~{PEAK_AGE_START_WEEKS}-29 weeks). Maintain current feeding and "
                 "environmental care — yield is expected to keep rising toward peak."
+            ),
+        ),
+        Rule(
+            condition=lambda i: True,
+            priority=Priority.LOW,
+            message=lambda i: (
+                f"Flock age is {i['flock_age_weeks']} weeks, within the peak laying window "
+                f"(~{PEAK_AGE_START_WEEKS}-{POST_PEAK_DECLINE_WEEKS} weeks). Keep up your "
+                "current care to protect this output."
             ),
         ),
     ],
