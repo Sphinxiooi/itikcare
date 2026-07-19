@@ -1,4 +1,5 @@
 from django import forms
+from django.utils import timezone
 
 from .models import DailyLog, Flock
 
@@ -42,26 +43,63 @@ class DailyLogForm(forms.ModelForm):
             "flock_age_weeks": "Pre-filled forward from your last entry based on today's date — adjust if needed.",
         }
 
+    def __init__(self, *args, active_flock=None, **kwargs):
+        # Caps the browser's native date picker at today (and, if we know which flock
+        # this entry is for, at the flock's start date on the other end) so the
+        # farmer can't even pick an out-of-range date — clean_date() below is the
+        # real (server-side) guard either way.
+        super().__init__(*args, **kwargs)
+        self.active_flock = active_flock
+        self.fields["date"].widget.attrs["max"] = timezone.localdate().isoformat()
+        if active_flock is not None:
+            self.fields["date"].widget.attrs["min"] = active_flock.started_on.isoformat()
 
-class FlockForm(forms.ModelForm):
-    """Collects a flock's start date.
+    def clean_date(self):
+        """Keep the date within this flock's normal range: not in the future (a farmer
+        can log today or backfill a missed past day, but not log ahead of time for a
+        day that hasn't happened yet), and not before this flock even started."""
+        entered_date = self.cleaned_data["date"]
+        if entered_date > timezone.localdate():
+            raise forms.ValidationError("You can't log data for a future date.")
+        if self.active_flock is not None and entered_date < self.active_flock.started_on:
+            raise forms.ValidationError(
+                f"This flock started on {self.active_flock.started_on:%b %d, %Y} — "
+                "you can't log data from before then."
+            )
+        return entered_date
 
-    Reused for three lifecycle actions handled in views.flock_profile/flock_retire:
-    correcting the active flock's started_on, starting a farm's very first flock
-    (no active flock exists yet), and starting the new generation when retiring the
-    current one. generation_number and is_active are never farmer-editable directly —
-    the view logic sets those explicitly for each action instead.
+
+class FlockRegisterForm(forms.Form):
+    """Collects a new flock's starting details: size, age, and feed intake.
+
+    A plain Form (not a ModelForm) because these values aren't stored directly on
+    Flock — they're staged on the pending_flock_size/pending_flock_age_weeks/
+    pending_feed_intake_kg fields (same pattern as FlockResumeCagingForm above) and
+    consumed as the prefill for the flock's very first DailyLog in views.log_daily_data.
+    Used both for a farm's first-ever flock and for registering the next generation
+    after retiring the current one — both go through views.flock_profile, since
+    retiring (views.flock_retire) no longer creates a replacement flock itself.
+    Flock.started_on is set to today's date by the view, not farmer-entered.
     """
 
-    class Meta:
-        model = Flock
-        fields = ["started_on"]
-        widgets = {
-            "started_on": forms.DateInput(attrs={"type": "date", "class": INPUT_CLASSES}),
-        }
-        labels = {
-            "started_on": "Flock Start Date",
-        }
+    flock_size = forms.IntegerField(
+        label="Flock Size (number of ducks)",
+        min_value=1,
+        max_value=100000,
+        widget=forms.NumberInput(attrs={"class": INPUT_CLASSES, "min": "1", "max": "100000"}),
+    )
+    flock_age_weeks = forms.IntegerField(
+        label="Flock Age (weeks)",
+        min_value=1,
+        max_value=150,
+        widget=forms.NumberInput(attrs={"class": INPUT_CLASSES, "min": "1", "max": "150"}),
+    )
+    feed_intake_kg = forms.DecimalField(
+        label="Feed Intake (kg/day)",
+        min_value=0,
+        max_value=150,
+        widget=forms.NumberInput(attrs={"class": INPUT_CLASSES, "step": "0.1", "min": "0", "max": "150"}),
+    )
 
 
 class FlockResumeCagingForm(forms.Form):
@@ -80,32 +118,6 @@ class FlockResumeCagingForm(forms.Form):
         max_value=100000,
         widget=forms.NumberInput(attrs={"class": INPUT_CLASSES, "min": "1", "max": "100000"}),
     )
-
-
-MAX_CSV_IMPORT_SIZE_BYTES = 5 * 1024 * 1024  # 5 MB — generous for realistic years-of-daily-rows volumes.
-
-
-class DailyLogCSVImportForm(forms.Form):
-    """File-level validation only for a bulk DailyLog import.
-
-    Row-level parsing/validation happens in views.import_csv, not here — errors must be
-    reported per-row with row numbers, which doesn't fit Django's per-field form error
-    model for a single FileField.
-    """
-
-    csv_file = forms.FileField(
-        label="CSV File",
-        help_text="Columns: date, flock_size, flock_age_weeks, feed_intake_kg, egg_count, temperature_c, humidity_pct.",
-        widget=forms.ClearableFileInput(attrs={"class": INPUT_CLASSES, "accept": ".csv"}),
-    )
-
-    def clean_csv_file(self):
-        csv_file = self.cleaned_data["csv_file"]
-        if not csv_file.name.lower().endswith(".csv"):
-            raise forms.ValidationError("File must be a .csv file.")
-        if csv_file.size > MAX_CSV_IMPORT_SIZE_BYTES:
-            raise forms.ValidationError("File is too large (max 5 MB).")
-        return csv_file
 
 
 class DailyLogEditForm(forms.ModelForm):
@@ -129,3 +141,24 @@ class DailyLogEditForm(forms.ModelForm):
             "temperature_c": forms.NumberInput(attrs={"class": INPUT_CLASSES, "step": "0.1", "min": "0", "max": "45"}),
             "humidity_pct": forms.NumberInput(attrs={"class": INPUT_CLASSES, "step": "0.1", "min": "0", "max": "100"}),
         }
+
+    def __init__(self, *args, **kwargs):
+        # Caps the browser's native date picker at today, and at this record's own
+        # flock's start date on the other end, so a date can't be edited outside this
+        # flock's normal range — clean_date() below is the real (server-side) guard.
+        super().__init__(*args, **kwargs)
+        self.fields["date"].widget.attrs["max"] = timezone.localdate().isoformat()
+        self.fields["date"].widget.attrs["min"] = self.instance.flock.started_on.isoformat()
+
+    def clean_date(self):
+        """Same date-range rules as DailyLogForm — an edit can't move a record's date
+        ahead of today, or back before its flock even started."""
+        entered_date = self.cleaned_data["date"]
+        if entered_date > timezone.localdate():
+            raise forms.ValidationError("You can't log data for a future date.")
+        if entered_date < self.instance.flock.started_on:
+            raise forms.ValidationError(
+                f"This flock started on {self.instance.flock.started_on:%b %d, %Y} — "
+                "you can't log data from before then."
+            )
+        return entered_date

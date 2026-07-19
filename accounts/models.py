@@ -20,10 +20,11 @@ class User(AbstractUser):
         help_text="The one farmer whose historical DailyLog data seeds every new "
         "farmer's bootstrap forecasting model (see forecasting/management/commands/"
         "train_forecast_model.py). At most one user may ever have this set — enforced "
-        "in save() below, not a DB constraint: MySQL doesn't support conditional/"
-        "partial unique constraints (Django system check W036), so this can't be "
-        "expressed as a UniqueConstraint the way unique_generation_per_owner is on "
-        "Flock.",
+        "in save() below, not a DB constraint. Left over from when MySQL was the "
+        "target (it doesn't support conditional/partial unique constraints, Django "
+        "system check W036); Postgres does, so a partial UniqueConstraint here "
+        "(like unique_generation_per_owner on Flock) is a viable follow-up, not "
+        "attempted yet.",
     )
     address = models.CharField(
         max_length=255,

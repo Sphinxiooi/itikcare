@@ -123,15 +123,7 @@ def build_feature_frame(records: list[dict]) -> pd.DataFrame:
 
 
 def add_tri_day_target(df: pd.DataFrame) -> pd.DataFrame:
-    """Return rows that have a valid tri-day (3-day) yield target.
-
-    The tri-day target for a given day is the sum of ``egg_count`` for that day and the
-    next two days. It is only defined when those three days are *consecutive calendar
-    days within the same caging period* — this is what stops a 3-day window from
-    silently spanning a free-range gap (or any internal missing day), per spec section
-    10. Rows whose forward window is incomplete are dropped from the tri-day dataset
-    only; they still count toward the daily model.
-    """
+    
     frames = []
     for _, segment in df.groupby(SEGMENT_COLUMN, sort=False):
         segment = segment.sort_values("date").reset_index(drop=True)

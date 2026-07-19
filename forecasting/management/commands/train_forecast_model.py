@@ -199,6 +199,7 @@ class Command(BaseCommand):
 
         self._persist(options["output_dir"], owner_id, model_version, metrics_payload,
                       daily_model, tri_model, daily_importances, tri_importances, len(records))
+        self._lock_records(owner)
 
     def _load_records(self, owner):
         """Pull this owner's training DailyLogs into plain dicts (ORM stays out of pipeline.py).
@@ -220,6 +221,20 @@ class Command(BaseCommand):
             .values("date", "flock_id", ml.CAGING_PERIOD_COLUMN, *ml.FEATURES, ml.DAILY_TARGET)
         )
         return list(rows)
+
+    def _lock_records(self, owner):
+        """Lock every DailyLog currently on file for `owner`'s own flocks, now that a
+        model has been successfully persisted having read all of them in this run —
+        every retrain is a full refit over the owner's whole DailyLog history (see
+        this module's docstring), so a persisted model has already learned from
+        whatever these rows currently hold.
+
+        Scoped to owner.id alone, never the pooled owner_ids set `_load_records` reads
+        from — otherwise a downstream farmer's retrain (which also reads the
+        foundation farmer's rows for bootstrapping) would incorrectly lock the
+        foundation farmer's own DailyLogs too.
+        """
+        DailyLog.objects.filter(flock__owner_id=owner.id).update(is_locked=True)
 
     def _fit(self, train_df, feats, target, options):
         """Fit one model, either with fixed hyperparameters or --tune's randomized search.

@@ -27,7 +27,7 @@ The farm runs a **3-day delivery cycle** to local balut and itlog na maalat (sal
 |---|---|
 | Backend | Python 3.13, Django 5 |
 | Frontend | HTML, CSS, JavaScript, Tailwind CSS |
-| Database | MySQL |
+| Database | PostgreSQL |
 | ML | scikit-learn (Random Forest Regression) |
 | Target browser | Chrome, responsive (desktop + mobile) |
 

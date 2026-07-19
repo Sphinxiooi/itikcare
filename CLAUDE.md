@@ -8,12 +8,14 @@ A Django 5 web app that forecasts daily/tri-day egg yield for a small-scale itik
 
 Figma prototype (for UI/dashboard reference): https://www.figma.com/design/TZqCWEen9aoTE3mQZXDWa6/itikcare?node-id=0-1&t=FBmxO4nrTV7NrB4n-0
 
-## Tech stack — do not deviate without asking
+## Tech stack
 
 - Backend: Python 3.13, Django 5
 - Frontend: HTML, CSS, JavaScript, Tailwind CSS (no other CSS framework)
 - Database: MySQL
 - ML: scikit-learn
+
+Adviser has approved changing stack choices (e.g. swapping the database engine) when there's a good reason (deployment constraints, free-tier availability, etc.) — no need to ask before proposing that. The thesis objectives below (RF forecasting requirements, prescriptive module requirements, acceptance thresholds) are NOT open for renegotiation and must be flagged if a change would affect them.
 
 ## Core data model
 

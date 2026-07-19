@@ -1,6 +1,6 @@
 [Unit]
 Description=ItikCare (gunicorn)
-After=network.target mysql.service
+After=network.target postgresql.service
 
 [Service]
 # Adjust User/Group and paths for your VM. This assumes the repo lives at

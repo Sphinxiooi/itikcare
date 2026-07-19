@@ -18,6 +18,10 @@ tailwindcss.exe
 *.joblib
 *.pkl
 *.log
+models/*.json
+~$*
+
+data_backup.json
 
 .vscode/
 .idea/

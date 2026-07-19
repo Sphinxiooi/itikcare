@@ -9,6 +9,16 @@
 @source "../../recommendations/templates";
 @source "../../dashboard/templates";
 
+/* Scrolls without a visible scrollbar track/thumb — used on the flock-profile modal
+   (base.html) so long content scrolls invisibly rather than showing a scroll icon. */
+.no-scrollbar {
+    scrollbar-width: none; /* Firefox */
+    -ms-overflow-style: none; /* old Edge */
+}
+.no-scrollbar::-webkit-scrollbar {
+    display: none; /* Chrome/Safari */
+}
+
 /* Flock Profile modal (base.html): fades/scales/rises in on open, reverses on close.
    Centering uses `top-1/2 left-1/2` (base.html) plus `translate(-50%, -50%)` here
    rather than the `inset-0 m-auto` trick — that trick only centers an axis whose
@@ -57,4 +67,41 @@
     #flock-profile-modal::backdrop {
         transition: none;
     }
+}
+
+/* Generic confirm dialog (base.html): same fade/scale/rise approach as the flock
+   profile modal above, but always centered on the full viewport — unlike that
+   modal, this one also opens from pages with no docked sidebar (e.g. a form inside
+   the flock-profile modal itself, or a future standalone page), so it doesn't need
+   the md+ sidebar-offset override. */
+#confirm-modal {
+    opacity: 0;
+    transform: translate(-50%, calc(-50% + 0.75rem)) scale(0.96);
+    transition: opacity 200ms cubic-bezier(0.16, 1, 0.3, 1), transform 200ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+#confirm-modal.is-open {
+    opacity: 1;
+    transform: translate(-50%, -50%) scale(1);
+}
+#confirm-modal::backdrop {
+    background-color: rgb(15 23 42 / 0);
+    backdrop-filter: blur(0);
+    transition: background-color 200ms ease-out, backdrop-filter 200ms ease-out;
+}
+#confirm-modal.is-open::backdrop {
+    background-color: rgb(15 23 42 / 0.45);
+    backdrop-filter: blur(2px);
+}
+@media (prefers-reduced-motion: reduce) {
+    #confirm-modal,
+    #confirm-modal::backdrop {
+        transition: none;
+    }
+}
+
+/* Signup confirmation dialog (registration/signup.html): that page doesn't extend
+   base.html (no header/sidebar chrome yet since the account doesn't exist), so it
+   can't reuse #confirm-modal above and gets its own plain dialog + dimmed backdrop. */
+#signup-confirm-modal::backdrop {
+    background-color: rgb(15 23 42 / 0.45);
 }

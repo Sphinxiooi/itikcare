@@ -15,24 +15,24 @@
     {% url 'farm_records' as records_url %}
 
     <header class="sticky top-0 z-50 bg-white/95 backdrop-blur border-b border-gray-100 shadow-sm">
-        <div class="flex justify-between items-center h-16 px-4 sm:px-6">
+        <div class="flex justify-between items-center h-20 px-4 sm:px-8">
             <div class="flex items-center gap-1">
                 <button type="button" id="sidebar-toggle" aria-expanded="false" aria-controls="sidebar"
-                        class="md:hidden -ml-1 mr-1 flex items-center justify-center w-9 h-9 rounded-lg text-gray-600 hover:bg-gray-100 hover:text-emerald-700 transition-colors">
+                        class="md:hidden -ml-1 mr-1 flex items-center justify-center w-10 h-10 rounded-lg text-gray-600 hover:bg-gray-100 hover:text-emerald-700 transition-colors">
                     <span class="sr-only">Toggle navigation</span>
-                    <svg class="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M3.75 6.75h16.5M3.75 12h16.5M3.75 17.25h16.5"/></svg>
+                    <svg class="w-7 h-7" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M3.75 6.75h16.5M3.75 12h16.5M3.75 17.25h16.5"/></svg>
                 </button>
                 <a href="{{ dashboard_url }}" class="flex items-center gap-3">
-                    <span class="flex items-center justify-center w-9 h-9 rounded-lg bg-emerald-700 text-white text-lg">🦆</span>
+                    <span class="flex items-center justify-center w-11 h-11 rounded-lg bg-emerald-700 text-white text-xl">🦆</span>
                     <span class="leading-tight">
-                        <span class="block text-lg font-bold text-emerald-700">ItikCare</span>
-                        <span class="hidden sm:block text-[11px] font-medium text-emerald-700 -mt-1">Egg Yield Forecasting</span>
+                        <span class="block text-xl font-bold text-emerald-700">ItikCare</span>
+                        <span class="hidden sm:block text-xs font-medium text-emerald-700 -mt-1">Egg Yield Forecasting</span>
                     </span>
                 </a>
             </div>
-            <a href="{% url 'flock_profile' %}" id="profile-avatar-link" aria-haspopup="dialog" aria-expanded="false" class="flex items-center gap-3 px-2 py-1.5 rounded-full hover:bg-gray-100 transition-colors">
-                <span class="hidden sm:inline text-sm font-medium text-gray-800">{{ user.get_full_name|default:user.username }}</span>
-                <span class="flex items-center justify-center w-9 h-9 rounded-full bg-emerald-100 text-emerald-700 text-sm font-semibold">
+            <a href="{% url 'flock_profile' %}" id="profile-avatar-link" aria-haspopup="dialog" aria-expanded="false" class="flex items-center gap-3 px-3 py-2 rounded-full hover:bg-gray-100 transition-colors">
+                <span class="hidden sm:inline text-base font-medium text-gray-800">{{ user.get_full_name|default:user.username }}</span>
+                <span class="flex items-center justify-center w-11 h-11 rounded-full bg-emerald-100 text-emerald-700 text-base font-semibold">
                     {{ user.username|first|upper }}
                 </span>
             </a>
@@ -40,7 +40,7 @@
     </header>
 
     <dialog id="flock-profile-modal" class="fixed top-1/2 left-1/2 m-0 p-0 border-0 rounded-xl bg-transparent w-[90vw] max-w-2xl max-h-[85vh]">
-        <div class="relative max-h-[85vh] overflow-y-auto">
+        <div class="relative max-h-[85vh] overflow-y-auto no-scrollbar">
             <button type="button" id="flock-profile-modal-close" aria-label="Close flock profile"
                     class="absolute top-3 right-3 flex items-center justify-center w-9 h-9 rounded-full bg-emerald-100 text-emerald-700 text-sm font-semibold shadow-sm hover:bg-emerald-200 transition-colors">
                 {{ user.username|first|upper }}
@@ -51,52 +51,79 @@
         </div>
     </dialog>
 
+    {% comment %}
+    Generic "are you sure?" confirmation dialog. Any form anywhere in the app
+    (including partials fetched into the flock-profile modal above) can opt in by
+    adding a data-confirm="<message>" attribute — no per-page markup needed. See
+    the delegated submit listener at the bottom of this file.
+    {% endcomment %}
+    <dialog id="confirm-modal" class="fixed top-1/2 left-1/2 m-0 p-0 border-0 rounded-xl bg-transparent w-[90vw] max-w-sm">
+        <div class="bg-white rounded-xl p-6 shadow-2xl">
+            <h2 id="confirm-modal-title" class="text-lg font-bold text-gray-900 mb-2">Are you sure?</h2>
+            <p id="confirm-modal-body" class="text-sm text-gray-600 mb-6"></p>
+            <div class="flex justify-end gap-3">
+                <button type="button" id="confirm-modal-cancel"
+                        class="text-gray-600 font-medium px-4 py-2.5 rounded-lg hover:bg-gray-100 transition-colors">
+                    Cancel
+                </button>
+                <button type="button" id="confirm-modal-accept"
+                        class="font-semibold text-white rounded-lg px-6 py-2.5 bg-emerald-700 hover:bg-emerald-800 transition-colors">
+                    Confirm
+                </button>
+            </div>
+        </div>
+    </dialog>
+
     <div>
-        <div id="sidebar-backdrop" class="hidden fixed inset-0 top-16 bg-black/40 z-40 md:hidden"></div>
+        <div id="sidebar-backdrop" class="hidden fixed inset-0 top-20 bg-black/40 z-40 md:hidden"></div>
         <aside id="sidebar"
-               class="fixed top-16 bottom-0 left-0 z-40 w-64 -translate-x-full transition-transform duration-200 ease-in-out
+               class="fixed top-20 bottom-0 left-0 z-40 w-72 -translate-x-full transition-transform duration-200 ease-in-out
                    md:translate-x-0
                    flex flex-col justify-between shrink-0 bg-white border-r border-gray-200 shadow-2xl md:shadow-none overflow-y-auto">
-            <nav class="p-4 space-y-1">
+            <nav class="p-5 space-y-2">
                 <a href="{{ dashboard_url }}"
-                   class="flex items-center gap-3 px-4 py-2.5 rounded-full text-sm font-medium transition-colors
+                   class="flex items-center gap-3 px-5 py-3 rounded-full text-base font-medium transition-colors
                        {% if active_nav == 'dashboard' %}bg-emerald-700 text-white font-semibold shadow-sm{% else %}text-gray-700 hover:bg-emerald-50 hover:text-emerald-700{% endif %}">
-                    <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M3.75 6A2.25 2.25 0 0 1 6 3.75h2.25A2.25 2.25 0 0 1 10.5 6v2.25a2.25 2.25 0 0 1-2.25 2.25H6a2.25 2.25 0 0 1-2.25-2.25V6ZM3.75 15.75A2.25 2.25 0 0 1 6 13.5h2.25a2.25 2.25 0 0 1 2.25 2.25V18a2.25 2.25 0 0 1-2.25 2.25H6A2.25 2.25 0 0 1 3.75 18v-2.25ZM13.5 6a2.25 2.25 0 0 1 2.25-2.25H18A2.25 2.25 0 0 1 20.25 6v2.25A2.25 2.25 0 0 1 18 10.5h-2.25a2.25 2.25 0 0 1-2.25-2.25V6ZM13.5 15.75a2.25 2.25 0 0 1 2.25-2.25H18a2.25 2.25 0 0 1 2.25 2.25V18A2.25 2.25 0 0 1 18 20.25h-2.25A2.25 2.25 0 0 1 13.5 18v-2.25Z"/></svg>
+                    <svg class="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M3.75 6A2.25 2.25 0 0 1 6 3.75h2.25A2.25 2.25 0 0 1 10.5 6v2.25a2.25 2.25 0 0 1-2.25 2.25H6a2.25 2.25 0 0 1-2.25-2.25V6ZM3.75 15.75A2.25 2.25 0 0 1 6 13.5h2.25a2.25 2.25 0 0 1 2.25 2.25V18a2.25 2.25 0 0 1-2.25 2.25H6A2.25 2.25 0 0 1 3.75 18v-2.25ZM13.5 6a2.25 2.25 0 0 1 2.25-2.25H18A2.25 2.25 0 0 1 20.25 6v2.25A2.25 2.25 0 0 1 18 10.5h-2.25a2.25 2.25 0 0 1-2.25-2.25V6ZM13.5 15.75a2.25 2.25 0 0 1 2.25-2.25H18a2.25 2.25 0 0 1 2.25 2.25V18A2.25 2.25 0 0 1 18 20.25h-2.25A2.25 2.25 0 0 1 13.5 18v-2.25Z"/></svg>
                     Dashboard
                 </a>
                 <a href="{{ log_daily_data_url }}"
-                   class="flex items-center gap-3 px-4 py-2.5 rounded-full text-sm font-medium transition-colors
+                   class="flex items-center gap-3 px-5 py-3 rounded-full text-base font-medium transition-colors
                        {% if active_nav == 'log_daily_data' %}bg-emerald-700 text-white font-semibold shadow-sm{% else %}text-gray-700 hover:bg-emerald-50 hover:text-emerald-700{% endif %}">
-                    <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="m16.862 4.487 1.687-1.688a1.875 1.875 0 1 1 2.652 2.652L10.582 16.07a4.5 4.5 0 0 1-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 0 1 1.13-1.897l8.932-8.931Zm0 0L19.5 7.125M18 14v4.75A2.25 2.25 0 0 1 15.75 21H5.25A2.25 2.25 0 0 1 3 18.75V8.25A2.25 2.25 0 0 1 5.25 6H10"/></svg>
+                    <svg class="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="m16.862 4.487 1.687-1.688a1.875 1.875 0 1 1 2.652 2.652L10.582 16.07a4.5 4.5 0 0 1-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 0 1 1.13-1.897l8.932-8.931Zm0 0L19.5 7.125M18 14v4.75A2.25 2.25 0 0 1 15.75 21H5.25A2.25 2.25 0 0 1 3 18.75V8.25A2.25 2.25 0 0 1 5.25 6H10"/></svg>
                     Log Daily Data
                 </a>
                 <a href="{{ forecast_url }}"
-                   class="flex items-center gap-3 px-4 py-2.5 rounded-full text-sm font-medium transition-colors
+                   class="flex items-center gap-3 px-5 py-3 rounded-full text-base font-medium transition-colors
                        {% if active_nav == 'forecast' %}bg-emerald-700 text-white font-semibold shadow-sm{% else %}text-gray-700 hover:bg-emerald-50 hover:text-emerald-700{% endif %}">
-                    <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M3 13.125C3 12.504 3.504 12 4.125 12h2.25c.621 0 1.125.504 1.125 1.125v6.75C7.5 20.496 6.996 21 6.375 21h-2.25A1.125 1.125 0 0 1 3 19.875v-6.75ZM9.75 8.625c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125v11.25c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 0 1-1.125-1.125V8.625ZM16.5 4.125c0-.621.504-1.125 1.125-1.125h2.25C20.496 3 21 3.504 21 4.125v15.75c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 0 1-1.125-1.125V4.125Z"/></svg>
+                    <svg class="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M3 13.125C3 12.504 3.504 12 4.125 12h2.25c.621 0 1.125.504 1.125 1.125v6.75C7.5 20.496 6.996 21 6.375 21h-2.25A1.125 1.125 0 0 1 3 19.875v-6.75ZM9.75 8.625c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125v11.25c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 0 1-1.125-1.125V8.625ZM16.5 4.125c0-.621.504-1.125 1.125-1.125h2.25C20.496 3 21 3.504 21 4.125v15.75c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 0 1-1.125-1.125V4.125Z"/></svg>
                     Forecast &amp; Recommendations
                 </a>
                 <a href="{{ records_url }}"
-                   class="flex items-center gap-3 px-4 py-2.5 rounded-full text-sm font-medium transition-colors
+                   class="flex items-center gap-3 px-5 py-3 rounded-full text-base font-medium transition-colors
                        {% if active_nav == 'records' %}bg-emerald-700 text-white font-semibold shadow-sm{% else %}text-gray-700 hover:bg-emerald-50 hover:text-emerald-700{% endif %}">
-                    <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z"/></svg>
+                    <svg class="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z"/></svg>
                     Farm Records
                 </a>
-                <form method="post" action="{% url 'logout' %}" class="pt-1">
+                <form method="post" action="{% url 'logout' %}" class="pt-1"
+                      data-confirm="You'll need to log in again to get back to your dashboard."
+                      data-confirm-title="Log out of ItikCare?"
+                      data-confirm-label="Log out"
+                      data-confirm-danger="true">
                     {% csrf_token %}
                     <button type="submit"
-                            class="w-full flex items-center gap-3 px-4 py-2.5 rounded-full text-sm font-medium text-gray-700 hover:bg-red-50 hover:text-red-700 transition-colors">
-                        <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M15.75 9V5.25A2.25 2.25 0 0 0 13.5 3h-6a2.25 2.25 0 0 0-2.25 2.25v13.5A2.25 2.25 0 0 0 7.5 21h6a2.25 2.25 0 0 0 2.25-2.25V15M12 9l3 3-3 3m3-3H3"/></svg>
+                            class="w-full flex items-center gap-3 px-5 py-3 rounded-full text-base font-medium text-gray-700 hover:bg-red-50 hover:text-red-700 transition-colors">
+                        <svg class="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M15.75 9V5.25A2.25 2.25 0 0 0 13.5 3h-6a2.25 2.25 0 0 0-2.25 2.25v13.5A2.25 2.25 0 0 0 7.5 21h6a2.25 2.25 0 0 0 2.25-2.25V15M12 9l3 3-3 3m3-3H3"/></svg>
                         Logout
                     </button>
                 </form>
             </nav>
             <div class="border-t border-gray-100">
-                <p class="px-4 py-4 text-xs text-gray-400">ItikCare v1.0<br>Labay &amp; Peñaredondo et al.</p>
+                <p class="px-5 py-4 text-xs text-gray-400">ItikCare v1.0<br>Labay &amp; Peñaredondo et al.</p>
             </div>
         </aside>
 
-        <main class="min-w-0 p-6 lg:p-8 md:ml-64">
+        <main class="min-w-0 p-6 lg:p-8 md:ml-72">
             {% if messages %}
             <div class="space-y-2 mb-6">
                 {% for message in messages %}
@@ -226,6 +253,89 @@
                 modal.addEventListener("cancel", function (event) {
                     event.preventDefault();
                     closeModal();
+                });
+            }
+
+            // Generic confirmation dialog for any form on the page (or on a partial
+            // fetched into the flock-profile modal above, e.g. the caging-status
+            // toggle) carrying a `data-confirm` attribute — see the dialog markup
+            // near the top of <body>.
+            var confirmModal = document.getElementById("confirm-modal");
+            if (confirmModal && typeof confirmModal.showModal === "function") {
+                var confirmTitleEl = document.getElementById("confirm-modal-title");
+                var confirmBodyEl = document.getElementById("confirm-modal-body");
+                var confirmAcceptBtn = document.getElementById("confirm-modal-accept");
+                var confirmCancelBtn = document.getElementById("confirm-modal-cancel");
+                var confirmPrefersReducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+                var pendingForm = null;
+
+                function openConfirmModal(form) {
+                    pendingForm = form;
+                    confirmTitleEl.textContent = form.dataset.confirmTitle || "Are you sure?";
+                    confirmBodyEl.textContent = form.dataset.confirm;
+                    confirmAcceptBtn.textContent = form.dataset.confirmLabel || "Confirm";
+                    confirmAcceptBtn.className = form.dataset.confirmDanger === "true"
+                        ? "font-semibold text-white rounded-lg px-6 py-2.5 bg-red-700 hover:bg-red-800 transition-colors"
+                        : "font-semibold text-white rounded-lg px-6 py-2.5 bg-emerald-700 hover:bg-emerald-800 transition-colors";
+                    confirmModal.showModal();
+                    if (confirmPrefersReducedMotion) {
+                        confirmModal.classList.add("is-open");
+                        return;
+                    }
+                    requestAnimationFrame(function () {
+                        requestAnimationFrame(function () {
+                            confirmModal.classList.add("is-open");
+                        });
+                    });
+                }
+
+                function closeConfirmModal() {
+                    pendingForm = null;
+                    if (confirmPrefersReducedMotion) {
+                        confirmModal.classList.remove("is-open");
+                        confirmModal.close();
+                        return;
+                    }
+                    confirmModal.classList.remove("is-open");
+                    confirmModal.addEventListener("transitionend", function onEnd(event) {
+                        if (event.target === confirmModal) {
+                            confirmModal.removeEventListener("transitionend", onEnd);
+                            confirmModal.close();
+                        }
+                    });
+                }
+
+                // Capture phase: catches the submit before it can reach the form and
+                // fire the actual POST. Forms fetched later into the flock-profile
+                // partial are covered too since this listens on `document`, not the
+                // individual forms.
+                document.addEventListener("submit", function (event) {
+                    var form = event.target;
+                    if (form.matches && form.matches("form[data-confirm]")) {
+                        event.preventDefault();
+                        openConfirmModal(form);
+                    }
+                }, true);
+
+                confirmAcceptBtn.addEventListener("click", function () {
+                    if (!pendingForm) {
+                        return;
+                    }
+                    var formToSubmit = pendingForm;
+                    closeConfirmModal();
+                    // .submit() bypasses the "submit" event entirely, so this does not
+                    // re-trigger the listener above and loop.
+                    formToSubmit.submit();
+                });
+                confirmCancelBtn.addEventListener("click", closeConfirmModal);
+                confirmModal.addEventListener("click", function (event) {
+                    if (event.target === confirmModal) {
+                        closeConfirmModal();
+                    }
+                });
+                confirmModal.addEventListener("cancel", function (event) {
+                    event.preventDefault();
+                    closeConfirmModal();
                 });
             }
         })();

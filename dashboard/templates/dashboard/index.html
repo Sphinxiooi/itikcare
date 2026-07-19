@@ -11,7 +11,9 @@
     <div class="flex flex-wrap items-start gap-4">
         <div>
             <h1 class="text-2xl font-bold text-gray-900">Good Day, {{ user.get_full_name|default:user.username }}!</h1>
-            <p class="text-sm text-gray-500 mt-1">📍 Patag, Libmanan, Camarines Sur</p>
+            {% if user.address %}
+            <p class="text-sm text-gray-500 mt-1">📍 {{ user.address }}</p>
+            {% endif %}
             <p class="text-sm text-gray-500">📅 {% now "F j, Y" %}</p>
         </div>
         {% if current_weather %}
@@ -43,8 +45,8 @@
     <div class="grid grid-cols-1 sm:grid-cols-3 gap-4 mt-6 pt-6 border-t border-gray-100">
         <div class="bg-emerald-50 border border-emerald-200 rounded-xl p-4">
             <p class="font-bold text-gray-900">Flocks Status</p>
-            {% if today_log %}<p class="text-sm text-gray-500">Feed Intake: {{ today_log.feed_intake_kg }}kg</p>{% endif %}
-            <p class="text-3xl font-bold text-emerald-700 mt-2">{{ today_log.flock_size|default:"—" }}</p>
+            {% if feed_intake_display %}<p class="text-sm text-gray-500">Feed Intake: {{ feed_intake_display }}kg</p>{% endif %}
+            <p class="text-3xl font-bold text-emerald-700 mt-2">{{ flock_size_display|default:"—" }}</p>
             <p class="text-sm text-gray-500">Ducks</p>
         </div>
         <div class="bg-emerald-50 border border-emerald-200 rounded-xl p-4">
@@ -71,9 +73,8 @@
         </div>
         {% if forecast_low_confidence %}
         <div class="bg-blue-50 border border-blue-200 text-blue-800 text-sm rounded-md p-3 mb-4">
-            ℹ️ Logging just resumed for this caging period ({{ forecast_history_days }}/3 recent days logged so
-            far), so these forecasts have less history to work with and may be less accurate. Accuracy improves
-            as daily logs build back up over the next few days.
+            ℹ️ Logging just resumed ({{ forecast_history_days }}/3 days so far) — forecasts may be less accurate
+            until more history builds up.
         </div>
         {% endif %}
         {% if next_day_forecasts %}
@@ -101,16 +102,14 @@
                     <label for="trend_range" class="text-sm text-gray-500">Range</label>
                     <select id="trend_range" name="trend_range" onchange="this.form.submit()"
                             class="text-sm border border-gray-300 rounded-md px-2 py-1 text-gray-700 bg-white">
-                        {% for choice in trend_range_choices %}
-                        <option value="{{ choice }}" {% if choice == trend_range %}selected{% endif %}>
-                            Last {{ choice }} days
-                        </option>
+                        {% for value, label in trend_range_choices %}
+                        <option value="{{ value }}" {% if value == trend_range %}selected{% endif %}>{{ label }}</option>
                         {% endfor %}
                     </select>
                 </form>
             </div>
             <p class="text-sm text-gray-500 mb-4">
-                Last {{ trend_range }} days: actual vs. predicted{% if trend_has_future_forecast %} (dashed = upcoming forecast, not yet logged){% endif %}
+                {{ trend_range_label }}: actual vs. predicted{% if trend_has_future_forecast %} (dashed = upcoming forecast, not yet logged){% endif %}
             </p>
             {% if trend_logs %}
             <canvas id="trendChart" height="220"></canvas>

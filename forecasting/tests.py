@@ -6,6 +6,7 @@ tri-day target construction and the chronological split — since those are the
 spec-section-10 rules the model's defensibility rests on.
 """
 
+import random
 import sys
 import tempfile
 from datetime import date, timedelta
@@ -17,7 +18,9 @@ import joblib
 import numpy as np
 import pandas as pd
 from django.contrib.auth import get_user_model
-from django.test import SimpleTestCase, TestCase
+from django.core.management import call_command
+from django.core.management.base import CommandError
+from django.test import Client, SimpleTestCase, TestCase
 
 from farm.models import DailyLog, Flock
 from forecasting import pipeline as ml
@@ -320,6 +323,77 @@ class GenerateForecastTests(TestCase):
         mock_fetch.assert_not_called()
 
 
+class TrainForecastModelLockTests(TestCase):
+    """DB-backed tests for train_forecast_model's DailyLog.is_locked bookkeeping,
+    following the same "real DB rows, no mocking" style as GenerateForecastTests.
+    Uses a tiny n_estimators and a real tempdir --output-dir so these never touch the
+    real models/ folder and stay fast; see forecasting/pipeline.py for why 20
+    consecutive same-segment rows is enough for both the daily and tri-day models to
+    have rows left after add_lag_features/add_tri_day_target's dropna."""
+
+    def setUp(self):
+        # A foundation farmer must exist for _load_records to resolve at all (see its
+        # User.get_foundation_farmer() call) whenever the trained owner isn't the
+        # foundation farmer themselves -- given no DailyLogs of their own here, they
+        # contribute zero extra rows to the pooled training set below.
+        self.foundation_user = User.objects.create_user(
+            username="foundationfarmer", password="pw12345", is_foundation_farmer=True,
+        )
+
+        self.user = User.objects.create_user(username="farmer1", password="pw12345")
+        self.flock = Flock.objects.create(owner=self.user, generation_number=1, started_on=date(2024, 1, 1))
+        for i in range(20):
+            DailyLog.objects.create(
+                flock=self.flock, date=date(2024, 1, 1) + timedelta(days=i), caging_period=1,
+                flock_size=240, flock_age_weeks=25, egg_count=140 + i, feed_intake_kg="40.0",
+                temperature_c="28.0", humidity_pct="70.0", recorded_by=self.user,
+            )
+        self.tmpdir = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmpdir.cleanup)
+
+    def _train(self, **extra_options):
+        options = {"owner_id": self.user.id, "n_estimators": 10, "output_dir": self.tmpdir.name}
+        options.update(extra_options)
+        call_command("train_forecast_model", **options)
+
+    def test_dry_run_does_not_lock_any_records(self):
+        self._train(dry_run=True)
+        self.assertFalse(DailyLog.objects.filter(flock=self.flock, is_locked=True).exists())
+
+    def test_successful_persist_locks_all_of_owners_own_records(self):
+        self._train()
+        self.assertEqual(DailyLog.objects.filter(flock=self.flock, is_locked=True).count(), 20)
+
+    def test_persist_does_not_lock_foundation_farmers_records(self):
+        foundation_flock = Flock.objects.create(
+            owner=self.foundation_user, generation_number=1, started_on=date(2023, 1, 1),
+        )
+        foundation_log = DailyLog.objects.create(
+            flock=foundation_flock, date=date(2023, 1, 1), flock_size=240, caging_period=1,
+            flock_age_weeks=25, egg_count=130, feed_intake_kg="40.0",
+            temperature_c="28.0", humidity_pct="70.0", recorded_by=self.foundation_user,
+        )
+
+        self._train()  # self.user is not the foundation farmer, so _load_records pools both.
+
+        self.assertEqual(DailyLog.objects.filter(flock=self.flock, is_locked=True).count(), 20)
+        foundation_log.refresh_from_db()
+        self.assertFalse(foundation_log.is_locked)
+
+    def test_strict_failure_does_not_lock_records(self):
+        # Overwrite egg_count with noise uncorrelated to every feature/lag, so the
+        # held-out test rows can't be predicted well enough to clear the R2 threshold
+        # -- --strict must then refuse to persist, and nothing should get locked.
+        rng = random.Random(42)
+        for log in DailyLog.objects.filter(flock=self.flock):
+            log.egg_count = rng.randint(50, 500)
+            log.save(update_fields=["egg_count"])
+
+        with self.assertRaises(CommandError):
+            self._train(strict=True)
+        self.assertFalse(DailyLog.objects.filter(flock=self.flock, is_locked=True).exists())
+
+
 class PredictNextDaysTests(SimpleTestCase):
     """Direct unit test of the recursive lag1/roll3 feature construction in
     services._predict_next_days, isolated from real RF prediction values via a stub
@@ -412,3 +486,59 @@ class TriggerRetrainTests(SimpleTestCase):
     @patch("forecasting.services.subprocess.Popen", side_effect=OSError("no such executable"))
     def test_a_launch_failure_is_swallowed_not_raised(self, mock_popen):
         services.trigger_retrain("caging_period_closed", owner_id=7)  # must not raise
+
+
+class ForecastRecommendationsViewTests(TestCase):
+    """Covers the Key Influencing Factors panel and the Egg Yield Trend chart's context
+    on the /forecast-recommendations/ page (forecasting/views.py)."""
+
+    def setUp(self):
+        self.user = User.objects.create_user(username="farmer1", password="pw12345")
+        self.client = Client()
+        self.client.login(username="farmer1", password="pw12345")
+        self.flock = Flock.objects.create(owner=self.user, generation_number=1, started_on=date(2024, 1, 1))
+        self.log = DailyLog.objects.create(
+            flock=self.flock, date=date.today(), flock_size=240, caging_period=1,
+            flock_age_weeks=25, egg_count=150, feed_intake_kg="40.0",
+            temperature_c="28.0", humidity_pct="75.0", recorded_by=self.user,
+        )
+        self.forecast = Forecast.objects.create(
+            flock=self.flock, forecast_date=date.today(),
+            predicted_daily_yield=Decimal("152.00"), predicted_tri_day_yield=Decimal("455.00"),
+            predicted_next_day1_yield=Decimal("157.00"), predicted_next_day2_yield=Decimal("155.00"),
+            predicted_next_day3_yield=Decimal("172.00"),
+            feature_importances={
+                "flock_size": 0.55, "flock_age_weeks": 0.06, "feed_intake_kg": 0.20,
+                "temperature_c": 0.03, "humidity_pct": 0.01, "lag1": 0.10, "roll3": 0.05,
+            },
+            model_version="rf-test",
+        )
+        self.forecast.source_logs.set([self.log])
+
+    def test_key_influencing_factors_shows_only_the_five_raw_features(self):
+        response = self.client.get("/forecast-recommendations/")
+        shown = dict(response.context["feature_importances"])
+        self.assertEqual(
+            set(shown), {"flock_size", "flock_age_weeks", "feed_intake_kg", "temperature_c", "humidity_pct"}
+        )
+        self.assertNotIn("lag1", shown)
+        self.assertNotIn("roll3", shown)
+
+    def test_key_influencing_factors_converts_fraction_to_percent_unscaled(self):
+        response = self.client.get("/forecast-recommendations/")
+        shown = dict(response.context["feature_importances"])
+        # True RF fraction * 100, not rescaled to sum to 100 across just the 5 shown.
+        self.assertAlmostEqual(shown["flock_size"], 55.0)
+        self.assertAlmostEqual(shown["feed_intake_kg"], 20.0)
+        self.assertContains(response, "55%")
+
+    def test_trend_context_matches_dashboards_shape(self):
+        response = self.client.get("/forecast-recommendations/")
+        self.assertIn("trend_predicted_json", response.context)
+        self.assertIn("trend_range_choices", response.context)
+        self.assertEqual(response.context["trend_range"], "7")
+        self.assertIn("152.0", response.context["trend_predicted_json"])
+
+    def test_trend_range_query_param_is_respected(self):
+        response = self.client.get("/forecast-recommendations/?trend_range=30")
+        self.assertEqual(response.context["trend_range"], "30")

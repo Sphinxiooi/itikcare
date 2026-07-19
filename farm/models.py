@@ -33,6 +33,22 @@ class Flock(models.Model):
         help_text="Duck count confirmed when resuming caging after a free-range period; "
         "consumed as the next DailyLog's flock_size prefill, then cleared.",
     )
+    pending_flock_age_weeks = models.PositiveIntegerField(
+        null=True,
+        blank=True,
+        validators=[MinValueValidator(1), MaxValueValidator(150)],
+        help_text="Flock age confirmed at registration; consumed as the next DailyLog's "
+        "flock_age_weeks prefill on a flock's very first entry, then cleared.",
+    )
+    pending_feed_intake_kg = models.DecimalField(
+        max_digits=6,
+        decimal_places=2,
+        null=True,
+        blank=True,
+        validators=[MinValueValidator(0), MaxValueValidator(150)],
+        help_text="Feed intake confirmed at registration; consumed as the next DailyLog's "
+        "feed_intake_kg prefill on a flock's very first entry, then cleared.",
+    )
 
     class Meta:
         ordering = ["generation_number"]
@@ -93,6 +109,15 @@ class DailyLog(models.Model):
     )
     recorded_by = models.ForeignKey(
         settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name="daily_logs"
+    )
+    is_locked = models.BooleanField(
+        default=False,
+        help_text="True once this row existed at the time train_forecast_model last "
+        "successfully persisted a model for its owner. Every retrain is a full refit "
+        "over the owner's entire DailyLog history (never warm_start — see that "
+        "command's module docstring), so a persisted model has already learned from "
+        "whatever values this row held at that time. Locked rows can never be edited "
+        "or deleted again (farm/views.py::farm_record_edit/farm_record_delete).",
     )
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)

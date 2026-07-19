@@ -1,12 +1,12 @@
 <div class="bg-white border border-gray-200 rounded-xl p-6 max-w-3xl">
-    {% if active_flock %}
-    <h1 class="text-2xl font-bold text-gray-900">Flock Profile</h1>
+    {% if active_flock and not active_flock.is_caged %}
+    <h1 class="text-2xl font-bold text-gray-900">Flock Summary</h1>
     <p class="text-sm text-gray-500 mb-6">Flock #{{ active_flock.generation_number }} — started {{ active_flock.started_on }}</p>
 
-    <div class="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-8">
+    <div class="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-6">
         <div>
             <p class="text-xs font-medium text-gray-500 uppercase">Current Flock Size</p>
-            <p class="text-lg font-semibold text-gray-900">{% if latest_log %}{{ latest_log.flock_size }} ducks{% else %}—{% endif %}</p>
+            <p class="text-lg font-semibold text-gray-900">{% if latest_log %}{{ latest_log.flock_size }} ducks{% elif active_flock.pending_flock_size %}{{ active_flock.pending_flock_size }} ducks{% else %}—{% endif %}</p>
         </div>
         <div>
             <p class="text-xs font-medium text-gray-500 uppercase">Average Age</p>
@@ -18,49 +18,12 @@
         </div>
         <div>
             <p class="text-xs font-medium text-gray-500 uppercase">Status</p>
-            <p class="text-lg font-semibold text-emerald-700">Active</p>
+            <p class="text-lg font-semibold text-amber-700">Free-range</p>
         </div>
     </div>
 
-    <form method="post" action="{% url 'flock_profile' %}" class="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-4">
-        {% csrf_token %}
-        {% for field in form %}
-        <div>
-            <label for="{{ field.id_for_label }}" class="block text-sm font-medium text-gray-700 mb-1">{{ field.label }}</label>
-            {{ field }}
-            {% if field.errors %}
-            <p class="text-sm text-red-600 mt-1">{{ field.errors.0 }}</p>
-            {% endif %}
-        </div>
-        {% endfor %}
-        <div class="sm:col-span-2 mt-2">
-            <button type="submit" class="bg-emerald-700 text-white font-semibold rounded-lg px-8 py-2.5 hover:bg-emerald-800">
-                Save Start Date
-            </button>
-        </div>
-    </form>
-
-    <div class="mt-8 pt-6 border-t border-gray-100">
-        <h2 class="text-sm font-semibold text-gray-700 mb-1">Already have records for this flock?</h2>
-        <p class="text-sm text-gray-500 mb-3">
-            Bring in your existing daily data in bulk instead of typing it in one day at a time.
-        </p>
-        <a href="{% url 'import_csv' %}" class="inline-block text-sm font-medium border border-emerald-200 text-emerald-700 rounded-md px-4 py-2 hover:bg-emerald-50">
-            Import CSV
-        </a>
-    </div>
-
-    <div class="mt-8 pt-6 border-t border-gray-100">
+    <div class="pt-6 border-t border-gray-100">
         <h2 class="text-sm font-semibold text-gray-700 mb-1">Caging Status</h2>
-        {% if active_flock.is_caged %}
-        <p class="text-sm text-gray-500 mb-3">Ducks are currently caged and daily logging is active.</p>
-        <form method="post" action="{% url 'toggle_caging_status' %}">
-            {% csrf_token %}
-            <button type="submit" class="inline-block text-sm font-medium border border-emerald-200 text-emerald-700 rounded-md px-4 py-2 hover:bg-emerald-50">
-                Mark as Free-range
-            </button>
-        </form>
-        {% else %}
         <p class="text-sm text-gray-500 mb-3">
             Ducks are currently free-range in the field. Daily logging and forecasts are paused until they're caged again.
         </p>
@@ -80,25 +43,71 @@
                 Mark as Caged
             </button>
         </form>
-        {% endif %}
+    </div>
+
+    {% elif active_flock %}
+    <h1 class="text-2xl font-bold text-gray-900">Flock Profile</h1>
+    <p class="text-sm text-gray-500 mb-6">Flock #{{ active_flock.generation_number }} — started {{ active_flock.started_on }}</p>
+
+    <div class="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-8">
+        <div>
+            <p class="text-xs font-medium text-gray-500 uppercase">Current Flock Size</p>
+            <p class="text-lg font-semibold text-gray-900">{% if latest_log %}{{ latest_log.flock_size }} ducks{% elif active_flock.pending_flock_size %}{{ active_flock.pending_flock_size }} ducks{% else %}—{% endif %}</p>
+        </div>
+        <div>
+            <p class="text-xs font-medium text-gray-500 uppercase">Average Age</p>
+            <p class="text-lg font-semibold text-gray-900">{% if current_age_weeks %}{{ current_age_weeks }} wks{% else %}—{% endif %}</p>
+        </div>
+        <div>
+            <p class="text-xs font-medium text-gray-500 uppercase">Flock #</p>
+            <p class="text-lg font-semibold text-gray-900">#{{ active_flock.generation_number }}</p>
+        </div>
+        <div>
+            <p class="text-xs font-medium text-gray-500 uppercase">Status</p>
+            <p class="text-lg font-semibold text-emerald-700">Active</p>
+        </div>
+    </div>
+
+    <div class="mt-8 pt-6 border-t border-gray-100">
+        <h2 class="text-sm font-semibold text-gray-700 mb-1">Caging Status</h2>
+        <p class="text-sm text-gray-500 mb-3">Ducks are currently caged and daily logging is active.</p>
+        <form method="post" action="{% url 'toggle_caging_status' %}"
+              data-confirm="Daily logging and forecasts will be paused until this flock is marked as caged again."
+              data-confirm-title="Mark flock as free-range?"
+              data-confirm-label="Mark as Free-range">
+            {% csrf_token %}
+            <button type="submit" class="inline-block text-sm font-medium border border-emerald-200 text-emerald-700 rounded-md px-4 py-2 hover:bg-emerald-50">
+                Mark as Free-range
+            </button>
+        </form>
     </div>
 
     <div class="mt-8 pt-6 border-t border-gray-100">
         <h2 class="text-sm font-semibold text-gray-700 mb-1">Retiring this flock?</h2>
         <p class="text-sm text-gray-500 mb-3">
             Use this when the current ducks are being retired and a new, younger flock is brought in.
-            The next daily log entry will ask for the new flock's size, same as a brand-new farm setup.
+            No flock will be registered afterwards — you'll fill out the new flock's details from this page when you're ready.
         </p>
-        <a href="{% url 'flock_retire' %}" class="inline-block text-sm font-medium border border-red-200 text-red-700 rounded-md px-4 py-2 hover:bg-red-50">
-            Retire This Flock &amp; Start New Flock
-        </a>
+        <form method="post" action="{% url 'flock_retire' %}"
+              data-confirm="This marks Flock #{{ active_flock.generation_number }} as retired. No flock will be registered afterwards — you'll need to register the next one from this page before logging further data."
+              data-confirm-title="Retire Flock #{{ active_flock.generation_number }}?"
+              data-confirm-label="Retire This Flock"
+              data-confirm-danger="true">
+            {% csrf_token %}
+            <button type="submit" class="inline-block text-sm font-medium border border-red-200 text-red-700 rounded-md px-4 py-2 hover:bg-red-50">
+                Retire This Flock
+            </button>
+        </form>
     </div>
 
     {% else %}
-    <h1 class="text-2xl font-bold text-gray-900">Start Your First Flock</h1>
-    <p class="text-sm text-gray-500 mb-6">No flock has been set up yet. Enter the start date to begin — you'll enter the flock size on your first daily log.</p>
+    <h1 class="text-2xl font-bold text-gray-900">Register Flock</h1>
+    <p class="text-sm text-gray-500 mb-6">No flock has been set up yet. Tell us a bit about your ducks to get started — these details will pre-fill your first daily log.</p>
 
-    <form method="post" action="{% url 'flock_profile' %}" class="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-4">
+    <form method="post" action="{% url 'flock_profile' %}" class="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-4"
+          data-confirm="Double-check the flock size, age, and feed intake above — these details will pre-fill your first daily log and can't be edited afterwards from this page."
+          data-confirm-title="Are these details correct?"
+          data-confirm-label="Yes, Register Flock">
         {% csrf_token %}
         {% for field in form %}
         <div>
@@ -111,7 +120,7 @@
         {% endfor %}
         <div class="sm:col-span-2 mt-2">
             <button type="submit" class="bg-emerald-700 text-white font-semibold rounded-lg px-8 py-2.5 hover:bg-emerald-800">
-                Start Flock
+                Register Flock
             </button>
         </div>
     </form>

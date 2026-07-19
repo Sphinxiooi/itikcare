@@ -1,13 +1,18 @@
-import json
 from datetime import date
 
 from django.contrib.auth.decorators import login_required
 from django.shortcuts import render
 
-from farm.models import DailyLog
-from farm.services import get_active_flock
+from farm.services import (
+    TREND_RANGE_OPTIONS,
+    build_next_day_forecasts,
+    build_trend_chart_data,
+    get_active_flock,
+    resolve_trend_range,
+)
 
 from .models import Forecast
+from .pipeline import FEATURES as RAW_FEATURES
 
 # Maps a Recommendation.triggered_by feature name to how it's grouped and labeled on
 # the Forecast & Recommendations page, matching the Figma categories (Flock
@@ -50,21 +55,35 @@ def forecast_recommendations(request):
         if flock_is_caged
         else []
     )
-    recent_logs = (
-        list(DailyLog.objects.filter(flock=active_flock).order_by("-date")[:10])
-        if flock_is_caged
-        else []
-    )
-    trend_labels = [f"{log.date.strftime('%b')} {log.date.day}" for log in reversed(recent_logs)]
-    trend_actual = [float(log.egg_count) for log in reversed(recent_logs)]
+    # Next 3-Day Forecast panel data used only to extend the Egg Yield Trend chart's
+    # predicted line with a dashed forward-looking tail -- shared with the dashboard's
+    # own trend chart, see farm.services. Distinct from upcoming_forecasts above, which
+    # drives this page's own "Next 3-day Forecast" cards from separately stored Forecast
+    # rows rather than this recursive same-forecast projection.
+    next_day_forecasts = build_next_day_forecasts(latest_forecast)
+    trend_range = resolve_trend_range(request.GET.get("trend_range", "7"))
+    trend_data = build_trend_chart_data(active_flock, flock_is_caged, trend_range, next_day_forecasts)
 
     feature_importances = []
     grouped_recommendations = []
     if latest_forecast:
         # Sort by importance descending so the dashboard/thesis narrative — "the
         # highest-importance negative factor is flagged first" — is visible here too.
+        # Filtered to the 5 spec-named farmer inputs (itikcare-spec.md section 4) --
+        # the model's own lag1/roll3 history features are real inputs to the RF model
+        # (see forecasting/pipeline.py's MODEL_FEATURES) but aren't something a farmer
+        # entered or can act on, so they're excluded from this farmer-facing panel.
+        # Values are RF fractions summing to 1 across all 7 MODEL_FEATURES, not just
+        # these 5, so they're converted to percent but intentionally NOT rescaled to
+        # sum to 100 among themselves -- each percentage is the feature's true,
+        # unadjusted share of the model's total importance.
         feature_importances = sorted(
-            latest_forecast.feature_importances.items(), key=lambda item: item[1], reverse=True
+            (
+                (name, importance * 100)
+                for name, importance in latest_forecast.feature_importances.items()
+                if name in RAW_FEATURES
+            ),
+            key=lambda item: item[1], reverse=True,
         )
 
         recs_by_feature = {}
@@ -86,7 +105,9 @@ def forecast_recommendations(request):
         "upcoming_forecasts": upcoming_forecasts,
         "feature_importances": feature_importances,
         "grouped_recommendations": grouped_recommendations,
-        "trend_labels_json": json.dumps(trend_labels),
-        "trend_actual_json": json.dumps(trend_actual),
+        "trend_range": trend_range,
+        "trend_range_label": dict(TREND_RANGE_OPTIONS)[trend_range],
+        "trend_range_choices": TREND_RANGE_OPTIONS,
+        **trend_data,
     }
     return render(request, "forecasting/forecast_recommendations.html", context)

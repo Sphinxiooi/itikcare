@@ -16,6 +16,7 @@ this file, and it means accounts/ never has to know Open-Meteo is the provider.
 """
 
 import logging
+import re
 from collections import defaultdict
 from datetime import date as date_cls
 
@@ -150,29 +151,68 @@ def fetch_forecast_weather(latitude=None, longitude=None) -> dict:
 
 def geocode_address(address):
     """Best-effort resolve a free-text farm address to (latitude, longitude), or None
-    if the address is blank, can't be found, or the request fails/times out.
+    if the address can't be confidently placed or the request fails/times out.
 
     Never raises, same "best effort" contract as fetch_current_weather/
     fetch_forecast_weather — accounts.views.signup treats None as "couldn't place this
     address," not a reason to block account creation.
+
+    Open-Meteo's geocoding endpoint only matches a query against a single gazetteer
+    place name (e.g. "Libmanan") — it does not parse a compound address the way a
+    farmer actually types one at signup ("Sitio Tabawan, Patag, Libmanan, Camarines
+    Sur" or "san isidro libmanan camarines sur" both return zero results as a single
+    query, verified against the live API). So each word is tried as its own candidate
+    query instead, restricted to the Philippines (a reasonable bias — this is a
+    single-country farm app, itikcare-spec.md). A candidate is only trusted if one of
+    the *other* words in the address also appears in its admin1/admin2/admin3 (region/
+    province/municipality) — otherwise a common barangay name can silently resolve to
+    the wrong province, or even the wrong country (a bare "Patag" query's top result is
+    a barangay in Bulacan, ~300km from Camarines Sur; a bare "San Isidro" query's top
+    result is in Buenos Aires, Argentina). Nothing is guessed when no word corroborates
+    another — that's still safer than the previous single-query behavior, which just
+    silently failed on every realistic multi-word address.
     """
     if not address:
         return None
 
-    try:
-        response = requests.get(
-            OPEN_METEO_GEOCODING_URL,
-            params={"name": address, "count": 1},
-            timeout=REQUEST_TIMEOUT_SECONDS,
-        )
-        response.raise_for_status()
-        results = response.json().get("results")
-        if not results:
-            return None
-        latitude = float(results[0]["latitude"])
-        longitude = float(results[0]["longitude"])
-    except Exception:
-        logger.warning("Geocoding failed for address=%r", address, exc_info=True)
+    words = [w for w in re.split(r"[,\s]+", address.strip()) if w and not w.isdigit()]
+    if not words:
         return None
 
-    return latitude, longitude
+    best_result = None
+    best_score = -1
+    for index, word in enumerate(words):
+        other_words = [w.lower() for i, w in enumerate(words) if i != index]
+        try:
+            response = requests.get(
+                OPEN_METEO_GEOCODING_URL,
+                params={"name": word, "count": 10, "countryCode": "PH"},
+                timeout=REQUEST_TIMEOUT_SECONDS,
+            )
+            response.raise_for_status()
+            results = response.json().get("results") or []
+        except Exception:
+            logger.warning("Geocoding failed for word=%r (address=%r)", word, address, exc_info=True)
+            continue
+
+        for result in results:
+            admin_text = " ".join(filter(None, [
+                result.get("admin1"), result.get("admin2"), result.get("admin3"),
+            ])).lower()
+            if other_words:
+                score = sum(1 for w in other_words if w in admin_text)
+            else:
+                # Nothing else in the address to corroborate this word against. Only
+                # trust it if it's the *sole* PH match for that word -- if the name is
+                # shared by several places (like "Patag" or "San Isidro"), there's no
+                # way to tell which one is meant, so it must be discarded rather than
+                # guessed at.
+                score = 1 if len(results) == 1 else 0
+            if score > best_score:
+                best_score = score
+                best_result = result
+
+    if best_result is None or best_score <= 0:
+        return None
+
+    return float(best_result["latitude"]), float(best_result["longitude"])

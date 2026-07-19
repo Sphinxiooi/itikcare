@@ -5,13 +5,16 @@ including the edge cases CLAUDE.md's testing workflow calls out: no active flock
 first-ever entry with no historical data, and out-of-range manual input values.
 """
 
-import io
+import json
+import tempfile
 from datetime import date, timedelta
-from unittest.mock import patch
+from decimal import Decimal
+from pathlib import Path
+from unittest.mock import Mock, patch
 
 import requests
 from django.contrib.auth import get_user_model
-from django.core.files.uploadedfile import SimpleUploadedFile
+from django.core.management import call_command
 from django.test import Client, TestCase, override_settings
 from django.utils import timezone
 
@@ -19,7 +22,13 @@ from forecasting.models import Forecast
 from recommendations.models import Recommendation
 
 from .models import DailyLog, DailyLogEdit, Flock
-from .services import assign_caging_periods, get_effective_coordinates
+from .services import (
+    assign_caging_periods,
+    build_next_day_forecasts,
+    build_trend_chart_data,
+    get_effective_coordinates,
+    resolve_trend_range,
+)
 from .weather import fetch_current_weather, geocode_address
 
 User = get_user_model()
@@ -32,6 +41,10 @@ VALID_LOG_POST = {
     "flock_age_weeks": 25,
     "temperature_c": "28.0",
     "humidity_pct": "75.0",
+    # log_daily_data never saves on a first submission (see LogDailyDataConfirmationTests
+    # below for that flow in isolation) — most tests in this file only care about the
+    # eventual save, so this fixture is pre-confirmed to reach it in one POST.
+    "confirmed": "1",
 }
 
 
@@ -264,6 +277,98 @@ class LogDailyDataTests(TestCase):
         self.assertEqual(DailyLog.objects.filter(date=date(2024, 1, 1)).count(), 1)
         self.assertIn("date", response.context["form"].errors)
 
+    def test_future_date_is_rejected(self):
+        Flock.objects.create(owner=self.user, generation_number=1, started_on=date(2024, 1, 1))
+        tomorrow = timezone.localdate() + timedelta(days=1)
+        response = self.client.post("/log-daily-data/", {**VALID_LOG_POST, "date": tomorrow.isoformat()})
+        self.assertFalse(DailyLog.objects.filter(date=tomorrow).exists())
+        self.assertIn("date", response.context["form"].errors)
+
+    def test_todays_date_is_accepted(self):
+        Flock.objects.create(owner=self.user, generation_number=1, started_on=date(2024, 1, 1))
+        today = timezone.localdate()
+        response = self.client.post("/log-daily-data/", {**VALID_LOG_POST, "date": today.isoformat()})
+        self.assertTrue(DailyLog.objects.filter(date=today).exists())
+
+    def test_date_before_flock_started_is_rejected(self):
+        Flock.objects.create(owner=self.user, generation_number=1, started_on=date(2024, 1, 1))
+        response = self.client.post("/log-daily-data/", {**VALID_LOG_POST, "date": "2023-12-31"})
+        self.assertFalse(DailyLog.objects.filter(date=date(2023, 12, 31)).exists())
+        self.assertIn("date", response.context["form"].errors)
+
+
+@override_settings(FARM_LATITUDE=None, FARM_LONGITUDE=None)
+class LogDailyDataConfirmationTests(TestCase):
+    """Covers log_daily_data's two-step confirm flow and anomaly warnings in isolation
+    (LogDailyDataTests above always posts VALID_LOG_POST's baked-in confirmed=1, which
+    skips straight past this)."""
+
+    def setUp(self):
+        self.user = User.objects.create_user(username="farmer1", password="pw12345")
+        self.client = Client()
+        self.client.login(username="farmer1", password="pw12345")
+        self.flock = Flock.objects.create(owner=self.user, generation_number=1, started_on=date(2024, 1, 1))
+
+    def _unconfirmed_post(self, **overrides):
+        post_data = {k: v for k, v in VALID_LOG_POST.items() if k != "confirmed"}
+        post_data.update(overrides)
+        return self.client.post("/log-daily-data/", post_data)
+
+    def test_first_submission_shows_confirmation_screen_without_saving(self):
+        response = self._unconfirmed_post()
+        self.assertFalse(DailyLog.objects.exists())
+        self.assertTrue(response.context["confirm_mode"])
+        self.assertEqual(response.context["anomaly_warnings"], [])
+
+    def test_confirmed_resubmission_saves(self):
+        self._unconfirmed_post()
+        self.assertFalse(DailyLog.objects.exists())
+        response = self.client.post("/log-daily-data/", {**VALID_LOG_POST, "confirmed": "1"})
+        self.assertRedirects(response, "/")
+        self.assertTrue(DailyLog.objects.filter(date=date(2024, 1, 1)).exists())
+
+    def test_edit_click_returns_to_editable_form_without_saving(self):
+        response = self.client.post(
+            "/log-daily-data/", {**VALID_LOG_POST, "confirmed": "1", "edit": "1", "egg_count": 999}
+        )
+        self.assertFalse(DailyLog.objects.exists())
+        self.assertNotIn("confirm_mode", response.context or {})
+        self.assertEqual(response.context["form"]["egg_count"].value(), "999")
+
+    def _log_history(self, n, egg_count):
+        for i in range(n):
+            DailyLog.objects.create(
+                flock=self.flock, date=date(2024, 1, 1) + timedelta(days=i), flock_size=240, caging_period=1,
+                flock_age_weeks=25, egg_count=egg_count, feed_intake_kg="40.0",
+                temperature_c="28.0", humidity_pct="75.0", recorded_by=self.user,
+            )
+
+    def test_egg_count_far_above_flocks_average_is_flagged(self):
+        self._log_history(5, egg_count=350)
+        response = self._unconfirmed_post(date="2024-01-10", egg_count=700)
+        self.assertFalse(DailyLog.objects.filter(date=date(2024, 1, 10)).exists())
+        self.assertTrue(response.context["confirm_mode"])
+        warnings = response.context["anomaly_warnings"]
+        self.assertTrue(any("Egg count" in w for w in warnings))
+
+    def test_confirming_past_an_anomaly_warning_saves_anyway(self):
+        self._log_history(5, egg_count=350)
+        response = self.client.post(
+            "/log-daily-data/", {**VALID_LOG_POST, "date": "2024-01-10", "egg_count": 700, "confirmed": "1"}
+        )
+        self.assertRedirects(response, "/")
+        self.assertTrue(DailyLog.objects.filter(date=date(2024, 1, 10), egg_count=700).exists())
+
+    def test_typical_value_with_enough_history_is_not_flagged(self):
+        self._log_history(5, egg_count=350)
+        response = self._unconfirmed_post(date="2024-01-10", egg_count=360)
+        self.assertEqual(response.context["anomaly_warnings"], [])
+
+    def test_fewer_than_minimum_history_never_flags(self):
+        self._log_history(3, egg_count=350)
+        response = self._unconfirmed_post(date="2024-01-10", egg_count=700)
+        self.assertEqual(response.context["anomaly_warnings"], [])
+
 
 class FarmRecordsTests(TestCase):
     def setUp(self):
@@ -328,6 +433,116 @@ class FarmRecordsTests(TestCase):
         response = self.client.get("/farm-records/", {"range": "bogus"})
         self.assertEqual(response.context["selected_range"], "30")
 
+    def test_locked_record_shows_locked_indicator_instead_of_edit_link(self):
+        flock = Flock.objects.create(owner=self.user, generation_number=1, started_on=date(2024, 1, 1), is_active=True)
+        log = DailyLog.objects.create(
+            flock=flock, date=timezone.localdate(), flock_size=240, caging_period=1,
+            flock_age_weeks=25, egg_count=150, feed_intake_kg="40.0",
+            temperature_c="28.0", humidity_pct="75.0", recorded_by=self.user, is_locked=True,
+        )
+        response = self.client.get("/farm-records/")
+        self.assertContains(response, "Locked")
+        self.assertNotContains(response, f"/farm-records/{log.pk}/edit/")
+
+    def test_flock_dropdown_lists_all_owners_flocks_most_recent_first(self):
+        old_flock = Flock.objects.create(owner=self.user, generation_number=1, started_on=date(2023, 1, 1), is_active=False)
+        new_flock = Flock.objects.create(owner=self.user, generation_number=2, started_on=date(2024, 1, 1), is_active=True)
+        response = self.client.get("/farm-records/")
+        self.assertEqual(
+            list(response.context["flock_choices"].keys()),
+            [str(new_flock.id), str(old_flock.id)],
+        )
+
+    def test_falls_back_to_most_recent_flock_when_none_active(self):
+        old_flock = Flock.objects.create(owner=self.user, generation_number=1, started_on=date(2023, 1, 1), is_active=False)
+        newer_flock = Flock.objects.create(owner=self.user, generation_number=2, started_on=date(2024, 1, 1), is_active=False)
+        DailyLog.objects.create(
+            flock=newer_flock, date=date(2024, 1, 2), flock_size=200, caging_period=1,
+            flock_age_weeks=50, egg_count=140, feed_intake_kg="35.0",
+            temperature_c="27.0", humidity_pct="70.0", recorded_by=self.user,
+        )
+        response = self.client.get("/farm-records/", {"range": "all"})
+        self.assertEqual(response.context["selected_flock_id"], str(newer_flock.id))
+        self.assertEqual(len(response.context["logs"]), 1)
+
+    def test_flock_query_param_switches_displayed_flock(self):
+        old_flock = Flock.objects.create(owner=self.user, generation_number=1, started_on=date(2023, 1, 1), is_active=False)
+        Flock.objects.create(owner=self.user, generation_number=2, started_on=date(2024, 1, 1), is_active=True)
+        DailyLog.objects.create(
+            flock=old_flock, date=date(2023, 6, 1), flock_size=200, caging_period=1,
+            flock_age_weeks=50, egg_count=140, feed_intake_kg="35.0",
+            temperature_c="27.0", humidity_pct="70.0", recorded_by=self.user,
+        )
+        response = self.client.get("/farm-records/", {"flock": old_flock.id, "range": "all"})
+        logs = list(response.context["logs"])
+        self.assertEqual(len(logs), 1)
+        self.assertEqual(logs[0].flock, old_flock)
+
+    def test_flock_query_param_for_another_owner_is_ignored(self):
+        other_user = User.objects.create_user(username="farmer2", password="pw12345")
+        other_flock = Flock.objects.create(owner=other_user, generation_number=1, started_on=date(2024, 1, 1), is_active=True)
+        response = self.client.get("/farm-records/", {"flock": other_flock.id})
+        self.assertNotEqual(response.context["selected_flock_id"], str(other_flock.id))
+        self.assertEqual(len(response.context["logs"]), 0)
+
+    def test_period_dropdown_options_are_scoped_to_selected_flock(self):
+        flock_a = Flock.objects.create(owner=self.user, generation_number=1, started_on=date(2023, 1, 1), is_active=False)
+        flock_b = Flock.objects.create(owner=self.user, generation_number=2, started_on=date(2024, 1, 1), is_active=True)
+        DailyLog.objects.create(
+            flock=flock_a, date=date(2023, 6, 1), flock_size=200, caging_period=1,
+            flock_age_weeks=50, egg_count=140, feed_intake_kg="35.0",
+            temperature_c="27.0", humidity_pct="70.0", recorded_by=self.user,
+        )
+        DailyLog.objects.create(
+            flock=flock_b, date=timezone.localdate(), flock_size=200, caging_period=2,
+            flock_age_weeks=50, egg_count=140, feed_intake_kg="35.0",
+            temperature_c="27.0", humidity_pct="70.0", recorded_by=self.user,
+        )
+        response_a = self.client.get("/farm-records/", {"flock": flock_a.id, "range": "all"})
+        response_b = self.client.get("/farm-records/", {"flock": flock_b.id, "range": "all"})
+        self.assertEqual(list(response_a.context["period_choices"].keys()), ["all", "1"])
+        self.assertEqual(list(response_b.context["period_choices"].keys()), ["all", "2"])
+
+    def test_period_query_param_narrows_results(self):
+        flock = Flock.objects.create(owner=self.user, generation_number=1, started_on=date(2024, 1, 1), is_active=True)
+        DailyLog.objects.create(
+            flock=flock, date=date(2024, 1, 1), flock_size=200, caging_period=1,
+            flock_age_weeks=50, egg_count=140, feed_intake_kg="35.0",
+            temperature_c="27.0", humidity_pct="70.0", recorded_by=self.user,
+        )
+        DailyLog.objects.create(
+            flock=flock, date=date(2024, 3, 1), flock_size=200, caging_period=2,
+            flock_age_weeks=55, egg_count=145, feed_intake_kg="36.0",
+            temperature_c="27.0", humidity_pct="70.0", recorded_by=self.user,
+        )
+        response = self.client.get("/farm-records/", {"period": "1", "range": "all"})
+        logs = list(response.context["logs"])
+        self.assertEqual(len(logs), 1)
+        self.assertEqual(logs[0].caging_period, 1)
+
+    def test_invalid_period_falls_back_to_all(self):
+        Flock.objects.create(owner=self.user, generation_number=1, started_on=date(2024, 1, 1), is_active=True)
+        response = self.client.get("/farm-records/", {"period": "bogus"})
+        self.assertEqual(response.context["selected_period"], "all")
+
+    def test_switching_flock_resets_stale_period_to_all(self):
+        flock_a = Flock.objects.create(owner=self.user, generation_number=1, started_on=date(2023, 1, 1), is_active=False)
+        flock_b = Flock.objects.create(owner=self.user, generation_number=2, started_on=date(2024, 1, 1), is_active=True)
+        DailyLog.objects.create(
+            flock=flock_a, date=date(2023, 6, 1), flock_size=200, caging_period=1,
+            flock_age_weeks=50, egg_count=140, feed_intake_kg="35.0",
+            temperature_c="27.0", humidity_pct="70.0", recorded_by=self.user,
+        )
+        DailyLog.objects.create(
+            flock=flock_b, date=timezone.localdate(), flock_size=200, caging_period=2,
+            flock_age_weeks=50, egg_count=140, feed_intake_kg="35.0",
+            temperature_c="27.0", humidity_pct="70.0", recorded_by=self.user,
+        )
+        # period=1 is only valid for flock_a; requesting it against flock_b should fall back to "all".
+        response = self.client.get("/farm-records/", {"flock": flock_b.id, "period": "1", "range": "all"})
+        self.assertEqual(response.context["selected_period"], "all")
+        self.assertEqual(len(response.context["logs"]), 1)
+
 
 class FarmRecordEditTests(TestCase):
     def setUp(self):
@@ -378,6 +593,28 @@ class FarmRecordEditTests(TestCase):
         self.assertEqual(str(self.log.temperature_c), "28.0")
         self.assertEqual(DailyLogEdit.objects.filter(daily_log=self.log).count(), 0)
 
+    def test_edit_future_date_is_rejected(self):
+        tomorrow = timezone.localdate() + timedelta(days=1)
+        response = self._edit_post(date=tomorrow.isoformat())
+        self.log.refresh_from_db()
+        self.assertEqual(self.log.date, date(2024, 1, 1))
+        self.assertEqual(DailyLogEdit.objects.filter(daily_log=self.log).count(), 0)
+
+    def test_locked_record_get_redirects_with_error(self):
+        self.log.is_locked = True
+        self.log.save(update_fields=["is_locked"])
+        response = self.client.get(f"/farm-records/{self.log.pk}/edit/", follow=True)
+        self.assertRedirects(response, "/farm-records/")
+        self.assertContains(response, "can no longer be edited or deleted")
+
+    def test_locked_record_post_is_blocked(self):
+        self.log.is_locked = True
+        self.log.save(update_fields=["is_locked"])
+        self._edit_post(egg_count=999)
+        self.log.refresh_from_db()
+        self.assertEqual(self.log.egg_count, 150)
+        self.assertEqual(DailyLogEdit.objects.filter(daily_log=self.log).count(), 0)
+
 
 class FarmRecordDeleteTests(TestCase):
     def setUp(self):
@@ -422,7 +659,19 @@ class FarmRecordDeleteTests(TestCase):
         self.client.post(f"/farm-records/{self.log.pk}/delete/")
 
         self.assertFalse(Forecast.objects.filter(flock=self.flock, forecast_date=self.log.date).exists())
-        self.assertEqual(Recommendation.objects.filter(forecast=forecast).count(), 0)
+
+    def test_locked_record_get_redirects_with_error(self):
+        self.log.is_locked = True
+        self.log.save(update_fields=["is_locked"])
+        response = self.client.get(f"/farm-records/{self.log.pk}/delete/", follow=True)
+        self.assertRedirects(response, "/farm-records/")
+        self.assertTrue(DailyLog.objects.filter(pk=self.log.pk).exists())
+
+    def test_locked_record_post_is_blocked(self):
+        self.log.is_locked = True
+        self.log.save(update_fields=["is_locked"])
+        self.client.post(f"/farm-records/{self.log.pk}/delete/")
+        self.assertTrue(DailyLog.objects.filter(pk=self.log.pk).exists())
 
     def test_deleting_a_record_leaves_other_forecasts_that_only_used_it_as_a_prior(self):
         # A Forecast for a *different*, later date may have used self.log as a
@@ -457,11 +706,16 @@ class FlockProfileTests(TestCase):
         self.assertIsNone(response.context["active_flock"])
 
     def test_creating_first_flock_sets_generation_one_and_active(self):
-        self.client.post("/flock/", {"started_on": "2024-01-01"})
+        self.client.post("/flock/", {
+            "flock_size": 240, "flock_age_weeks": 25, "feed_intake_kg": "40.0",
+        })
         flock = Flock.objects.get()
         self.assertEqual(flock.generation_number, 1)
         self.assertTrue(flock.is_active)
-        self.assertEqual(flock.started_on, date(2024, 1, 1))
+        self.assertEqual(flock.started_on, date.today())
+        self.assertEqual(flock.pending_flock_size, 240)
+        self.assertEqual(flock.pending_flock_age_weeks, 25)
+        self.assertEqual(str(flock.pending_feed_intake_kg), "40.00")
 
     def test_profile_shows_latest_log_size_and_age(self):
         flock = Flock.objects.create(owner=self.user, generation_number=1, started_on=date(2024, 1, 1))
@@ -473,6 +727,18 @@ class FlockProfileTests(TestCase):
         response = self.client.get("/flock/")
         self.assertEqual(response.context["latest_log"].flock_size, 240)
         self.assertEqual(response.context["latest_log"].flock_age_weeks, 25)
+
+    def test_profile_shows_registered_details_before_any_daily_log_exists(self):
+        """A freshly registered flock has no DailyLog yet, but its confirmed
+        pending_* details should show immediately rather than waiting for the first
+        entry (previously showed "—" placeholders until then)."""
+        self.client.post("/flock/", {
+            "flock_size": 240, "flock_age_weeks": 25, "feed_intake_kg": "40.0",
+        })
+        response = self.client.get("/flock/")
+        self.assertIsNone(response.context["latest_log"])
+        self.assertEqual(response.context["current_age_weeks"], 25)
+        self.assertContains(response, "240 ducks")
 
     @patch("farm.services.date")
     def test_profile_current_age_is_projected_forward_to_today(self, mock_date):
@@ -490,44 +756,64 @@ class FlockProfileTests(TestCase):
         self.assertEqual(response.context["latest_log"].flock_age_weeks, 94)
         self.assertEqual(response.context["current_age_weeks"], 100)
 
-    def test_editing_start_date_updates_the_active_flock(self):
-        Flock.objects.create(owner=self.user, generation_number=1, started_on=date(2024, 1, 1))
-        self.client.post("/flock/", {"started_on": "2024-02-15"})
-        flock = Flock.objects.get()
-        self.assertEqual(flock.started_on, date(2024, 2, 15))
-
     @patch("farm.views.trigger_retrain")
-    def test_retiring_a_flock_deactivates_it_and_starts_the_next_generation(self, mock_trigger_retrain):
+    def test_retiring_a_flock_deactivates_it_and_clears_the_active_flock(self, mock_trigger_retrain):
         old_flock = Flock.objects.create(owner=self.user, generation_number=1, started_on=date(2024, 1, 1))
-        self.client.post("/flock/retire/", {"started_on": "2024-06-01"})
+        self.client.post("/flock/retire/")
         old_flock.refresh_from_db()
         self.assertFalse(old_flock.is_active)
-        new_flock = Flock.objects.get(is_active=True)
-        self.assertEqual(new_flock.generation_number, 2)
-        self.assertEqual(new_flock.started_on, date(2024, 6, 1))
+        # No replacement flock is created — the farmer registers the next one
+        # explicitly, same as a brand-new farm with no flock at all.
+        self.assertFalse(Flock.objects.filter(is_active=True).exists())
+        self.assertIsNone(self.client.get("/flock/").context["active_flock"])
         # Retirement closes out a whole generation's data -> a retrain is triggered.
         mock_trigger_retrain.assert_called_once_with("flock_retired", self.user.id)
 
-    def test_first_entry_after_retirement_requires_flock_size_again(self):
+    def test_retiring_requires_post(self):
+        Flock.objects.create(owner=self.user, generation_number=1, started_on=date(2024, 1, 1))
+        response = self.client.get("/flock/retire/")
+        self.assertEqual(response.status_code, 405)
+
+    def test_registering_after_retirement_continues_generation_numbering(self):
+        Flock.objects.create(owner=self.user, generation_number=1, started_on=date(2024, 1, 1), is_active=False)
+        self.client.post("/flock/", {
+            "flock_size": 200, "flock_age_weeks": 1, "feed_intake_kg": "30.0",
+        })
+        new_flock = Flock.objects.get(is_active=True)
+        self.assertEqual(new_flock.generation_number, 2)
+        self.assertEqual(new_flock.started_on, date.today())
+        self.assertEqual(new_flock.pending_flock_size, 200)
+
+    def test_first_entry_after_retirement_prefills_from_registration(self):
         old_flock = Flock.objects.create(owner=self.user, generation_number=1, started_on=date(2024, 1, 1))
         DailyLog.objects.create(
             flock=old_flock, date=date(2024, 1, 1), flock_size=240, caging_period=1,
             flock_age_weeks=25, egg_count=150, feed_intake_kg="40.0",
             temperature_c="28.0", humidity_pct="75.0", recorded_by=self.user,
         )
-        self.client.post("/flock/retire/", {"started_on": "2024-06-01"})
+        self.client.post("/flock/retire/")
+        self.client.post("/flock/", {
+            "flock_size": 200, "flock_age_weeks": 1, "feed_intake_kg": "30.0",
+        })
 
-        # No previous DailyLog for the new flock, so flock_size isn't pre-filled.
+        # No previous DailyLog for the new flock, but the values confirmed at
+        # registration (pending_flock_size etc.) pre-fill the first entry instead.
         response = self.client.get("/log-daily-data/")
-        self.assertNotIn("flock_size", response.context["form"].initial)
+        self.assertEqual(response.context["form"].initial["flock_size"], 200)
+        self.assertEqual(response.context["form"].initial["flock_age_weeks"], 1)
+        self.assertEqual(response.context["form"].initial["feed_intake_kg"], Decimal("30.0"))
 
-        post_data = {k: v for k, v in VALID_LOG_POST.items() if k != "flock_size"}
-        response = self.client.post("/log-daily-data/", {**post_data, "date": "2024-06-01"})
-        self.assertFalse(DailyLog.objects.filter(date=date(2024, 6, 1)).exists())
-        self.assertIn("flock_size", response.context["form"].errors)
+        # Registration set the new flock's started_on to today, so the first live
+        # entry for it must be dated today or later too (see date-range test above).
+        response = self.client.post("/log-daily-data/", {**VALID_LOG_POST, "date": date.today().isoformat()})
+        self.assertRedirects(response, "/")
+        new_flock = Flock.objects.get(is_active=True)
+        new_flock.refresh_from_db()
+        self.assertIsNone(new_flock.pending_flock_size)
+        self.assertIsNone(new_flock.pending_flock_age_weeks)
+        self.assertIsNone(new_flock.pending_feed_intake_kg)
 
-    @patch("farm.views.trigger_retrain")
-    def test_new_generations_first_entry_continues_the_global_caging_period(self, mock_trigger_retrain):
+    def test_new_generations_first_entry_continues_the_global_caging_period(self):
         """A retired flock's first live entry must NOT restart caging_period at 1.
 
         caging_period is a segment marker unique per owner (log_daily_data scopes the
@@ -543,11 +829,17 @@ class FlockProfileTests(TestCase):
             flock_age_weeks=25, egg_count=150, feed_intake_kg="40.0",
             temperature_c="28.0", humidity_pct="75.0", recorded_by=self.user,
         )
-        self.client.post("/flock/retire/", {"started_on": "2024-06-01"})
+        self.client.post("/flock/retire/")
+        self.client.post("/flock/", {
+            "flock_size": 240, "flock_age_weeks": 25, "feed_intake_kg": "40.0",
+        })
 
-        response = self.client.post("/log-daily-data/", {**VALID_LOG_POST, "date": "2024-06-01"})
+        # Registration set the new flock's started_on to today, so the first live
+        # entry for it must be dated today or later too (see date-range test above).
+        today = date.today()
+        response = self.client.post("/log-daily-data/", {**VALID_LOG_POST, "date": today.isoformat()})
         self.assertRedirects(response, "/")
-        new_log = DailyLog.objects.get(date=date(2024, 6, 1))
+        new_log = DailyLog.objects.get(date=today)
         self.assertEqual(new_log.caging_period, 4)
 
     def test_toggle_caging_status_flips_a_caged_flock_to_free_range(self):
@@ -696,8 +988,23 @@ class WeatherFetchTests(TestCase):
         self.assertEqual(called_params["longitude"], 123.2)
 
 
+def _fake_response(json_data):
+    """A requests.Response stand-in whose .json() returns json_data and whose
+    raise_for_status() is a no-op — used to build per-call side_effect lists for
+    geocode_address's one-request-per-word behavior."""
+    response = Mock()
+    response.json.return_value = json_data
+    response.raise_for_status.return_value = None
+    return response
+
+
 class GeocodeAddressTests(TestCase):
-    """Covers farm.weather.geocode_address in isolation (no view/DB involvement)."""
+    """Covers farm.weather.geocode_address in isolation (no view/DB involvement).
+
+    geocode_address queries once per word in the address (see its docstring for why),
+    so tests with more than one word mock requests.get with a side_effect list — one
+    response per word, in address order — rather than a single return_value.
+    """
 
     def test_blank_address_returns_none_without_calling_the_api(self):
         with patch("farm.weather.requests.get") as mock_get:
@@ -705,11 +1012,52 @@ class GeocodeAddressTests(TestCase):
             mock_get.assert_not_called()
 
     @patch("farm.weather.requests.get")
-    def test_successful_lookup_returns_latitude_and_longitude(self, mock_get):
+    def test_single_word_address_trusts_the_only_result(self, mock_get):
         mock_get.return_value.json.return_value = {
             "results": [{"latitude": 13.72, "longitude": 123.02, "name": "Libmanan"}]
         }
-        self.assertEqual(geocode_address("Libmanan, Camarines Sur"), (13.72, 123.02))
+        self.assertEqual(geocode_address("Libmanan"), (13.72, 123.02))
+
+    @patch("farm.weather.requests.get")
+    def test_multi_word_address_picks_the_result_corroborated_by_another_word(self, mock_get):
+        # "Libmanan, Camarines Sur" is queried word by word ("Libmanan", "Camarines",
+        # "Sur"). "Libmanan" resolves unambiguously; the other two words have no
+        # gazetteer entry of their own. The province name in Libmanan's admin2 is what
+        # ties the words together and makes the match trustworthy.
+        mock_get.side_effect = [
+            _fake_response({
+                "results": [{
+                    "latitude": 13.6928, "longitude": 123.0596, "name": "Libmanan",
+                    "admin1": "Bicol Region", "admin2": "Province of Camarines Sur",
+                    "admin3": "Municipality of Libmanan",
+                }]
+            }),
+            _fake_response({"results": []}),
+            _fake_response({"results": []}),
+        ]
+        self.assertEqual(geocode_address("Libmanan, Camarines Sur"), (13.6928, 123.0596))
+
+    @patch("farm.weather.requests.get")
+    def test_ambiguous_word_without_corroboration_returns_none(self, mock_get):
+        # Regression test: a bare "Patag" query has several same-named PH results,
+        # including a barangay in Bulacan ~300km from this app's farmers in Camarines
+        # Sur. Without a second word in the address to confirm which one is meant, none
+        # of them can be trusted.
+        mock_get.return_value.json.return_value = {
+            "results": [
+                {
+                    "latitude": 14.83333, "longitude": 120.96667, "name": "Patag",
+                    "admin1": "Central Luzon", "admin2": "Province of Bulacan",
+                    "admin3": "Santa Maria",
+                },
+                {
+                    "latitude": 13.73333, "longitude": 123.05, "name": "Patag",
+                    "admin1": "Bicol Region", "admin2": "Province of Camarines Sur",
+                    "admin3": "Municipality of Libmanan",
+                },
+            ]
+        }
+        self.assertIsNone(geocode_address("Patag"))
 
     @patch("farm.weather.requests.get")
     def test_no_results_returns_none(self, mock_get):
@@ -718,11 +1066,11 @@ class GeocodeAddressTests(TestCase):
 
     @patch("farm.weather.requests.get", side_effect=requests.exceptions.Timeout)
     def test_timeout_returns_none(self, mock_get):
-        self.assertIsNone(geocode_address("Libmanan, Camarines Sur"))
+        self.assertIsNone(geocode_address("Libmanan"))
 
     @patch("farm.weather.requests.get", side_effect=requests.exceptions.ConnectionError)
     def test_connection_error_returns_none(self, mock_get):
-        self.assertIsNone(geocode_address("Libmanan, Camarines Sur"))
+        self.assertIsNone(geocode_address("Libmanan"))
 
 
 class GetEffectiveCoordinatesTests(TestCase):
@@ -779,131 +1127,123 @@ class AssignCagingPeriodsTests(TestCase):
         self.assertEqual(periods, [4])
 
 
-IMPORT_CSV_HEADER = "date,flock_size,flock_age_weeks,feed_intake_kg,egg_count,temperature_c,humidity_pct"
+class TrendChartHelpersTests(TestCase):
+    """Covers services.build_trend_chart_data/build_next_day_forecasts/resolve_trend_range
+    — the implementation shared by the dashboard and the Forecast & Recommendations page's
+    Egg Yield Trend chart (dashboard/views.py, forecasting/views.py)."""
 
-
-def _csv_upload(rows, filename="import.csv"):
-    """rows: list of comma-joined data lines (no header)."""
-    content = "\n".join([IMPORT_CSV_HEADER, *rows]) + "\n"
-    return SimpleUploadedFile(filename, content.encode("utf-8"), content_type="text/csv")
-
-
-@override_settings(FARM_LATITUDE=None, FARM_LONGITUDE=None)
-class ImportCsvTests(TestCase):
     def setUp(self):
         self.user = User.objects.create_user(username="farmer1", password="pw12345")
-        self.client = Client()
-        self.client.login(username="farmer1", password="pw12345")
         self.flock = Flock.objects.create(owner=self.user, generation_number=1, started_on=date(2024, 1, 1))
 
-    def test_no_active_flock_redirects_with_error(self):
-        self.flock.delete()
-        response = self.client.get("/farm-records/import/", follow=True)
-        self.assertRedirects(response, "/")
-        messages = list(response.context["messages"])
-        self.assertTrue(any("No active flock" in str(m) for m in messages))
+    def test_resolve_trend_range_falls_back_to_seven_on_invalid_value(self):
+        self.assertEqual(resolve_trend_range("30"), "30")
+        self.assertEqual(resolve_trend_range("all"), "all")
+        self.assertEqual(resolve_trend_range("bogus"), "7")
+        self.assertEqual(resolve_trend_range(None), "7")
 
-    @patch("farm.views.trigger_retrain")
-    def test_valid_csv_imports_all_rows_and_triggers_one_retrain(self, mock_trigger_retrain):
-        upload = _csv_upload([
-            "2024-01-01,240,25,40.0,150,28.0,75.0",
-            "2024-01-02,240,25,41.5,155,27.5,74.0",
-        ])
-        response = self.client.post("/farm-records/import/", {"csv_file": upload}, follow=True)
-        self.assertRedirects(response, "/farm-records/")
-        self.assertEqual(DailyLog.objects.filter(flock=self.flock).count(), 2)
-        mock_trigger_retrain.assert_called_once_with("csv_import", self.user.id)
-        # Historical backfill: no per-row Forecast generation.
-        self.assertEqual(Forecast.objects.filter(flock=self.flock).count(), 0)
-        log1 = DailyLog.objects.get(date=date(2024, 1, 1))
-        log2 = DailyLog.objects.get(date=date(2024, 1, 2))
-        self.assertEqual(log1.caging_period, 1)
-        self.assertEqual(log2.caging_period, 1)
-        self.assertEqual(log1.recorded_by, self.user)
+    def test_build_next_day_forecasts_returns_empty_list_for_no_forecast(self):
+        self.assertEqual(build_next_day_forecasts(None), [])
 
-    @patch("farm.views.trigger_retrain")
-    def test_out_of_range_row_rejects_the_whole_file(self, mock_trigger_retrain):
-        upload = _csv_upload([
-            "2024-01-01,240,25,40.0,150,28.0,75.0",
-            "2024-01-02,240,25,40.0,5000,28.0,75.0",  # egg_count out of range (max 1000)
-        ])
-        response = self.client.post("/farm-records/import/", {"csv_file": upload})
-        self.assertEqual(DailyLog.objects.filter(flock=self.flock).count(), 0)
-        self.assertEqual(len(response.context["row_errors"]), 1)
-        self.assertEqual(response.context["row_errors"][0]["row"], 3)
-        mock_trigger_retrain.assert_not_called()
+    def test_build_next_day_forecasts_derives_three_distinct_days(self):
+        forecast = Forecast.objects.create(
+            flock=self.flock, forecast_date=date(2024, 1, 10),
+            predicted_daily_yield=Decimal("150.00"), predicted_tri_day_yield=Decimal("450.00"),
+            predicted_next_day1_yield=Decimal("151.00"), predicted_next_day2_yield=Decimal("152.00"),
+            predicted_next_day3_yield=Decimal("153.00"),
+            feature_importances={"temperature_c": 0.4}, model_version="rf-test",
+        )
+        days = build_next_day_forecasts(forecast)
+        self.assertEqual([d["date"] for d in days], [date(2024, 1, 11), date(2024, 1, 12), date(2024, 1, 13)])
+        self.assertEqual([d["value"] for d in days], [Decimal("151.00"), Decimal("152.00"), Decimal("153.00")])
+        self.assertEqual([d["is_tomorrow"] for d in days], [True, False, False])
 
-    @patch("farm.views.trigger_retrain")
-    def test_duplicate_date_within_file_rejects_the_whole_file(self, mock_trigger_retrain):
-        upload = _csv_upload([
-            "2024-01-01,240,25,40.0,150,28.0,75.0",
-            "2024-01-01,240,25,41.0,151,28.0,75.0",
-        ])
-        response = self.client.post("/farm-records/import/", {"csv_file": upload})
-        self.assertEqual(DailyLog.objects.filter(flock=self.flock).count(), 0)
-        self.assertTrue(response.context["row_errors"])
-        mock_trigger_retrain.assert_not_called()
-
-    @patch("farm.views.trigger_retrain")
-    def test_duplicate_against_existing_record_rejects_the_whole_file(self, mock_trigger_retrain):
+    def test_uncaged_flock_returns_no_trend_data_regardless_of_range(self):
         DailyLog.objects.create(
             flock=self.flock, date=date(2024, 1, 1), flock_size=240, caging_period=1,
             flock_age_weeks=25, egg_count=150, feed_intake_kg="40.0",
             temperature_c="28.0", humidity_pct="75.0", recorded_by=self.user,
         )
-        upload = _csv_upload([
-            "2024-01-01,240,25,40.0,150,28.0,75.0",
-            "2024-01-02,240,25,41.0,151,28.0,75.0",
-        ])
-        response = self.client.post("/farm-records/import/", {"csv_file": upload})
-        # Only the pre-existing row should remain; the batch was rejected wholesale.
-        self.assertEqual(DailyLog.objects.filter(flock=self.flock).count(), 1)
-        self.assertTrue(response.context["row_errors"])
-        mock_trigger_retrain.assert_not_called()
+        data = build_trend_chart_data(self.flock, False, "all", [])
+        self.assertEqual(data["trend_logs"], [])
+        self.assertEqual(data["trend_actual_json"], "[]")
 
-    def test_missing_required_column_shows_a_form_error(self):
-        content = "date,flock_size\n2024-01-01,240\n"
-        upload = SimpleUploadedFile("bad.csv", content.encode("utf-8"), content_type="text/csv")
-        response = self.client.post("/farm-records/import/", {"csv_file": upload})
-        self.assertIn("csv_file", response.context["form"].errors)
-
-    @patch("farm.views.trigger_retrain")
-    def test_historical_dataset_style_headers_are_accepted_as_aliases(self, mock_trigger_retrain):
-        """A farmer's own spreadsheet may already use the original historical
-        dataset's column names (e.g. "Number of Flocks", "Temperature") rather than
-        this app's internal field names — those are recognized too, case-insensitively,
-        so the file doesn't need to be manually renamed before uploading."""
-        content = (
-            "Date,Number of Flocks,Average Age of Flock (weeks),"
-            "Feed Intake (kgs per day),Egg Yield (per day),Temperature,Humidity\n"
-            "2024-01-01,465,78,70.0,340,29.4,69\n"
-            "2024-01-02,465,78,70.0,331,31.2,66\n"
+    def test_actual_and_predicted_align_by_date_and_future_forecast_is_dashed_from_the_right_index(self):
+        log1 = DailyLog.objects.create(
+            flock=self.flock, date=date(2024, 1, 1), flock_size=240, caging_period=1,
+            flock_age_weeks=25, egg_count=150, feed_intake_kg="40.0",
+            temperature_c="28.0", humidity_pct="75.0", recorded_by=self.user,
         )
-        upload = SimpleUploadedFile("rodel.csv", content.encode("utf-8-sig"), content_type="text/csv")
-        response = self.client.post("/farm-records/import/", {"csv_file": upload}, follow=True)
-        self.assertRedirects(response, "/farm-records/")
-        self.assertEqual(DailyLog.objects.filter(flock=self.flock).count(), 2)
-        log = DailyLog.objects.get(date=date(2024, 1, 1))
-        self.assertEqual(log.flock_size, 465)
-        self.assertEqual(log.flock_age_weeks, 78)
-        self.assertEqual(str(log.temperature_c), "29.4")
-        self.assertEqual(log.egg_count, 340)
-        mock_trigger_retrain.assert_called_once_with("csv_import", self.user.id)
+        log2 = DailyLog.objects.create(
+            flock=self.flock, date=date(2024, 1, 2), flock_size=240, caging_period=1,
+            flock_age_weeks=25, egg_count=155, feed_intake_kg="40.0",
+            temperature_c="28.0", humidity_pct="75.0", recorded_by=self.user,
+        )
+        forecast = Forecast.objects.create(
+            flock=self.flock, forecast_date=date(2024, 1, 2),
+            predicted_daily_yield=Decimal("152.00"), predicted_tri_day_yield=Decimal("450.00"),
+            predicted_next_day1_yield=Decimal("157.00"), predicted_next_day2_yield=Decimal("158.00"),
+            predicted_next_day3_yield=Decimal("159.00"),
+            feature_importances={"temperature_c": 0.4}, model_version="rf-test",
+        )
+        forecast.source_logs.set([log1, log2])
 
-    def test_gap_within_the_batch_splits_into_two_caging_periods(self):
-        upload = _csv_upload([
-            "2024-01-01,240,25,40.0,150,28.0,75.0",
-            "2024-06-01,240,25,40.0,150,28.0,75.0",  # >14 day gap
-        ])
-        self.client.post("/farm-records/import/", {"csv_file": upload})
-        log1 = DailyLog.objects.get(date=date(2024, 1, 1))
-        log2 = DailyLog.objects.get(date=date(2024, 6, 1))
-        self.assertEqual(log1.caging_period, 1)
-        self.assertEqual(log2.caging_period, 2)
+        next_day_forecasts = build_next_day_forecasts(forecast)
+        data = build_trend_chart_data(self.flock, True, "all", next_day_forecasts)
 
-    def test_download_template_returns_csv_with_expected_header(self):
-        response = self.client.get("/farm-records/import/template/")
-        self.assertEqual(response.status_code, 200)
-        self.assertEqual(response["Content-Type"], "text/csv")
-        content = response.content.decode("utf-8")
-        self.assertIn(IMPORT_CSV_HEADER, content)
+        self.assertEqual(json.loads(data["trend_actual_json"]), [150.0, 155.0, None, None, None])
+        self.assertEqual(json.loads(data["trend_predicted_json"]), [None, 152.0, 157.0, 158.0, 159.0])
+        # The 2 real logged days come first (index 0, 1); the dashed forecast tail starts
+        # right after, at index 2.
+        self.assertEqual(data["trend_future_start_index"], 2)
+
+
+class BackfillLockedDailyLogsCommandTests(TestCase):
+    """Covers the one-off backfill_locked_daily_logs command: it should lock exactly
+    the DailyLogs of owners whose models/ directory already holds a trained artifact,
+    and leave everything else untouched, per DailyLog.is_locked's help_text."""
+
+    def setUp(self):
+        self.tmpdir = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmpdir.cleanup)
+        self.models_dir = Path(self.tmpdir.name)
+
+        self.trained_user = User.objects.create_user(username="trainedfarmer", password="pw12345")
+        self.trained_flock = Flock.objects.create(
+            owner=self.trained_user, generation_number=1, started_on=date(2024, 1, 1),
+        )
+        self.trained_log = DailyLog.objects.create(
+            flock=self.trained_flock, date=date(2024, 1, 1), flock_size=240, caging_period=1,
+            flock_age_weeks=25, egg_count=150, feed_intake_kg="40.0",
+            temperature_c="28.0", humidity_pct="75.0", recorded_by=self.trained_user,
+        )
+
+        self.untrained_user = User.objects.create_user(username="untrainedfarmer", password="pw12345")
+        self.untrained_flock = Flock.objects.create(
+            owner=self.untrained_user, generation_number=1, started_on=date(2024, 1, 1),
+        )
+        self.untrained_log = DailyLog.objects.create(
+            flock=self.untrained_flock, date=date(2024, 1, 1), flock_size=240, caging_period=1,
+            flock_age_weeks=25, egg_count=150, feed_intake_kg="40.0",
+            temperature_c="28.0", humidity_pct="75.0", recorded_by=self.untrained_user,
+        )
+
+        (self.models_dir / f"forecast_model_{self.trained_user.id}.joblib").write_bytes(b"stub")
+        # Legacy pre-multi-tenancy artifact -- must never be matched/attributed to anyone.
+        (self.models_dir / "forecast_model.joblib").write_bytes(b"stub")
+
+    def _run(self, dry_run=False):
+        with patch("farm.management.commands.backfill_locked_daily_logs.MODEL_DIR", self.models_dir):
+            call_command("backfill_locked_daily_logs", dry_run=dry_run)
+
+    def test_locks_only_owners_with_a_trained_model_artifact(self):
+        self._run()
+        self.trained_log.refresh_from_db()
+        self.untrained_log.refresh_from_db()
+        self.assertTrue(self.trained_log.is_locked)
+        self.assertFalse(self.untrained_log.is_locked)
+
+    def test_dry_run_reports_without_locking(self):
+        self._run(dry_run=True)
+        self.trained_log.refresh_from_db()
+        self.assertFalse(self.trained_log.is_locked)

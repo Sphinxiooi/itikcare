@@ -25,7 +25,7 @@
             <h1 class="text-xl font-bold text-gray-900">Create Your Farm Account</h1>
             <p class="text-sm text-gray-500 mb-5">Start logging your own farm's daily data and forecasts</p>
 
-            <form method="post" class="space-y-4">
+            <form method="post" class="space-y-4" id="signup-form">
                 {% csrf_token %}
                 {% if form.non_field_errors %}
                 <p class="text-sm text-red-600">{{ form.non_field_errors.0 }}</p>
@@ -84,5 +84,76 @@
             Already have an account? <a href="{% url 'login' %}" class="font-semibold text-white hover:underline">Log in</a>
         </div>
     </div>
+
+    <dialog id="signup-confirm-modal" class="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 m-0 p-0 border-0 rounded-2xl bg-transparent w-[90vw] max-w-sm">
+        <div class="bg-white rounded-2xl p-6 shadow-2xl">
+            <h2 class="text-lg font-bold text-gray-900 mb-2">Create this account?</h2>
+            <dl class="text-sm mb-4 space-y-1.5">
+                <div class="flex gap-2"><dt class="text-gray-500 shrink-0">Username:</dt><dd id="signup-confirm-username" class="font-medium text-gray-900 break-all"></dd></div>
+                <div class="flex gap-2" id="signup-confirm-email-row"><dt class="text-gray-500 shrink-0">Email:</dt><dd id="signup-confirm-email" class="font-medium text-gray-900 break-all"></dd></div>
+                <div class="flex gap-2" id="signup-confirm-address-row"><dt class="text-gray-500 shrink-0">Farm address:</dt><dd id="signup-confirm-address" class="font-medium text-gray-900 break-all"></dd></div>
+            </dl>
+            <p class="text-xs text-gray-500 mb-6">Double-check these details — you can still change them later from your flock profile.</p>
+            <div class="flex justify-end gap-3">
+                <button type="button" id="signup-confirm-cancel" class="text-gray-600 font-medium px-4 py-2.5 rounded-lg hover:bg-gray-100 transition-colors">
+                    Go back
+                </button>
+                <button type="button" id="signup-confirm-accept" class="font-semibold text-white rounded-lg px-6 py-2.5 bg-emerald-700 hover:bg-emerald-800 transition-colors">
+                    Create account
+                </button>
+            </div>
+        </div>
+    </dialog>
+
+    <script>
+        (function () {
+            var form = document.getElementById("signup-form");
+            var modal = document.getElementById("signup-confirm-modal");
+            if (!form || !modal || typeof modal.showModal !== "function") {
+                return;
+            }
+
+            var usernameField = document.getElementById("{{ form.username.id_for_label }}");
+            var emailField = document.getElementById("{{ form.email.id_for_label }}");
+            var addressField = document.getElementById("{{ form.address.id_for_label }}");
+            var confirmed = false;
+
+            function fillRow(rowId, valueId, value) {
+                var row = document.getElementById(rowId);
+                var valueEl = document.getElementById(valueId);
+                if (value) {
+                    valueEl.textContent = value;
+                    row.classList.remove("hidden");
+                } else {
+                    row.classList.add("hidden");
+                }
+            }
+
+            form.addEventListener("submit", function (event) {
+                if (confirmed) {
+                    return;
+                }
+                event.preventDefault();
+                document.getElementById("signup-confirm-username").textContent = usernameField.value;
+                fillRow("signup-confirm-email-row", "signup-confirm-email", emailField.value);
+                fillRow("signup-confirm-address-row", "signup-confirm-address", addressField.value);
+                modal.showModal();
+            });
+
+            document.getElementById("signup-confirm-accept").addEventListener("click", function () {
+                confirmed = true;
+                modal.close();
+                form.submit();
+            });
+            document.getElementById("signup-confirm-cancel").addEventListener("click", function () {
+                modal.close();
+            });
+            modal.addEventListener("click", function (event) {
+                if (event.target === modal) {
+                    modal.close();
+                }
+            });
+        })();
+    </script>
 </body>
 </html>

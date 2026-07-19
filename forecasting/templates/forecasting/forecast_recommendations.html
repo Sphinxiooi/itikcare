@@ -57,9 +57,22 @@
 
         <div class="grid grid-cols-1 lg:grid-cols-3 gap-6 mt-6">
             <div class="lg:col-span-2">
-                <h2 class="text-lg font-bold text-gray-900">Egg Yield Trend</h2>
-                <p class="text-sm text-gray-500 mb-3">Last 10 logged days</p>
-                {% if trend_actual_json != "[]" %}
+                <div class="flex flex-wrap justify-between items-center gap-2 mb-1">
+                    <h2 class="text-lg font-bold text-gray-900">Egg Yield Trend</h2>
+                    <form method="get" class="flex items-center gap-2">
+                        <label for="trend_range" class="text-sm text-gray-500">Range</label>
+                        <select id="trend_range" name="trend_range" onchange="this.form.submit()"
+                                class="text-sm border border-gray-300 rounded-md px-2 py-1 text-gray-700 bg-white">
+                            {% for value, label in trend_range_choices %}
+                            <option value="{{ value }}" {% if value == trend_range %}selected{% endif %}>{{ label }}</option>
+                            {% endfor %}
+                        </select>
+                    </form>
+                </div>
+                <p class="text-sm text-gray-500 mb-3">
+                    {{ trend_range_label }}: actual vs. predicted{% if trend_has_future_forecast %} (dashed = upcoming forecast, not yet logged){% endif %}
+                </p>
+                {% if trend_logs %}
                 <canvas id="trendChart" height="220"></canvas>
                 {% else %}
                 <p class="text-sm text-gray-500">No farm records yet.</p>
@@ -130,18 +143,43 @@
         }
     }
 
-    {% if trend_actual_json != "[]" %}
+    {% if trend_logs %}
+    const trendFutureStartIndex = {{ trend_future_start_index|default_if_none:"null" }};
     new Chart(document.getElementById("trendChart"), {
         type: "line",
         data: {
             labels: {{ trend_labels_json|safe }},
-            datasets: [{
-                label: "Actual egg yield",
-                data: {{ trend_actual_json|safe }},
-                borderColor: "#047857",
-                backgroundColor: "#047857",
-                tension: 0.3,
-            }],
+            datasets: [
+                {
+                    label: "Actual egg yield",
+                    data: {{ trend_actual_json|safe }},
+                    borderColor: "#047857",
+                    backgroundColor: "#047857",
+                    borderWidth: 2,
+                    pointRadius: 4,
+                    tension: 0.3,
+                    spanGaps: false,
+                },
+                {
+                    label: "Predicted egg yield",
+                    data: {{ trend_predicted_json|safe }},
+                    borderColor: "#2a78d6",
+                    backgroundColor: "#2a78d6",
+                    borderWidth: 2,
+                    pointRadius: 4,
+                    tension: 0.3,
+                    spanGaps: false,
+                    // The tail beyond trendFutureStartIndex is the Next 3-Day Forecast
+                    // (no DailyLog exists for those dates yet) -- dashed so it always
+                    // reads as a projection, not a nowcast confirmed against real data.
+                    segment: {
+                        borderDash: (ctx) =>
+                            trendFutureStartIndex !== null && ctx.p1DataIndex >= trendFutureStartIndex
+                                ? [6, 6]
+                                : undefined,
+                    },
+                },
+            ],
         },
         options: {
             plugins: { legend: { position: "bottom" } },

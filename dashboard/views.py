@@ -1,10 +1,17 @@
-import json
-from datetime import date, timedelta
+from datetime import date
 
 from django.shortcuts import render
 
 from farm.models import DailyLog
-from farm.services import current_flock_age_weeks, get_active_flock, get_effective_coordinates
+from farm.services import (
+    TREND_RANGE_OPTIONS,
+    build_next_day_forecasts,
+    build_trend_chart_data,
+    current_flock_age_weeks,
+    get_active_flock,
+    get_effective_coordinates,
+    resolve_trend_range,
+)
 from farm.weather import fetch_current_weather
 from forecasting.models import Forecast
 from recommendations.models import Recommendation
@@ -90,23 +97,9 @@ def index(request):
     forecast_low_confidence = latest_forecast is not None and forecast_history_days < 3
 
     # Next 3-Day Forecast panel: 3 distinct day-by-day numbers (forecast_date + 1/2/3),
-    # not the single predicted_tri_day_yield sum -- see forecasting/services.py's
-    # _predict_next_days for how these are derived.
-    next_day_forecasts = [
-        {
-            "date": latest_forecast.forecast_date + timedelta(days=n),
-            "value": value,
-            "is_tomorrow": n == 1,
-        }
-        for n, value in enumerate(
-            [
-                latest_forecast.predicted_next_day1_yield,
-                latest_forecast.predicted_next_day2_yield,
-                latest_forecast.predicted_next_day3_yield,
-            ],
-            start=1,
-        )
-    ] if latest_forecast else []
+    # not the single predicted_tri_day_yield sum -- see farm.services.build_next_day_forecasts
+    # (shared with the Forecast & Recommendations page's trend chart, see below).
+    next_day_forecasts = build_next_day_forecasts(latest_forecast)
 
     recent_logs = (
         list(DailyLog.objects.filter(flock=active_flock).order_by("-date")[:10])
@@ -114,66 +107,23 @@ def index(request):
         else []
     )
     today_log = recent_logs[0] if recent_logs else None
+    # Fall back to the pending_* values staged on the flock at registration/resume-
+    # caging time when no DailyLog exists yet at all, so a freshly registered flock's
+    # stats cards show real numbers immediately instead of "—" until the first entry.
+    flock_size_display = today_log.flock_size if today_log else (active_flock.pending_flock_size if active_flock else None)
+    feed_intake_display = today_log.feed_intake_kg if today_log else (active_flock.pending_feed_intake_kg if active_flock else None)
     # Distinct from today_log above: this is only set when the farmer has actually
     # logged *today's* data (today_log can be stale -- see note above), used for the
     # "Today's Egg Yield" card, which must stay blank until today's entry exists.
     logged_today = today_log if today_log and today_log.date == date.today() else None
     recent_records = recent_logs[:5]
 
-    # Trend chart range: farmer-selectable via ?trend_range=, defaulting to 30 days.
+    # Trend chart range: farmer-selectable via ?trend_range=, defaulting to 7 days.
     # Kept independent of recent_logs (which is capped at 10 for the status cards and
-    # records table above) so widening the trend view doesn't affect those.
-    TREND_RANGE_CHOICES = (7, 14, 30, 90)
-    try:
-        trend_range = int(request.GET.get("trend_range", 30))
-    except ValueError:
-        trend_range = 30
-    if trend_range not in TREND_RANGE_CHOICES:
-        trend_range = 30
-
-    trend_logs = (
-        list(DailyLog.objects.filter(flock=active_flock).order_by("-date")[:trend_range])
-        if flock_is_caged
-        else []
-    )
-
-    # Trend chart data: oldest-to-newest across the selected range of logged days,
-    # showing "actual" (from DailyLog) and "predicted" (from Forecast) side by side.
-    # Every Forecast is a same-day nowcast, so there is no genuinely future-dated
-    # Forecast row to pull from here — the forward-looking extension below reuses
-    # next_day_forecasts (predicted_next_dayN_yield) instead, see below.
-    actual_by_date = {log.date: float(log.egg_count) for log in trend_logs}
-    trend_dates = set(actual_by_date)
-    predicted_by_date = {}
-    if trend_dates:
-        predicted_by_date = {
-            f.forecast_date: float(f.predicted_daily_yield)
-            for f in Forecast.objects.filter(
-                flock=active_flock, forecast_date__range=(min(trend_dates), max(trend_dates))
-            )
-        }
-    trend_dates = sorted(trend_dates)
-    # (strftime's day-without-zero-padding directive isn't portable across platforms,
-    # so the day number is appended manually instead of using "%-d"/"%#d".)
-    trend_labels = [f"{d.strftime('%b')} {d.day}" for d in trend_dates]
-    trend_actual = [actual_by_date.get(d) for d in trend_dates]
-    trend_predicted = [predicted_by_date.get(d) for d in trend_dates]
-
-    # Extend the line with the Next 3-Day Forecast panel's own predicted_next_dayN_yield
-    # values, so the farmer can see those same forward-looking numbers plotted in context
-    # next to the logged history, not just as separate cards. trend_actual stays None for
-    # these -- no DailyLog exists yet for a day that hasn't happened -- and
-    # trend_future_start_index tells the template where to start dashing the predicted
-    # line, so a forecast is never visually mistaken for a nowcast tied to a real log.
-    trend_future_start_index = None
-    for day in next_day_forecasts:
-        if day["value"] is None:
-            continue
-        if trend_future_start_index is None:
-            trend_future_start_index = len(trend_labels)
-        trend_labels.append(f"{day['date'].strftime('%b')} {day['date'].day}")
-        trend_actual.append(None)
-        trend_predicted.append(float(day["value"]))
+    # records table above) so widening the trend view doesn't affect those. Shared with
+    # the Forecast & Recommendations page's own trend chart -- see farm.services.
+    trend_range = resolve_trend_range(request.GET.get("trend_range", "7"))
+    trend_data = build_trend_chart_data(active_flock, flock_is_caged, trend_range, next_day_forecasts)
 
     context = {
         "active_nav": "dashboard",
@@ -182,10 +132,15 @@ def index(request):
         "current_weather": current_weather,
         "today_log": today_log,
         "logged_today": logged_today,
+        "flock_size_display": flock_size_display,
+        "feed_intake_display": feed_intake_display,
         # Calendar-projected, not today_log.flock_age_weeks as-is -- that field is a
         # snapshot as of today_log.date, which can be stale (see today_log's note
         # above), so the "Flocks Age" card must add the weeks elapsed since then.
-        "current_age_weeks": current_flock_age_weeks(today_log),
+        # Falls back to pending_flock_age_weeks (confirmed at registration/resume-caging)
+        # when no DailyLog has been logged yet at all, so a freshly registered flock
+        # shows its real age immediately instead of "—" until the first entry.
+        "current_age_weeks": current_flock_age_weeks(today_log) or (active_flock.pending_flock_age_weeks if active_flock else None),
         "latest_forecast": latest_forecast,
         "next_day_forecasts": next_day_forecasts,
         "forecast_history_days": forecast_history_days,
@@ -193,13 +148,9 @@ def index(request):
         "top_recommendation": top_recommendation,
         "recent_logs": recent_logs,
         "recent_records": recent_records,
-        "trend_logs": trend_logs,
         "trend_range": trend_range,
-        "trend_range_choices": TREND_RANGE_CHOICES,
-        "trend_labels_json": json.dumps(trend_labels),
-        "trend_actual_json": json.dumps(trend_actual),
-        "trend_predicted_json": json.dumps(trend_predicted),
-        "trend_future_start_index": trend_future_start_index,
-        "trend_has_future_forecast": trend_future_start_index is not None,
+        "trend_range_label": dict(TREND_RANGE_OPTIONS)[trend_range],
+        "trend_range_choices": TREND_RANGE_OPTIONS,
+        **trend_data,
     }
     return render(request, "dashboard/index.html", context)

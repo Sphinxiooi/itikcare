@@ -7,6 +7,44 @@
     <h1 class="text-2xl font-bold text-gray-900">Log Today's Farm Data</h1>
     <p class="text-sm text-gray-500 mb-6">Enter daily data to improve forecasting accuracy</p>
 
+    {% if confirm_mode %}
+    <div class="rounded-md border border-emerald-200 bg-emerald-50 p-4 mb-4">
+        <p class="text-sm font-semibold text-emerald-800 mb-2">
+            Please confirm this entry before it's saved and a new forecast is generated:
+        </p>
+        <dl class="grid grid-cols-1 sm:grid-cols-2 gap-x-6 text-sm text-gray-700">
+            {% for field in form %}
+            <div class="flex justify-between border-b border-emerald-100 py-1">
+                <dt class="font-medium">{{ field.label }}</dt>
+                <dd>{{ field.value }}</dd>
+            </div>
+            {% endfor %}
+        </dl>
+    </div>
+
+    {% if anomaly_warnings %}
+    <div class="rounded-md border border-amber-300 bg-amber-50 p-4 mb-4">
+        <p class="text-sm font-semibold text-amber-800 mb-1">Heads up — these look unusual for this flock:</p>
+        <ul class="list-disc list-inside text-sm text-amber-700">
+            {% for warning in anomaly_warnings %}
+            <li>{{ warning }}</li>
+            {% endfor %}
+        </ul>
+        <p class="text-xs text-amber-700 mt-2">Double-check for typos. If the numbers are correct, go ahead and confirm.</p>
+    </div>
+    {% endif %}
+
+    <form method="post" class="flex flex-col-reverse sm:flex-row gap-3">
+        {% csrf_token %}
+        {% for field in form %}{{ field.as_hidden }}{% endfor %}
+        <button type="submit" name="edit" value="1" class="border border-gray-300 text-gray-700 font-semibold rounded-lg px-8 py-2.5 hover:bg-gray-50">
+            Edit
+        </button>
+        <button type="submit" name="confirmed" value="1" class="bg-emerald-700 text-white font-semibold rounded-lg px-8 py-2.5 hover:bg-emerald-800">
+            Confirm &amp; Save
+        </button>
+    </form>
+    {% else %}
     <form method="post" class="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-4">
         {% csrf_token %}
         {% for field in form %}
@@ -23,9 +61,10 @@
         {% endfor %}
         <div class="sm:col-span-2 mt-2">
             <button type="submit" class="w-full sm:w-auto bg-emerald-700 text-white font-semibold rounded-lg px-8 py-2.5 hover:bg-emerald-800">
-                Save
+                Review &amp; Save
             </button>
         </div>
     </form>
+    {% endif %}
 </div>
 {% endblock %}

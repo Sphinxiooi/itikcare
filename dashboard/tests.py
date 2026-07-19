@@ -25,6 +25,18 @@ class DashboardIndexTests(TestCase):
         response = self.client.get("/")
         self.assertContains(response, "No forecasts generated yet.")
 
+    def test_freshly_registered_flock_shows_details_before_first_daily_log(self):
+        """A brand-new flock has pending_* details staged at registration but no
+        DailyLog yet -- the dashboard must show those details immediately rather than
+        "—" placeholders until the farmer's first daily entry."""
+        Flock.objects.create(
+            owner=self.user, generation_number=1, started_on=date.today(),
+            pending_flock_size=240, pending_flock_age_weeks=25, pending_feed_intake_kg=Decimal("40.0"),
+        )
+        response = self.client.get("/")
+        self.assertEqual(response.context["current_age_weeks"], 25)
+        self.assertContains(response, "240")
+
     def test_shows_three_next_day_forecasts(self):
         flock = Flock.objects.create(owner=self.user, generation_number=1, started_on=date(2024, 1, 1))
         log = DailyLog.objects.create(
