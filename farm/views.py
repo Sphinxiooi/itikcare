@@ -12,7 +12,7 @@ from forecasting.models import Forecast
 from forecasting.services import ModelNotTrainedError, generate_forecast, trigger_retrain
 
 from .forms import DailyLogEditForm, DailyLogForm, FlockRegisterForm, FlockResumeCagingForm
-from .models import DailyLog, DailyLogEdit, Flock
+from .models import AUDITED_FIELDS, DailyLog, DailyLogEdit, Flock
 from .services import (
     assign_caging_periods,
     current_flock_age_weeks,
@@ -23,10 +23,6 @@ from .services import (
 from .weather import fetch_current_weather
 
 logger = logging.getLogger(__name__)
-
-# Fields a DailyLog edit is audited against, and how to render each value as text
-# for the DailyLogEdit.old_value/new_value CharFields.
-AUDITED_FIELDS = ["date", "flock_size", "flock_age_weeks", "egg_count", "feed_intake_kg", "temperature_c", "humidity_pct"]
 
 
 @login_required

@@ -1,6 +1,14 @@
 from django.conf import settings
+from django.core.exceptions import ValidationError
 from django.core.validators import MaxValueValidator, MinValueValidator
 from django.db import models
+from django.utils import timezone
+
+# Fields a DailyLog edit is audited against, and how to render each value as text
+# for the DailyLogEdit.old_value/new_value CharFields. Shared by farm/views.py
+# (farmer-facing edit) and farm/admin.py (staff edit) so neither path can silently
+# apply a change without a paired audit entry.
+AUDITED_FIELDS = ["date", "flock_size", "flock_age_weeks", "egg_count", "feed_intake_kg", "temperature_c", "humidity_pct"]
 
 
 class Flock(models.Model):
@@ -130,6 +138,20 @@ class DailyLog(models.Model):
 
     def __str__(self):
         return f"{self.date} — {self.flock}"
+
+    def clean(self):
+        """Model-level backstop for the date-range rule DailyLogForm/DailyLogEditForm
+        already enforce (farm/forms.py clean_date). Those forms only guard the
+        farmer-facing views — this makes the same rule hold for full_clean() callers
+        that bypass the forms entirely, like the Django admin and import_daily_logs."""
+        super().clean()
+        if self.date and self.date > timezone.localdate():
+            raise ValidationError({"date": "You can't log data for a future date."})
+        if self.date and self.flock_id and self.date < self.flock.started_on:
+            raise ValidationError({
+                "date": f"This flock started on {self.flock.started_on:%b %d, %Y} — "
+                "you can't log data from before then."
+            })
 
 
 class DailyLogEdit(models.Model):

@@ -14,6 +14,7 @@ from unittest.mock import Mock, patch
 
 import requests
 from django.contrib.auth import get_user_model
+from django.core.exceptions import ValidationError
 from django.core.management import call_command
 from django.test import Client, TestCase, override_settings
 from django.utils import timezone
@@ -1247,3 +1248,110 @@ class BackfillLockedDailyLogsCommandTests(TestCase):
         self._run(dry_run=True)
         self.trained_log.refresh_from_db()
         self.assertFalse(self.trained_log.is_locked)
+
+
+class DailyLogModelValidationTests(TestCase):
+    """DailyLog.clean() is the model-level backstop for the date-range rule
+    DailyLogForm/DailyLogEditForm.clean_date() already enforce — it must hold for
+    any full_clean() caller that bypasses those forms, e.g. the Django admin or
+    import_daily_logs."""
+
+    def setUp(self):
+        self.user = User.objects.create_user(username="farmer1", password="pw12345")
+        self.flock = Flock.objects.create(owner=self.user, generation_number=1, started_on=date(2024, 1, 1))
+
+    def _log(self, **overrides):
+        base = dict(
+            flock=self.flock, date=date(2024, 1, 5), flock_size=240, caging_period=1,
+            flock_age_weeks=25, egg_count=150, feed_intake_kg="40.0",
+            temperature_c="28.0", humidity_pct="75.0", recorded_by=self.user,
+        )
+        base.update(overrides)
+        return DailyLog(**base)
+
+    def test_future_date_rejected_by_full_clean(self):
+        tomorrow = timezone.localdate() + timedelta(days=1)
+        with self.assertRaises(ValidationError) as ctx:
+            self._log(date=tomorrow).full_clean()
+        self.assertIn("date", ctx.exception.message_dict)
+
+    def test_date_before_flock_start_rejected_by_full_clean(self):
+        with self.assertRaises(ValidationError) as ctx:
+            self._log(date=date(2023, 12, 31)).full_clean()
+        self.assertIn("date", ctx.exception.message_dict)
+
+    def test_valid_date_passes_full_clean(self):
+        self._log().full_clean()  # should not raise
+
+
+class DailyLogAdminTests(TestCase):
+    """Staff editing DailyLog via /admin/ must be held to the same rules as the
+    farmer-facing views: locked (model-trained) rows are immutable, and any change
+    to an unlocked row writes a DailyLogEdit audit row — see FarmRecordEditTests for
+    the equivalent farmer-facing behavior this mirrors."""
+
+    def setUp(self):
+        self.staff = User.objects.create_superuser(username="admin1", password="pw12345", email="admin1@example.com")
+        self.client = Client()
+        self.client.login(username="admin1", password="pw12345")
+        self.farmer = User.objects.create_user(username="farmer1", password="pw12345")
+        self.flock = Flock.objects.create(owner=self.farmer, generation_number=1, started_on=date(2024, 1, 1))
+        self.log = DailyLog.objects.create(
+            flock=self.flock, date=date(2024, 1, 1), flock_size=240, caging_period=1,
+            flock_age_weeks=25, egg_count=150, feed_intake_kg="40.0",
+            temperature_c="28.0", humidity_pct="75.0", recorded_by=self.farmer,
+        )
+
+    def _change_url(self):
+        return f"/admin/farm/dailylog/{self.log.pk}/change/"
+
+    def _change_post(self, **overrides):
+        base = {
+            "flock": self.flock.pk, "date": "2024-01-01", "flock_size": 240,
+            "caging_period": 1, "flock_age_weeks": 25, "egg_count": 150,
+            "feed_intake_kg": "40.0", "temperature_c": "28.0", "humidity_pct": "75.0",
+            "recorded_by": self.farmer.pk, "is_locked": "",
+        }
+        base.update(overrides)
+        return self.client.post(self._change_url(), base, follow=True)
+
+    def test_editing_a_field_via_admin_creates_an_audit_row(self):
+        self._change_post(egg_count=175)
+        self.log.refresh_from_db()
+        self.assertEqual(self.log.egg_count, 175)
+        edits = DailyLogEdit.objects.filter(daily_log=self.log)
+        self.assertEqual(edits.count(), 1)
+        edit = edits.first()
+        self.assertEqual(edit.field_name, "egg_count")
+        self.assertEqual(edit.old_value, "150")
+        self.assertEqual(edit.new_value, "175")
+        self.assertEqual(edit.changed_by, self.staff)
+
+    def test_resubmitting_unchanged_values_via_admin_creates_no_audit_rows(self):
+        self._change_post()
+        self.assertEqual(DailyLogEdit.objects.filter(daily_log=self.log).count(), 0)
+
+    def test_locked_record_fields_are_readonly_in_admin(self):
+        self.log.is_locked = True
+        self.log.save(update_fields=["is_locked"])
+        response = self.client.get(self._change_url())
+        # A readonly changeform has no editable "egg_count" input for the field.
+        self.assertNotContains(response, 'name="egg_count"')
+
+    def test_locked_record_post_is_blocked_by_admin(self):
+        self.log.is_locked = True
+        self.log.save(update_fields=["is_locked"])
+        self._change_post(egg_count=999)
+        self.log.refresh_from_db()
+        self.assertEqual(self.log.egg_count, 150)
+        self.assertEqual(DailyLogEdit.objects.filter(daily_log=self.log).count(), 0)
+
+    def test_locked_record_has_no_delete_action_in_admin(self):
+        self.log.is_locked = True
+        self.log.save(update_fields=["is_locked"])
+        response = self.client.get(self._change_url())
+        self.assertNotContains(response, "Delete")
+
+    def test_unlocked_record_can_still_be_deleted_via_admin(self):
+        response = self.client.post(f"/admin/farm/dailylog/{self.log.pk}/delete/", {"post": "yes"}, follow=True)
+        self.assertFalse(DailyLog.objects.filter(pk=self.log.pk).exists())
