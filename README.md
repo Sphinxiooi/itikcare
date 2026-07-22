@@ -6,7 +6,7 @@ project instructions.
 
 ## Stack
 
-Python 3.13, Django 5.2, MySQL, Tailwind CSS (standalone CLI, no Node/npm), scikit-learn.
+Python 3.13, Django 5.2, PostgreSQL, Tailwind CSS (standalone CLI, no Node/npm), scikit-learn.
 
 ## First-time setup
 
@@ -17,8 +17,9 @@ Python 3.13, Django 5.2, MySQL, Tailwind CSS (standalone CLI, no Node/npm), scik
    pip install -r requirements.txt
    ```
 2. Copy `.env.example` to `.env` and fill in real values (secret key, DB credentials).
-3. Make sure MySQL is running and the `itikcare` database + a DB user exist (see
-   `.env.example` for the expected variable names).
+3. Make sure PostgreSQL is running and the `itikcare` database + a DB user exist (see
+   `.env.example` for the expected variable names). No local Postgres? Set
+   `DB_ENGINE=sqlite` in `.env` instead to fall back to a local `db.sqlite3` file.
 4. Download the Tailwind standalone CLI binary (Windows x64) into the project root as
    `tailwindcss.exe` — it is not committed to git:
    ```
