@@ -291,6 +291,26 @@ class LogDailyDataTests(TestCase):
         response = self.client.post("/log-daily-data/", {**VALID_LOG_POST, "date": today.isoformat()})
         self.assertTrue(DailyLog.objects.filter(date=today).exists())
 
+    @patch("farm.views.generate_forecast")
+    def test_todays_entry_generates_forecast(self, mock_generate_forecast):
+        Flock.objects.create(owner=self.user, generation_number=1, started_on=date(2024, 1, 1))
+        today = timezone.localdate()
+        self.client.post("/log-daily-data/", {**VALID_LOG_POST, "date": today.isoformat()})
+        log = DailyLog.objects.get(date=today)
+        mock_generate_forecast.assert_called_once_with(log)
+
+    @patch("farm.views.generate_forecast")
+    def test_backdated_entry_skips_forecast_generation(self, mock_generate_forecast):
+        """A backfilled missed day (VALID_LOG_POST's date is always in the past relative
+        to whenever these tests run) must still save as ordinary history, but must never
+        generate its own same-day Forecast -- see log_daily_data's docstring."""
+        Flock.objects.create(owner=self.user, generation_number=1, started_on=date(2024, 1, 1))
+        response = self.client.post("/log-daily-data/", VALID_LOG_POST, follow=True)
+        self.assertTrue(DailyLog.objects.filter(date=date(2024, 1, 1)).exists())
+        mock_generate_forecast.assert_not_called()
+        messages = list(response.context["messages"])
+        self.assertTrue(any("won't generate its own forecast" in str(m) for m in messages))
+
     def test_date_before_flock_started_is_rejected(self):
         Flock.objects.create(owner=self.user, generation_number=1, started_on=date(2024, 1, 1))
         response = self.client.post("/log-daily-data/", {**VALID_LOG_POST, "date": "2023-12-31"})

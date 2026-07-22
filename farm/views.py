@@ -49,9 +49,20 @@ def log_daily_data(request):
     A first valid submission never saves immediately: it renders a read-only
     confirmation screen (services.detect_daily_log_anomalies checked against this
     flock's own history, e.g. an egg count far above its usual average) so the farmer
-    gets one last look before the entry is written and a forecast generated from it.
-    Only a second submission carrying confirmed=1 actually saves. Clicking "Edit" from
-    that screen (edit=1) returns to the normal editable form without re-validating.
+    gets one last look before the entry is written (and, if it's dated today, a
+    forecast generated from it). Only a second submission carrying confirmed=1
+    actually saves. Clicking "Edit" from that screen (edit=1) returns to the normal
+    editable form without re-validating.
+
+    A backdated entry (backfilling a missed past day — see DailyLogForm.clean_date)
+    is saved the same way but never generates its own Forecast: a same-day nowcast
+    for a day that has already fully happened isn't actionable, and forecast_date
+    is unique per flock+date, so generating one here would silently clash with
+    whatever forecast already covers that historical date. It's still fed into the
+    database as ordinary history, though — the next real (today-dated) forecast's
+    lag1/roll3 features look at recent DailyLogs by date regardless of when each
+    one was actually entered, so a backfilled day counts exactly the same as one
+    logged on time.
     """
 
     active_flock = get_active_flock(request.user)
@@ -114,19 +125,29 @@ def log_daily_data(request):
                         update_fields=["pending_flock_size", "pending_flock_age_weeks", "pending_feed_intake_kg"]
                     )
                 messages.success(request, "Daily data saved.")
-                try:
-                    generate_forecast(daily_log)
-                except ModelNotTrainedError:
-                    messages.warning(
+                if new_date == date.today():
+                    try:
+                        generate_forecast(daily_log)
+                    except ModelNotTrainedError:
+                        messages.warning(
+                            request,
+                            "No trained forecasting model exists yet, so no forecast was "
+                            "generated for this entry. Ask an admin to run the training command.",
+                        )
+                    except Exception:
+                        logger.exception("Forecast generation failed for DailyLog id=%s", daily_log.pk)
+                        messages.warning(
+                            request,
+                            "Your data was saved, but the forecast could not be generated this time.",
+                        )
+                else:
+                    # Backfilling a missed past day: still saved as ordinary history (see
+                    # the log_daily_data docstring), just never gets its own forecast.
+                    messages.info(
                         request,
-                        "No trained forecasting model exists yet, so no forecast was "
-                        "generated for this entry. Ask an admin to run the training command.",
-                    )
-                except Exception:
-                    logger.exception("Forecast generation failed for DailyLog id=%s", daily_log.pk)
-                    messages.warning(
-                        request,
-                        "Your data was saved, but the forecast could not be generated this time.",
+                        "This entry backfills a past date, so it won't generate its own "
+                        "forecast — it's still saved as history and will feed into future "
+                        "predictions.",
                     )
                 if is_new_period:
                     # The previous caging period just closed with this entry's gap — a
