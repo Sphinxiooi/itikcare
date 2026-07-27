@@ -126,9 +126,12 @@
             {% if top_recommendation %}
             <p class="rounded-lg p-3 text-sm
                 {% if top_recommendation.priority == 'high' %}bg-red-50
-                {% elif top_recommendation.priority == 'medium' %}bg-amber-100
-                {% else %}bg-emerald-50{% endif %}">
+                {% else %}bg-orange-50{% endif %}">
                 {{ top_recommendation.message }}
+            </p>
+            {% elif has_calm_recommendations %}
+            <p class="rounded-lg p-3 text-sm bg-emerald-50">
+                ✅ Everything looks good — no urgent action needed right now.
             </p>
             {% else %}
             <p class="text-sm text-gray-500">No recommendations yet.</p>

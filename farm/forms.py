@@ -1,7 +1,7 @@
 from django import forms
 from django.utils import timezone
 
-from .models import DailyLog, Flock
+from .models import DailyLog
 
 INPUT_CLASSES = (
     "w-full rounded-md border border-gray-300 px-3 py-2 text-sm "
@@ -70,7 +70,7 @@ class DailyLogForm(forms.ModelForm):
 
 
 class FlockRegisterForm(forms.Form):
-    """Collects a new flock's starting details: size, age, and feed intake.
+    """Collects a new flock's starting details: start date, size, age, and feed intake.
 
     A plain Form (not a ModelForm) because these values aren't stored directly on
     Flock — they're staged on the pending_flock_size/pending_flock_age_weeks/
@@ -79,9 +79,19 @@ class FlockRegisterForm(forms.Form):
     Used both for a farm's first-ever flock and for registering the next generation
     after retiring the current one — both go through views.flock_profile, since
     retiring (views.flock_retire) no longer creates a replacement flock itself.
-    Flock.started_on is set to today's date by the view, not farmer-entered.
+
+    started_on defaults to today but is farmer-editable, so a farmer who has already
+    been raising this flock for a while (and is only now starting to use the app) can
+    backdate it — DailyLog.clean() and DailyLogForm both already allow logging any
+    past date back to flock.started_on, so this just lets that range start earlier.
     """
 
+    started_on = forms.DateField(
+        label="Flock Start Date",
+        help_text="When this flock began. Use today's date if it's brand new, or a past "
+        "date if you've been raising it for a while and are only just starting to log it here.",
+        widget=forms.DateInput(attrs={"type": "date", "class": INPUT_CLASSES}),
+    )
     flock_size = forms.IntegerField(
         label="Flock Size (number of ducks)",
         min_value=1,
@@ -100,6 +110,20 @@ class FlockRegisterForm(forms.Form):
         max_value=150,
         widget=forms.NumberInput(attrs={"class": INPUT_CLASSES, "step": "0.1", "min": "0", "max": "150"}),
     )
+
+    def __init__(self, *args, **kwargs):
+        # Caps the browser's native date picker at today (a flock can't start in the
+        # future) and defaults it to today for the common case of registering a
+        # brand-new flock — clean_started_on() below is the real server-side guard.
+        super().__init__(*args, **kwargs)
+        self.fields["started_on"].widget.attrs["max"] = timezone.localdate().isoformat()
+        self.fields["started_on"].initial = timezone.localdate()
+
+    def clean_started_on(self):
+        started_on = self.cleaned_data["started_on"]
+        if started_on > timezone.localdate():
+            raise forms.ValidationError("Flock start date can't be in the future.")
+        return started_on
 
 
 class FlockResumeCagingForm(forms.Form):

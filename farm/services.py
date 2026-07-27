@@ -130,15 +130,25 @@ def detect_daily_log_anomalies(active_flock, cleaned_data):
     log_daily_data confirmation screen, not a hard validation error) since real farm
     conditions do genuinely shift over time and a true value shouldn't be unsaveable.
 
-    Returns a list of human-readable warning strings; empty if nothing looks unusual,
-    including when this flock doesn't have ANOMALY_MIN_HISTORY prior logs yet to judge
-    what "normal" even looks like for it.
+    Returns a list of human-readable warning strings; empty if nothing looks unusual.
     """
+    warnings = []
+
+    # A duck lays at most one egg a day, so today's egg count can't sensibly beat
+    # today's own flock size — checked against this entry's own submitted flock_size,
+    # not flock history, so it still catches a typo on a brand-new flock's very first
+    # entry (before ANOMALY_MIN_HISTORY worth of logs exist to compare against below).
+    if cleaned_data["egg_count"] > cleaned_data["flock_size"]:
+        warnings.append(
+            f"You entered {cleaned_data['egg_count']} eggs, but only "
+            f"{cleaned_data['flock_size']} ducks. That's more eggs than ducks, which "
+            "isn't normally possible — please check for a typo."
+        )
+
     history = DailyLog.objects.filter(flock=active_flock)
     if history.count() < ANOMALY_MIN_HISTORY:
-        return []
+        return warnings
 
-    warnings = []
     for field_name, label in ANOMALY_CHECK_FIELDS:
         past_values = [float(v) for v in history.values_list(field_name, flat=True)]
         mean = statistics.mean(past_values)

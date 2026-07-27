@@ -36,10 +36,7 @@ def generate_recommendations(forecast: Forecast) -> list[Recommendation]:
         "temperature_c": float(current_log.temperature_c),
         "humidity_pct": float(current_log.humidity_pct),
     }
-    importance_order = sorted(
-        forecast.feature_importances, key=forecast.feature_importances.get, reverse=True
-    )
-    fired = rules.evaluate_rules(inputs, importance_order)
+    fired = rules.evaluate_rules(inputs, forecast.feature_importances)
 
     with transaction.atomic():
         forecast.recommendations.all().delete()

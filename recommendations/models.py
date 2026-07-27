@@ -14,13 +14,15 @@ class Recommendation(models.Model):
 
     class Priority(models.TextChoices):
         LOW = "low", "Low"
-        MEDIUM = "medium", "Medium"
+        MEDIUM_LOW = "medium_low", "Medium-Low"
+        MEDIUM = "medium", "Medium/Normal"
+        MEDIUM_HIGH = "medium_high", "Medium-High"
         HIGH = "high", "High"
 
     forecast = models.ForeignKey(Forecast, on_delete=models.CASCADE, related_name="recommendations")
     triggered_by = models.CharField(max_length=50, help_text="The input variable/rule that triggered this recommendation.")
     message = models.TextField(help_text="Plain-language, farmer-facing actionable advice.")
-    priority = models.CharField(max_length=10, choices=Priority.choices, default=Priority.MEDIUM)
+    priority = models.CharField(max_length=11, choices=Priority.choices, default=Priority.MEDIUM)
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:

@@ -9,8 +9,9 @@
 @source "../../recommendations/templates";
 @source "../../dashboard/templates";
 
-/* Scrolls without a visible scrollbar track/thumb — used on the flock-profile modal
-   (base.html) so long content scrolls invisibly rather than showing a scroll icon. */
+/* Scrolls without a visible scrollbar track/thumb — used on the account-settings
+   modal (base.html) so long content scrolls invisibly rather than showing a scroll
+   icon. */
 .no-scrollbar {
     scrollbar-width: none; /* Firefox */
     -ms-overflow-style: none; /* old Edge */
@@ -19,52 +20,58 @@
     display: none; /* Chrome/Safari */
 }
 
-/* Flock Profile modal (base.html): fades/scales/rises in on open, reverses on close.
-   Centering uses `top-1/2 left-1/2` (base.html) plus `translate(-50%, -50%)` here
-   rather than the `inset-0 m-auto` trick — that trick only centers an axis whose
+/* Account Settings modal (base.html): fades/scales/rises in on open, reverses on
+   close. Centering uses `top-1/2 left-1/2` (base.html) plus `translate(-50%, -50%)`
+   here rather than the `inset-0 m-auto` trick — that trick only centers an axis whose
    size is explicit, and this dialog's height is auto (content-driven), so auto
    margins on top/bottom would resolve to 0 and pin it to the top of the viewport.
-   On md+ screens the sidebar (base.html, `w-64` = 16rem) is permanently docked and
-   eats the left 16rem of the viewport, so centering on the raw viewport reads as
+   On md+ screens the sidebar (base.html, `w-72` = 18rem) is permanently docked and
+   eats the left 18rem of the viewport, so centering on the raw viewport reads as
    shifted left relative to the visible content area — the `left` override below
    re-centers within the space actually visible beside the sidebar. Below md the
    sidebar is an off-canvas drawer (hidden by default), so plain 50% centering is
    correct there. The .is-open toggle is applied by JS one frame after showModal(),
    and removed before dialog.close(), so there are two distinct painted states for
-   the transition to animate between. */
-#flock-profile-modal {
+   the transition to animate between.
+
+   IMPORTANT: these rules are keyed on the dialog's literal id — if that id in
+   base.html is ever renamed again, it must be renamed here too, or the dialog
+   silently loses its centering/transitions entirely (position: fixed; top/left: 50%
+   with no matching translate leaves its top-left corner, not its center, at the
+   viewport's midpoint). */
+#profile-modal {
     opacity: 0;
     transform: translate(-50%, calc(-50% + 0.75rem)) scale(0.96);
     transition: opacity 240ms cubic-bezier(0.16, 1, 0.3, 1), transform 240ms cubic-bezier(0.16, 1, 0.3, 1);
 }
-#flock-profile-modal.is-open {
+#profile-modal.is-open {
     opacity: 1;
     transform: translate(-50%, -50%) scale(1);
 }
 @media (min-width: 768px) {
-    #flock-profile-modal {
-        left: calc(50% + 8rem);
+    #profile-modal {
+        left: calc(50% + 9rem);
     }
 }
-#flock-profile-modal::backdrop {
+#profile-modal::backdrop {
     background-color: rgb(15 23 42 / 0);
     backdrop-filter: blur(0);
     transition: background-color 240ms ease-out, backdrop-filter 240ms ease-out;
 }
-#flock-profile-modal.is-open::backdrop {
+#profile-modal.is-open::backdrop {
     background-color: rgb(15 23 42 / 0.45);
     backdrop-filter: blur(2px);
 }
 /* Shadow lives on the card itself (the dialog element is transparent) so it applies
    whether the content is still the "Loading…" placeholder or the fetched partial —
    both render their own bg-white rounded-xl card as the first child. */
-#flock-profile-modal-content > :first-child {
+#profile-modal-content > :first-child {
     box-shadow: 0 24px 48px -12px rgb(0 0 0 / 0.25), 0 4px 12px -4px rgb(0 0 0 / 0.1);
 }
 
 @media (prefers-reduced-motion: reduce) {
-    #flock-profile-modal,
-    #flock-profile-modal::backdrop {
+    #profile-modal,
+    #profile-modal::backdrop {
         transition: none;
     }
 }

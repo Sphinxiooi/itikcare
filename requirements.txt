@@ -8,3 +8,4 @@ numpy
 gunicorn>=23.0
 whitenoise>=6.12
 django-ratelimit>=4.1
+Pillow>=10.0

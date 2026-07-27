@@ -210,22 +210,21 @@ DEFAULT_RECORD_RANGE = "30"
 @login_required
 def farm_records(request):
     """List DailyLog entries for one of the owner's flocks, filtered by date range,
-    flock (generation), and caging period.
+    flock number, and month.
 
     Defaults to the active flock so the common case is unchanged; if the owner has no
-    active flock (e.g. every generation so far has been retired), falls back to their
-    most recent flock by generation_number rather than showing an empty page. The
-    caging-period dropdown's options are always derived from the *currently selected*
-    flock — caging_period is a running counter over the owner's whole timeline (see
-    services.assign_caging_periods), so a period number valid for one flock generation
-    is meaningless for another. An invalid/stale ?period= (e.g. left over after
-    switching flocks) silently falls back to "all", the same way an invalid ?range=
+    active flock (e.g. every flock so far has been retired), falls back to their most
+    recent flock by generation_number rather than showing an empty page. Retired
+    flocks stay selectable (and their records visible) but are read-only — see
+    farm_record_edit's is_active guard. The month dropdown's options are always
+    derived from the *currently selected* flock's own records, so switching flocks
+    resets a now-meaningless ?month= back to "all", the same way an invalid ?range=
     already falls back to DEFAULT_RECORD_RANGE.
     """
 
     owner_flocks = list(Flock.objects.filter(owner=request.user).order_by("-generation_number"))
     flock_choices = {
-        str(f.id): f"Generation {f.generation_number}" + (" (active)" if f.is_active else " (retired)")
+        str(f.id): f"Flock #{f.generation_number}" + (" (active)" if f.is_active else " (retired)")
         for f in owner_flocks
     }
     flocks_by_id = {str(f.id): f for f in owner_flocks}
@@ -240,7 +239,7 @@ def farm_records(request):
         selected_range = DEFAULT_RECORD_RANGE
 
     logs = (
-        DailyLog.objects.filter(flock=selected_flock).order_by("-date")
+        DailyLog.objects.filter(flock=selected_flock).order_by("-date").prefetch_related("edits")
         if selected_flock else DailyLog.objects.none()
     )
 
@@ -248,17 +247,18 @@ def farm_records(request):
         cutoff = timezone.localdate() - timedelta(days=int(selected_range))
         logs = logs.filter(date__gte=cutoff)
 
-    period_values = (
-        sorted(DailyLog.objects.filter(flock=selected_flock).values_list("caging_period", flat=True).distinct())
+    month_values = (
+        DailyLog.objects.filter(flock=selected_flock).dates("date", "month", order="DESC")
         if selected_flock else []
     )
-    period_choices = {"all": "All periods", **{str(p): f"Period {p}" for p in period_values}}
+    month_choices = {"all": "All months", **{d.strftime("%Y-%m"): d.strftime("%B %Y") for d in month_values}}
 
-    selected_period = request.GET.get("period", "all")
-    if selected_period not in period_choices:
-        selected_period = "all"
-    if selected_period != "all":
-        logs = logs.filter(caging_period=int(selected_period))
+    selected_month = request.GET.get("month", "all")
+    if selected_month not in month_choices:
+        selected_month = "all"
+    if selected_month != "all":
+        year, month = (int(part) for part in selected_month.split("-"))
+        logs = logs.filter(date__year=year, date__month=month)
 
     context = {
         "active_nav": "records",
@@ -267,8 +267,8 @@ def farm_records(request):
         "selected_range": selected_range,
         "flock_choices": flock_choices,
         "selected_flock_id": selected_flock_id,
-        "period_choices": period_choices,
-        "selected_period": selected_period,
+        "month_choices": month_choices,
+        "selected_month": selected_month,
     }
     return render(request, "farm/farm_records.html", context)
 
@@ -288,6 +288,12 @@ def farm_record_edit(request, pk):
         messages.error(
             request,
             "This record was used to train a forecasting model and can no longer be edited or deleted.",
+        )
+        return redirect("farm_records")
+    if not daily_log.flock.is_active:
+        messages.error(
+            request,
+            "This record belongs to a retired flock and is read-only.",
         )
         return redirect("farm_records")
     # Snapshot old values before the form touches the instance: ModelForm.is_valid()
@@ -351,6 +357,12 @@ def farm_record_delete(request, pk):
             "This record was used to train a forecasting model and can no longer be edited or deleted.",
         )
         return redirect("farm_records")
+    if not daily_log.flock.is_active:
+        messages.error(
+            request,
+            "This record belongs to a retired flock and is read-only.",
+        )
+        return redirect("farm_records")
 
     if request.method == "POST":
         log_date = daily_log.date
@@ -364,17 +376,48 @@ def farm_record_delete(request, pk):
     return render(request, "farm/farm_record_delete_confirm.html", context)
 
 
+def flock_profile_context(user):
+    """The active-flock context shared by flock_profile below and accounts.views.
+    account_settings (which embeds the same "farm/_flock_profile_panel.html" partial
+    as its flock-status box) -- kept in one place so both pages show identical numbers.
+    """
+    active_flock = get_active_flock(user)
+
+    if active_flock is None:
+        return {"active_flock": None, "form": FlockRegisterForm()}
+
+    latest_log = DailyLog.objects.filter(flock=active_flock).order_by("-date").first()
+    resume_form = None
+    if not active_flock.is_caged:
+        resume_initial = {"flock_size": latest_log.flock_size} if latest_log else {}
+        resume_form = FlockResumeCagingForm(initial=resume_initial)
+
+    return {
+        "active_flock": active_flock,
+        "latest_log": latest_log,
+        # Calendar-projected, not the raw snapshot on latest_log — ducks keep aging
+        # even during a logging gap (e.g. free-range), so "Average Age" must reflect
+        # today's date, not whatever date latest_log happens to be from. Falls back to
+        # pending_flock_age_weeks (confirmed at registration/resume-caging) when no
+        # DailyLog exists yet at all, so the profile shows real numbers right away
+        # instead of "—" until the first entry is logged.
+        "current_age_weeks": current_flock_age_weeks(latest_log) or active_flock.pending_flock_age_weeks,
+        "resume_form": resume_form,
+    }
+
+
 @login_required
 def flock_profile(request):
     """View the active flock's lifecycle info, or start the farm's very first flock
     if none exists yet.
 
     This is the only farmer-facing way to manage Flock rows at all — previously
-    Flock could only be created/edited via the Django admin. started_on is always set
-    to today's date by this view (not farmer-entered) and is not farmer-editable
-    afterwards, so there is nothing here that needs to go through the DailyLogEdit
-    audit trail — that requirement (CLAUDE.md, itikcare-spec.md section 3) covers
-    historical DailyLog data, not Flock lifecycle metadata.
+    Flock could only be created/edited via the Django admin. started_on is farmer-
+    entered at registration (defaults to today, but can be backdated for a flock
+    that's been raised a while before the farmer started using this app) and is not
+    farmer-editable afterwards, so there is nothing here that needs to go through the
+    DailyLogEdit audit trail — that requirement (CLAUDE.md, itikcare-spec.md section 3)
+    covers historical DailyLog data, not Flock lifecycle metadata.
 
     A GET request with ?partial=1 renders just the profile card, no header/sidebar —
     this is what the header avatar's floating modal (base.html) fetches so it can show
@@ -388,51 +431,30 @@ def flock_profile(request):
     )
     active_flock = get_active_flock(request.user)
 
-    if active_flock is None:
-        if request.method == "POST":
-            form = FlockRegisterForm(request.POST)
-            if form.is_valid():
-                # Max(), not a simple count, since a retired flock's generation_number
-                # must never be reused (unique_generation_per_owner) — this is 1 on a
-                # farm's very first-ever registration and old_flock.generation_number + 1
-                # after any later retirement.
-                last_generation = Flock.objects.filter(owner=request.user).aggregate(
-                    Max("generation_number")
-                )["generation_number__max"] or 0
-                Flock.objects.create(
-                    owner=request.user,
-                    generation_number=last_generation + 1,
-                    started_on=date.today(),
-                    pending_flock_size=form.cleaned_data["flock_size"],
-                    pending_flock_age_weeks=form.cleaned_data["flock_age_weeks"],
-                    pending_feed_intake_kg=form.cleaned_data["feed_intake_kg"],
-                )
-                messages.success(request, "Flock registered.")
-                return redirect("flock_profile")
-        else:
-            form = FlockRegisterForm()
+    if active_flock is None and request.method == "POST":
+        form = FlockRegisterForm(request.POST)
+        if form.is_valid():
+            # Max(), not a simple count, since a retired flock's generation_number
+            # must never be reused (unique_generation_per_owner) — this is 1 on a
+            # farm's very first-ever registration and old_flock.generation_number + 1
+            # after any later retirement.
+            last_generation = Flock.objects.filter(owner=request.user).aggregate(
+                Max("generation_number")
+            )["generation_number__max"] or 0
+            Flock.objects.create(
+                owner=request.user,
+                generation_number=last_generation + 1,
+                started_on=form.cleaned_data["started_on"],
+                pending_flock_size=form.cleaned_data["flock_size"],
+                pending_flock_age_weeks=form.cleaned_data["flock_age_weeks"],
+                pending_feed_intake_kg=form.cleaned_data["feed_intake_kg"],
+            )
+            messages.success(request, "Flock registered.")
+            return redirect("flock_profile")
         context = {"active_nav": "flock_profile", "active_flock": None, "form": form}
         return render(request, template_name, context)
 
-    latest_log = DailyLog.objects.filter(flock=active_flock).order_by("-date").first()
-    resume_form = None
-    if not active_flock.is_caged:
-        resume_initial = {"flock_size": latest_log.flock_size} if latest_log else {}
-        resume_form = FlockResumeCagingForm(initial=resume_initial)
-
-    context = {
-        "active_nav": "flock_profile",
-        "active_flock": active_flock,
-        "latest_log": latest_log,
-        # Calendar-projected, not the raw snapshot on latest_log — ducks keep aging
-        # even during a logging gap (e.g. free-range), so "Average Age" must reflect
-        # today's date, not whatever date latest_log happens to be from. Falls back to
-        # pending_flock_age_weeks (confirmed at registration/resume-caging) when no
-        # DailyLog exists yet at all, so the profile shows real numbers right away
-        # instead of "—" until the first entry is logged.
-        "current_age_weeks": current_flock_age_weeks(latest_log) or active_flock.pending_flock_age_weeks,
-        "resume_form": resume_form,
-    }
+    context = {"active_nav": "flock_profile", **flock_profile_context(request.user)}
     return render(request, template_name, context)
 
 

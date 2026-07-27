@@ -11,19 +11,22 @@ from farm.services import (
     resolve_trend_range,
 )
 
+from recommendations import rules as recommendation_rules
+
 from .models import Forecast
 from .pipeline import FEATURES as RAW_FEATURES
 
-# Maps a Recommendation.triggered_by feature name to how it's grouped and labeled on
-# the Forecast & Recommendations page, matching the Figma categories (Flock
-# Management, Feeding Management, Humidity/Temperature Management under
-# Environmental Control). Kept as a plain dict, not a model, since it's presentation
-# grouping only — the traceability itself lives in Recommendation.triggered_by.
+# Maps a Recommendation.triggered_by key to how it's grouped and labeled on the Forecast &
+# Recommendations page, matching the Figma categories (Flock Management, Feeding
+# Management, Environmental Control). Kept as a plain dict, not a model, since it's
+# presentation grouping only — the traceability itself lives in Recommendation.triggered_by.
+# "environment" is the synthetic key recommendations/rules.py uses for the merged
+# temperature+humidity recommendation (see that module's docstring for why the two are
+# evaluated together rather than as separate categories).
 RECOMMENDATION_CATEGORIES = {
     "flock_age_weeks": {"title": "Flock Management", "icon": "🔧", "color": "amber"},
     "feed_intake_kg": {"title": "Feeding Management", "icon": "🌾", "color": "emerald"},
-    "humidity_pct": {"title": "Humidity Management", "icon": "💧", "color": "blue"},
-    "temperature_c": {"title": "Temperature Management", "icon": "🌡️", "color": "red"},
+    "environment": {"title": "Environmental Management", "icon": "🌡️", "color": "blue"},
 }
 
 
@@ -90,12 +93,17 @@ def forecast_recommendations(request):
         for rec in latest_forecast.recommendations.all():
             recs_by_feature.setdefault(rec.triggered_by, []).append(rec)
 
-        for feature_name, importance in feature_importances:
-            recs = recs_by_feature.get(feature_name)
-            if not recs:
-                continue
-            meta = RECOMMENDATION_CATEGORIES.get(feature_name, {"title": feature_name, "icon": "📌", "color": "gray"})
-            grouped_recommendations.append({"meta": meta, "recommendations": recs})
+        # Grouped by whatever triggered_by keys the recommendations actually carry (not
+        # by iterating RAW_FEATURES above) since "environment" is a synthetic key covering
+        # two raw features and would never match that list -- see recommendations/rules.py.
+        ordered_keys = sorted(
+            recs_by_feature,
+            key=lambda key: recommendation_rules.importance_for(key, latest_forecast.feature_importances),
+            reverse=True,
+        )
+        for key in ordered_keys:
+            meta = RECOMMENDATION_CATEGORIES.get(key, {"title": key, "icon": "📌", "color": "gray"})
+            grouped_recommendations.append({"meta": meta, "recommendations": recs_by_feature[key]})
 
     context = {
         "active_nav": "forecast",

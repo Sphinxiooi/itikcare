@@ -14,13 +14,26 @@ from farm.services import (
 )
 from farm.weather import fetch_current_weather
 from forecasting.models import Forecast
+from recommendations import rules as recommendation_rules
 from recommendations.models import Recommendation
 
 # Lower rank = shown first. Independent of feature-importance order -- the dashboard's
 # single "Quick Recommendation" card is about urgency (what needs attention right now),
 # not which feature the model currently weighs most; the full importance-ordered list
 # lives on the Forecast & Recommendations page (forecasting/views.py).
-PRIORITY_RANK = {Recommendation.Priority.HIGH: 0, Recommendation.Priority.MEDIUM: 1, Recommendation.Priority.LOW: 2}
+PRIORITY_RANK = {
+    Recommendation.Priority.HIGH: 0,
+    Recommendation.Priority.MEDIUM_HIGH: 1,
+    Recommendation.Priority.MEDIUM: 2,
+    Recommendation.Priority.MEDIUM_LOW: 3,
+    Recommendation.Priority.LOW: 4,
+}
+
+# Tiers the rules table itself treats as elevated/at-risk (rules-table.pdf sections
+# 2.2-2.6) -- only these interrupt the farmer on the dashboard's Quick Recommendation
+# card. Everything milder (on-track/in-range/no-action confirmations) still exists and
+# is traceable on the full Forecast & Recommendations page, just not surfaced here.
+ACTIONABLE_PRIORITIES = {Recommendation.Priority.HIGH, Recommendation.Priority.MEDIUM_HIGH}
 
 
 def index(request):
@@ -63,28 +76,28 @@ def index(request):
     )
     # Dashboard shows only the single most urgent recommendation (highest priority,
     # ties broken by feature importance -- matching the ordering convention on the
-    # Forecast & Recommendations page). Every fired-rule feature always has exactly one
-    # Recommendation now (recommendations/rules.py fires a LOW "all good" confirmation
-    # when nothing's wrong), so this always picks the one thing most worth surfacing
-    # here; the full set is on the Forecast & Recommendations page, not truncated there.
+    # Forecast & Recommendations page), and only if it's actually at an actionable tier
+    # (ACTIONABLE_PRIORITIES) -- the 3 recommendation slots always fire (see
+    # recommendations/rules.py), including routine "on track"/"in range" confirmations
+    # that aren't worth interrupting the farmer for here; those still show in full on the
+    # Forecast & Recommendations page. has_calm_recommendations distinguishes "nothing
+    # urgent right now" from "no forecast/recommendations exist yet" for the template.
     top_recommendation = None
+    has_calm_recommendations = False
     if latest_forecast:
         all_recs = list(latest_forecast.recommendations.all())
         if all_recs:
-            importance_rank = {
-                feature: rank
-                for rank, feature in enumerate(
-                    sorted(
-                        latest_forecast.feature_importances,
-                        key=latest_forecast.feature_importances.get,
-                        reverse=True,
-                    )
-                )
-            }
-            top_recommendation = min(
+            most_urgent = min(
                 all_recs,
-                key=lambda r: (PRIORITY_RANK.get(r.priority, 99), importance_rank.get(r.triggered_by, 99)),
+                key=lambda r: (
+                    PRIORITY_RANK.get(r.priority, 99),
+                    -recommendation_rules.importance_for(r.triggered_by, latest_forecast.feature_importances),
+                ),
             )
+            if most_urgent.priority in ACTIONABLE_PRIORITIES:
+                top_recommendation = most_urgent
+            else:
+                has_calm_recommendations = True
 
     # Forecast confidence note: source_logs holds daily_log + up to 3 priors from the
     # same caging period (see forecasting/services.py's _build_feature_row) -- exactly
@@ -146,6 +159,7 @@ def index(request):
         "forecast_history_days": forecast_history_days,
         "forecast_low_confidence": forecast_low_confidence,
         "top_recommendation": top_recommendation,
+        "has_calm_recommendations": has_calm_recommendations,
         "recent_logs": recent_logs,
         "recent_records": recent_records,
         "trend_range": trend_range,

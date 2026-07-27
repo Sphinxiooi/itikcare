@@ -1,6 +1,15 @@
+from django.conf import settings
 from django.contrib.auth.models import AbstractUser
+from django.core.exceptions import ValidationError
 from django.core.validators import MaxValueValidator, MinValueValidator
 from django.db import models
+
+AVATAR_MAX_SIZE_BYTES = 5 * 1024 * 1024
+
+
+def validate_avatar_size(file):
+    if file.size > AVATAR_MAX_SIZE_BYTES:
+        raise ValidationError("Image must be 5MB or smaller.")
 
 
 class User(AbstractUser):
@@ -65,6 +74,15 @@ class User(AbstractUser):
         "MySQL's unique index only enforces uniqueness among accounts that actually have "
         "one linked -- most accounts never will.",
     )
+    avatar = models.ImageField(
+        upload_to="avatars/",
+        blank=True,
+        null=True,
+        validators=[validate_avatar_size],
+        help_text="Optional profile picture, set by the farmer from Account Settings "
+        "(accounts/views.py's account_settings). Falls back to an initial-letter avatar "
+        "in the UI (templates/base.html) when unset.",
+    )
 
     class Meta:
         verbose_name = "user"
@@ -90,3 +108,24 @@ class User(AbstractUser):
     @classmethod
     def get_foundation_farmer(cls) -> "User":
         return cls.objects.get(is_foundation_farmer=True)
+
+
+class PasswordResetCode(models.Model):
+    """A one-time 6-digit code emailed for the username-based password-reset flow
+    (accounts/views.py's request_reset_code/verify_reset_code) — replaces Django's
+    built-in tokenized-link reset, which is unusable once the email is opened on a
+    device other than the one running the (localhost) dev server.
+
+    code_hash stores django.contrib.auth.hashers.make_password(code), never the raw
+    code, the same hashing already used for the password itself. attempts caps wrong
+    guesses at 5 (enforced in the view) before the code must be re-requested.
+    """
+
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="password_reset_codes"
+    )
+    code_hash = models.CharField(max_length=128)
+    created_at = models.DateTimeField(auto_now_add=True)
+    expires_at = models.DateTimeField()
+    attempts = models.PositiveSmallIntegerField(default=0)
+    consumed_at = models.DateTimeField(null=True, blank=True)

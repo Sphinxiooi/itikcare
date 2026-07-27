@@ -5,16 +5,24 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{% block title %}ItikCare{% endblock %}</title>
-    <link rel="stylesheet" href="{% static 'dist/output.css' %}">
+    <link rel="stylesheet" href="{% static 'dist/output.css' %}?v={% now 'U' %}">
     {% block extra_head %}{% endblock %}
 </head>
-<body class="min-h-screen bg-transparent text-gray-900" style="background-image: url('{% static 'images/hero-ducks.jpg' %}'); background-size: cover; background-position: center; background-attachment: fixed;">
+<body class="bg-white text-gray-900">
     {% url 'dashboard' as dashboard_url %}
     {% url 'log_daily_data' as log_daily_data_url %}
     {% url 'forecast_recommendations' as forecast_url %}
     {% url 'farm_records' as records_url %}
 
-    <header class="sticky top-0 z-50 bg-white/95 backdrop-blur border-b border-gray-100 shadow-sm">
+    {% comment %}
+    Fixed to the viewport but pinned below the header (top-20), so the hero
+    image never extends behind the header itself -- previously it sat on
+    <body> with background-attachment: fixed, which covered the full
+    viewport including the strip under the header and bled through on scroll.
+    {% endcomment %}
+    <div class="fixed top-20 left-0 right-0 bottom-0 -z-10" style="background-image: url('{% static 'images/hero-ducks.jpg' %}'); background-size: cover; background-position: center;"></div>
+
+    <header class="fixed top-0 left-0 right-0 w-full z-50 bg-white/95 backdrop-blur border-b border-gray-200">
         <div class="flex justify-between items-center h-20 px-4 sm:px-8">
             <div class="flex items-center gap-1">
                 <button type="button" id="sidebar-toggle" aria-expanded="false" aria-controls="sidebar"
@@ -30,22 +38,30 @@
                     </span>
                 </a>
             </div>
-            <a href="{% url 'flock_profile' %}" id="profile-avatar-link" aria-haspopup="dialog" aria-expanded="false" class="flex items-center gap-3 px-3 py-2 rounded-full hover:bg-gray-100 transition-colors">
+            <a href="{% url 'account_settings' %}" id="profile-avatar-link" aria-haspopup="dialog" aria-expanded="false" class="flex items-center gap-3 px-3 py-2 rounded-full hover:bg-gray-100 transition-colors">
                 <span class="hidden sm:inline text-base font-medium text-gray-800">{{ user.get_full_name|default:user.username }}</span>
+                {% if user.avatar %}
+                <img src="{{ user.avatar.url }}" alt="" class="w-11 h-11 rounded-full object-cover">
+                {% else %}
                 <span class="flex items-center justify-center w-11 h-11 rounded-full bg-emerald-100 text-emerald-700 text-base font-semibold">
                     {{ user.username|first|upper }}
                 </span>
+                {% endif %}
             </a>
         </div>
     </header>
 
-    <dialog id="flock-profile-modal" class="fixed top-1/2 left-1/2 m-0 p-0 border-0 rounded-xl bg-transparent w-[90vw] max-w-2xl max-h-[85vh]">
+    <dialog id="profile-modal" class="fixed top-1/2 left-1/2 m-0 p-0 border-0 rounded-xl bg-transparent w-[90vw] max-w-2xl max-h-[85vh]">
         <div class="relative max-h-[85vh] overflow-y-auto no-scrollbar">
-            <button type="button" id="flock-profile-modal-close" aria-label="Close flock profile"
+            <button type="button" id="profile-modal-close" aria-label="Close account settings"
                     class="absolute top-3 right-3 flex items-center justify-center w-9 h-9 rounded-full bg-emerald-100 text-emerald-700 text-sm font-semibold shadow-sm hover:bg-emerald-200 transition-colors">
+                {% if user.avatar %}
+                <img src="{{ user.avatar.url }}" alt="" class="w-9 h-9 rounded-full object-cover">
+                {% else %}
                 {{ user.username|first|upper }}
+                {% endif %}
             </button>
-            <div id="flock-profile-modal-content" class="p-1">
+            <div id="profile-modal-content" class="p-1">
                 <p class="bg-white border border-gray-200 rounded-xl p-6 text-sm text-gray-500">Loading…</p>
             </div>
         </div>
@@ -123,7 +139,7 @@
             </div>
         </aside>
 
-        <main class="min-w-0 p-6 lg:p-8 md:ml-72">
+        <main class="min-w-0 min-h-[calc(100vh-5rem)] p-6 lg:p-8 md:ml-72 mt-20">
             {% if messages %}
             <div class="space-y-2 mb-6">
                 {% for message in messages %}
@@ -171,16 +187,17 @@
                 });
             }
 
-            // Floating Flock Profile modal: progressive enhancement over the avatar
-            // link's normal href. If <dialog> isn't supported, or the fetch fails,
-            // the click falls through to a normal navigation to /flock/. The close
-            // control re-shows the same avatar (initial + circle) the user just
-            // clicked, rather than an X — showModal() makes the header inert while
-            // open, so the real header avatar can't be clicked again to close it.
+            // Floating Account Settings modal (personal info + flock status boxes):
+            // progressive enhancement over the avatar link's normal href. If <dialog>
+            // isn't supported, or the fetch fails, the click falls through to a normal
+            // navigation to /account/settings/. The close control re-shows the same
+            // avatar (image or initial circle) the user just clicked, rather than an
+            // X — showModal() makes the header inert while open, so the real header
+            // avatar can't be clicked again to close it.
             var avatarLink = document.getElementById("profile-avatar-link");
-            var modal = document.getElementById("flock-profile-modal");
-            var modalContent = document.getElementById("flock-profile-modal-content");
-            var modalClose = document.getElementById("flock-profile-modal-close");
+            var modal = document.getElementById("profile-modal");
+            var modalContent = document.getElementById("profile-modal-content");
+            var modalClose = document.getElementById("profile-modal-close");
 
             if (avatarLink && modal && modalContent && modalClose && typeof modal.showModal === "function") {
                 var prefersReducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
@@ -338,6 +355,37 @@
                     closeConfirmModal();
                 });
             }
+
+            // Account Settings' Personal Information card (templates/account/
+            // _settings_panel.html) opens in a read-only "view" state with an Edit
+            // button, swapping to the form on click. Delegated on `document` (rather
+            // than binding directly to #account-edit-toggle) because this partial is
+            // also fetched via innerHTML into the header avatar's modal above, and
+            // innerHTML-inserted <script> tags never execute -- a listener attached
+            // here still fires no matter which way the partial reached the page.
+            document.addEventListener("click", function (event) {
+                var opensForm = event.target.closest("#account-edit-toggle");
+                var cancels = event.target.closest("#account-edit-cancel");
+                if (!opensForm && !cancels) {
+                    return;
+                }
+                var view = document.getElementById("account-view");
+                var form = document.getElementById("account-edit-form");
+                var toggle = document.getElementById("account-edit-toggle");
+                if (!view || !form || !toggle) {
+                    return;
+                }
+                if (opensForm) {
+                    view.classList.add("hidden");
+                    form.classList.remove("hidden");
+                    toggle.classList.add("hidden");
+                } else {
+                    form.reset();
+                    form.classList.add("hidden");
+                    view.classList.remove("hidden");
+                    toggle.classList.remove("hidden");
+                }
+            });
         })();
     </script>
 </body>

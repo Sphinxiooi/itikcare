@@ -25,13 +25,25 @@
             <h1 class="text-xl font-bold text-gray-900">Welcome Back, Farmer!</h1>
             <p class="text-sm text-gray-500 mb-5">Sign in to access your dashboard</p>
 
+            {% if messages %}
+            <div class="space-y-2 mb-4">
+                {% for message in messages %}
+                <div class="text-sm rounded-md px-4 py-2.5
+                    {% if message.tags == 'error' %}bg-red-50 text-red-800 border border-red-200
+                    {% else %}bg-emerald-50 text-emerald-800 border border-emerald-200{% endif %}">
+                    {{ message }}
+                </div>
+                {% endfor %}
+            </div>
+            {% endif %}
+
             <form method="post" class="space-y-4">
                 {% csrf_token %}
-                {% if form.errors %}
-                <p class="text-sm text-red-600">Your username and password didn't match. Please try again.</p>
+                {% if form.non_field_errors %}
+                <p class="text-sm text-red-600">{{ form.non_field_errors.0 }}</p>
                 {% endif %}
                 <div>
-                    <label for="{{ form.username.id_for_label }}" class="block text-sm font-medium text-gray-700 mb-1">Username</label>
+                    <label for="{{ form.username.id_for_label }}" class="block text-sm font-medium text-gray-700 mb-1">Username, email, or full name</label>
                     {{ form.username }}
                 </div>
                 <div>
@@ -50,7 +62,7 @@
                 <span class="text-xs text-gray-400">or</span>
                 <div class="flex-1 h-px bg-gray-200"></div>
             </div>
-            <a href="{% url 'google_login' %}" class="w-full flex items-center justify-center gap-2 border border-gray-300 rounded-lg py-2 text-sm font-medium text-gray-600 hover:bg-gray-50">
+            <a href="{% url 'google_login' %}{% if next %}?next={{ next|urlencode }}{% endif %}" class="w-full flex items-center justify-center gap-2 border border-gray-300 rounded-lg py-2 text-sm font-medium text-gray-600 hover:bg-gray-50">
                 <svg width="16" height="16" class="shrink-0" viewBox="0 0 20 20" xmlns="http://www.w3.org/2000/svg">
                     <path fill="#4285F4" d="M19.6 10.23c0-.68-.06-1.36-.18-2H10v3.79h5.4a4.6 4.6 0 0 1-2 3.02v2.5h3.24c1.9-1.75 3-4.32 3-7.31z"/>
                     <path fill="#34A853" d="M10 20c2.7 0 4.96-.89 6.61-2.42l-3.24-2.5c-.9.6-2.05.96-3.37.96-2.59 0-4.79-1.75-5.58-4.1H1.06v2.58A10 10 0 0 0 10 20z"/>

@@ -264,7 +264,7 @@ class LogDailyDataTests(TestCase):
     def test_zero_egg_count_is_accepted(self):
         """A total-loss day (e.g. severe heat stress) is a valid, if bad, reading."""
         Flock.objects.create(owner=self.user, generation_number=1, started_on=date(2024, 1, 1))
-        response = self.client.post("/log-daily-data/", {**VALID_LOG_POST, "flock_size": 240, "egg_count": 0})
+        self.client.post("/log-daily-data/", {**VALID_LOG_POST, "flock_size": 240, "egg_count": 0})
         self.assertTrue(DailyLog.objects.filter(egg_count=0).exists())
 
     def test_duplicate_date_for_same_flock_is_rejected(self):
@@ -288,7 +288,7 @@ class LogDailyDataTests(TestCase):
     def test_todays_date_is_accepted(self):
         Flock.objects.create(owner=self.user, generation_number=1, started_on=date(2024, 1, 1))
         today = timezone.localdate()
-        response = self.client.post("/log-daily-data/", {**VALID_LOG_POST, "date": today.isoformat()})
+        self.client.post("/log-daily-data/", {**VALID_LOG_POST, "date": today.isoformat()})
         self.assertTrue(DailyLog.objects.filter(date=today).exists())
 
     @patch("farm.views.generate_forecast")
@@ -356,10 +356,10 @@ class LogDailyDataConfirmationTests(TestCase):
         self.assertNotIn("confirm_mode", response.context or {})
         self.assertEqual(response.context["form"]["egg_count"].value(), "999")
 
-    def _log_history(self, n, egg_count):
+    def _log_history(self, n, egg_count, flock_size=240):
         for i in range(n):
             DailyLog.objects.create(
-                flock=self.flock, date=date(2024, 1, 1) + timedelta(days=i), flock_size=240, caging_period=1,
+                flock=self.flock, date=date(2024, 1, 1) + timedelta(days=i), flock_size=flock_size, caging_period=1,
                 flock_age_weeks=25, egg_count=egg_count, feed_intake_kg="40.0",
                 temperature_c="28.0", humidity_pct="75.0", recorded_by=self.user,
             )
@@ -381,13 +381,23 @@ class LogDailyDataConfirmationTests(TestCase):
         self.assertTrue(DailyLog.objects.filter(date=date(2024, 1, 10), egg_count=700).exists())
 
     def test_typical_value_with_enough_history_is_not_flagged(self):
-        self._log_history(5, egg_count=350)
-        response = self._unconfirmed_post(date="2024-01-10", egg_count=360)
+        self._log_history(5, egg_count=350, flock_size=400)
+        response = self._unconfirmed_post(date="2024-01-10", egg_count=360, flock_size=400)
         self.assertEqual(response.context["anomaly_warnings"], [])
 
     def test_fewer_than_minimum_history_never_flags(self):
         self._log_history(3, egg_count=350)
-        response = self._unconfirmed_post(date="2024-01-10", egg_count=700)
+        response = self._unconfirmed_post(date="2024-01-10", egg_count=700, flock_size=800)
+        self.assertEqual(response.context["anomaly_warnings"], [])
+
+    def test_egg_count_above_flock_size_is_flagged_even_without_history(self):
+        response = self._unconfirmed_post(date="2024-01-10", egg_count=500, flock_size=400)
+        self.assertFalse(DailyLog.objects.filter(date=date(2024, 1, 10)).exists())
+        warnings = response.context["anomaly_warnings"]
+        self.assertTrue(any("more eggs than ducks" in w for w in warnings))
+
+    def test_egg_count_equal_to_flock_size_is_not_flagged(self):
+        response = self._unconfirmed_post(date="2024-01-10", egg_count=400, flock_size=400)
         self.assertEqual(response.context["anomaly_warnings"], [])
 
 
@@ -475,7 +485,7 @@ class FarmRecordsTests(TestCase):
         )
 
     def test_falls_back_to_most_recent_flock_when_none_active(self):
-        old_flock = Flock.objects.create(owner=self.user, generation_number=1, started_on=date(2023, 1, 1), is_active=False)
+        Flock.objects.create(owner=self.user, generation_number=1, started_on=date(2023, 1, 1), is_active=False)
         newer_flock = Flock.objects.create(owner=self.user, generation_number=2, started_on=date(2024, 1, 1), is_active=False)
         DailyLog.objects.create(
             flock=newer_flock, date=date(2024, 1, 2), flock_size=200, caging_period=1,
@@ -506,7 +516,7 @@ class FarmRecordsTests(TestCase):
         self.assertNotEqual(response.context["selected_flock_id"], str(other_flock.id))
         self.assertEqual(len(response.context["logs"]), 0)
 
-    def test_period_dropdown_options_are_scoped_to_selected_flock(self):
+    def test_month_dropdown_options_are_scoped_to_selected_flock(self):
         flock_a = Flock.objects.create(owner=self.user, generation_number=1, started_on=date(2023, 1, 1), is_active=False)
         flock_b = Flock.objects.create(owner=self.user, generation_number=2, started_on=date(2024, 1, 1), is_active=True)
         DailyLog.objects.create(
@@ -521,10 +531,13 @@ class FarmRecordsTests(TestCase):
         )
         response_a = self.client.get("/farm-records/", {"flock": flock_a.id, "range": "all"})
         response_b = self.client.get("/farm-records/", {"flock": flock_b.id, "range": "all"})
-        self.assertEqual(list(response_a.context["period_choices"].keys()), ["all", "1"])
-        self.assertEqual(list(response_b.context["period_choices"].keys()), ["all", "2"])
+        self.assertEqual(list(response_a.context["month_choices"].keys()), ["all", "2023-06"])
+        self.assertEqual(
+            list(response_b.context["month_choices"].keys()),
+            ["all", timezone.localdate().strftime("%Y-%m")],
+        )
 
-    def test_period_query_param_narrows_results(self):
+    def test_month_query_param_narrows_results(self):
         flock = Flock.objects.create(owner=self.user, generation_number=1, started_on=date(2024, 1, 1), is_active=True)
         DailyLog.objects.create(
             flock=flock, date=date(2024, 1, 1), flock_size=200, caging_period=1,
@@ -536,17 +549,17 @@ class FarmRecordsTests(TestCase):
             flock_age_weeks=55, egg_count=145, feed_intake_kg="36.0",
             temperature_c="27.0", humidity_pct="70.0", recorded_by=self.user,
         )
-        response = self.client.get("/farm-records/", {"period": "1", "range": "all"})
+        response = self.client.get("/farm-records/", {"month": "2024-01", "range": "all"})
         logs = list(response.context["logs"])
         self.assertEqual(len(logs), 1)
-        self.assertEqual(logs[0].caging_period, 1)
+        self.assertEqual(logs[0].date, date(2024, 1, 1))
 
-    def test_invalid_period_falls_back_to_all(self):
+    def test_invalid_month_falls_back_to_all(self):
         Flock.objects.create(owner=self.user, generation_number=1, started_on=date(2024, 1, 1), is_active=True)
-        response = self.client.get("/farm-records/", {"period": "bogus"})
-        self.assertEqual(response.context["selected_period"], "all")
+        response = self.client.get("/farm-records/", {"month": "bogus"})
+        self.assertEqual(response.context["selected_month"], "all")
 
-    def test_switching_flock_resets_stale_period_to_all(self):
+    def test_switching_flock_resets_stale_month_to_all(self):
         flock_a = Flock.objects.create(owner=self.user, generation_number=1, started_on=date(2023, 1, 1), is_active=False)
         flock_b = Flock.objects.create(owner=self.user, generation_number=2, started_on=date(2024, 1, 1), is_active=True)
         DailyLog.objects.create(
@@ -559,10 +572,26 @@ class FarmRecordsTests(TestCase):
             flock_age_weeks=50, egg_count=140, feed_intake_kg="35.0",
             temperature_c="27.0", humidity_pct="70.0", recorded_by=self.user,
         )
-        # period=1 is only valid for flock_a; requesting it against flock_b should fall back to "all".
-        response = self.client.get("/farm-records/", {"flock": flock_b.id, "period": "1", "range": "all"})
-        self.assertEqual(response.context["selected_period"], "all")
+        # 2023-06 is only valid for flock_a; requesting it against flock_b should fall back to "all".
+        response = self.client.get("/farm-records/", {"flock": flock_b.id, "month": "2023-06", "range": "all"})
+        self.assertEqual(response.context["selected_month"], "all")
         self.assertEqual(len(response.context["logs"]), 1)
+
+    def test_flock_dropdown_labels_use_flock_number_not_generation(self):
+        flock = Flock.objects.create(owner=self.user, generation_number=1, started_on=date(2024, 1, 1), is_active=True)
+        response = self.client.get("/farm-records/")
+        self.assertEqual(response.context["flock_choices"][str(flock.id)], "Flock #1 (active)")
+
+    def test_retired_flocks_records_are_visible_but_show_read_only_not_edit_link(self):
+        old_flock = Flock.objects.create(owner=self.user, generation_number=1, started_on=date(2023, 1, 1), is_active=False)
+        log = DailyLog.objects.create(
+            flock=old_flock, date=date(2023, 6, 1), flock_size=200, caging_period=1,
+            flock_age_weeks=50, egg_count=140, feed_intake_kg="35.0",
+            temperature_c="27.0", humidity_pct="70.0", recorded_by=self.user,
+        )
+        response = self.client.get("/farm-records/", {"flock": old_flock.id, "range": "all"})
+        self.assertContains(response, "Read-only")
+        self.assertNotContains(response, f"/farm-records/{log.pk}/edit/")
 
 
 class FarmRecordEditTests(TestCase):
@@ -609,14 +638,14 @@ class FarmRecordEditTests(TestCase):
         self.assertEqual(DailyLogEdit.objects.filter(daily_log=self.log).count(), 0)
 
     def test_edit_out_of_range_value_is_rejected_and_not_silently_clamped(self):
-        response = self._edit_post(temperature_c="99.0")
+        self._edit_post(temperature_c="99.0")
         self.log.refresh_from_db()
         self.assertEqual(str(self.log.temperature_c), "28.0")
         self.assertEqual(DailyLogEdit.objects.filter(daily_log=self.log).count(), 0)
 
     def test_edit_future_date_is_rejected(self):
         tomorrow = timezone.localdate() + timedelta(days=1)
-        response = self._edit_post(date=tomorrow.isoformat())
+        self._edit_post(date=tomorrow.isoformat())
         self.log.refresh_from_db()
         self.assertEqual(self.log.date, date(2024, 1, 1))
         self.assertEqual(DailyLogEdit.objects.filter(daily_log=self.log).count(), 0)
@@ -631,6 +660,21 @@ class FarmRecordEditTests(TestCase):
     def test_locked_record_post_is_blocked(self):
         self.log.is_locked = True
         self.log.save(update_fields=["is_locked"])
+        self._edit_post(egg_count=999)
+        self.log.refresh_from_db()
+        self.assertEqual(self.log.egg_count, 150)
+        self.assertEqual(DailyLogEdit.objects.filter(daily_log=self.log).count(), 0)
+
+    def test_retired_flock_record_get_redirects_with_error(self):
+        self.flock.is_active = False
+        self.flock.save(update_fields=["is_active"])
+        response = self.client.get(f"/farm-records/{self.log.pk}/edit/", follow=True)
+        self.assertRedirects(response, "/farm-records/")
+        self.assertContains(response, "retired flock")
+
+    def test_retired_flock_record_post_is_blocked(self):
+        self.flock.is_active = False
+        self.flock.save(update_fields=["is_active"])
         self._edit_post(egg_count=999)
         self.log.refresh_from_db()
         self.assertEqual(self.log.egg_count, 150)
@@ -694,6 +738,19 @@ class FarmRecordDeleteTests(TestCase):
         self.client.post(f"/farm-records/{self.log.pk}/delete/")
         self.assertTrue(DailyLog.objects.filter(pk=self.log.pk).exists())
 
+    def test_retired_flock_record_get_redirects_with_error(self):
+        self.flock.is_active = False
+        self.flock.save(update_fields=["is_active"])
+        response = self.client.get(f"/farm-records/{self.log.pk}/delete/", follow=True)
+        self.assertRedirects(response, "/farm-records/")
+        self.assertTrue(DailyLog.objects.filter(pk=self.log.pk).exists())
+
+    def test_retired_flock_record_post_is_blocked(self):
+        self.flock.is_active = False
+        self.flock.save(update_fields=["is_active"])
+        self.client.post(f"/farm-records/{self.log.pk}/delete/")
+        self.assertTrue(DailyLog.objects.filter(pk=self.log.pk).exists())
+
     def test_deleting_a_record_leaves_other_forecasts_that_only_used_it_as_a_prior(self):
         # A Forecast for a *different*, later date may have used self.log as a
         # lag1/roll3 prior via source_logs — that Forecast's own date still has real
@@ -728,6 +785,7 @@ class FlockProfileTests(TestCase):
 
     def test_creating_first_flock_sets_generation_one_and_active(self):
         self.client.post("/flock/", {
+            "started_on": date.today().isoformat(),
             "flock_size": 240, "flock_age_weeks": 25, "feed_intake_kg": "40.0",
         })
         flock = Flock.objects.get()
@@ -737,6 +795,26 @@ class FlockProfileTests(TestCase):
         self.assertEqual(flock.pending_flock_size, 240)
         self.assertEqual(flock.pending_flock_age_weeks, 25)
         self.assertEqual(str(flock.pending_feed_intake_kg), "40.00")
+
+    def test_creating_flock_can_be_backdated_to_before_today(self):
+        """A farmer who's already been raising this flock for a while and is only
+        just starting to use the app should be able to record its real start date,
+        not be forced to register it as if it started today."""
+        started_on = date.today() - timedelta(days=7)
+        self.client.post("/flock/", {
+            "started_on": started_on.isoformat(),
+            "flock_size": 240, "flock_age_weeks": 25, "feed_intake_kg": "40.0",
+        })
+        flock = Flock.objects.get()
+        self.assertEqual(flock.started_on, started_on)
+
+    def test_creating_flock_rejects_future_start_date(self):
+        response = self.client.post("/flock/", {
+            "started_on": (date.today() + timedelta(days=1)).isoformat(),
+            "flock_size": 240, "flock_age_weeks": 25, "feed_intake_kg": "40.0",
+        })
+        self.assertFalse(Flock.objects.exists())
+        self.assertContains(response, "can&#x27;t be in the future")
 
     def test_profile_shows_latest_log_size_and_age(self):
         flock = Flock.objects.create(owner=self.user, generation_number=1, started_on=date(2024, 1, 1))
@@ -754,6 +832,7 @@ class FlockProfileTests(TestCase):
         pending_* details should show immediately rather than waiting for the first
         entry (previously showed "—" placeholders until then)."""
         self.client.post("/flock/", {
+            "started_on": date.today().isoformat(),
             "flock_size": 240, "flock_age_weeks": 25, "feed_intake_kg": "40.0",
         })
         response = self.client.get("/flock/")
@@ -798,6 +877,7 @@ class FlockProfileTests(TestCase):
     def test_registering_after_retirement_continues_generation_numbering(self):
         Flock.objects.create(owner=self.user, generation_number=1, started_on=date(2024, 1, 1), is_active=False)
         self.client.post("/flock/", {
+            "started_on": date.today().isoformat(),
             "flock_size": 200, "flock_age_weeks": 1, "feed_intake_kg": "30.0",
         })
         new_flock = Flock.objects.get(is_active=True)
@@ -814,6 +894,7 @@ class FlockProfileTests(TestCase):
         )
         self.client.post("/flock/retire/")
         self.client.post("/flock/", {
+            "started_on": date.today().isoformat(),
             "flock_size": 200, "flock_age_weeks": 1, "feed_intake_kg": "30.0",
         })
 
@@ -852,6 +933,7 @@ class FlockProfileTests(TestCase):
         )
         self.client.post("/flock/retire/")
         self.client.post("/flock/", {
+            "started_on": date.today().isoformat(),
             "flock_size": 240, "flock_age_weeks": 25, "feed_intake_kg": "40.0",
         })
 
@@ -1373,5 +1455,5 @@ class DailyLogAdminTests(TestCase):
         self.assertNotContains(response, "Delete")
 
     def test_unlocked_record_can_still_be_deleted_via_admin(self):
-        response = self.client.post(f"/admin/farm/dailylog/{self.log.pk}/delete/", {"post": "yes"}, follow=True)
+        self.client.post(f"/admin/farm/dailylog/{self.log.pk}/delete/", {"post": "yes"}, follow=True)
         self.assertFalse(DailyLog.objects.filter(pk=self.log.pk).exists())

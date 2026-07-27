@@ -1,0 +1,125 @@
+{% load static %}
+<div class="bg-white border border-gray-200 rounded-xl p-6 max-w-3xl mb-6">
+    <div class="flex items-start justify-between gap-4 mb-1">
+        <div>
+            <h1 class="text-2xl font-bold text-gray-900">Personal Information</h1>
+            <p class="text-sm text-gray-500 mb-6">Your name, contact details, and farm location.</p>
+        </div>
+        {% comment %}
+        Hidden (not just visually swapped) whenever the form has errors, so a failed
+        save reopens straight into the edit form instead of behind another click.
+        See templates/base.html's delegated click listener for the show/hide toggle —
+        this partial is also fetched into the header avatar's modal via innerHTML,
+        which never executes a <script> tag placed here.
+        {% endcomment %}
+        <button type="button" id="account-edit-toggle"
+                class="{% if account_form.errors %}hidden{% endif %} shrink-0 inline-flex items-center gap-1.5 text-sm font-medium text-emerald-700 hover:text-emerald-800">
+            <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="m16.862 4.487 1.687-1.688a1.875 1.875 0 1 1 2.652 2.652L10.582 16.07a4.5 4.5 0 0 1-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 0 1 1.13-1.897l8.932-8.931Zm0 0L19.5 7.125"/></svg>
+            Edit
+        </button>
+    </div>
+
+    <div id="account-view" class="{% if account_form.errors %}hidden{% endif %} space-y-5">
+        <div class="flex items-center gap-4">
+            {% if user.avatar %}
+            <img src="{{ user.avatar.url }}" alt="" class="w-16 h-16 rounded-full object-cover shrink-0">
+            {% else %}
+            <span class="flex items-center justify-center w-16 h-16 rounded-full bg-emerald-100 text-emerald-700 text-xl font-semibold shrink-0">
+                {{ user.username|first|upper }}
+            </span>
+            {% endif %}
+            <div>
+                <p class="text-base font-semibold text-gray-900">{{ user.get_full_name|default:"Name not set" }}</p>
+                <p class="text-sm text-gray-500">@{{ user.username }}</p>
+            </div>
+        </div>
+        <dl class="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-4">
+            <div>
+                <dt class="text-xs font-medium text-gray-500 uppercase">Email</dt>
+                <dd class="text-sm text-gray-900">{{ user.email|default:"Not set" }}</dd>
+            </div>
+            <div>
+                <dt class="text-xs font-medium text-gray-500 uppercase">Farm address</dt>
+                <dd class="text-sm text-gray-900">{{ account_form.address.value|default:"Not set" }}</dd>
+            </div>
+        </dl>
+    </div>
+
+    <form id="account-edit-form" method="post" action="{% url 'account_settings' %}" enctype="multipart/form-data"
+          class="{% if not account_form.errors %}hidden{% endif %} space-y-5">
+        {% csrf_token %}
+        {% if account_form.non_field_errors %}
+        <p class="text-sm text-red-600">{{ account_form.non_field_errors.0 }}</p>
+        {% endif %}
+
+        <div class="flex items-center gap-4">
+            {% if user.avatar %}
+            <img src="{{ user.avatar.url }}" alt="" class="w-16 h-16 rounded-full object-cover shrink-0">
+            {% else %}
+            <span class="flex items-center justify-center w-16 h-16 rounded-full bg-emerald-100 text-emerald-700 text-xl font-semibold shrink-0">
+                {{ user.username|first|upper }}
+            </span>
+            {% endif %}
+            <div>
+                <label for="{{ account_form.avatar.id_for_label }}" class="block text-sm font-medium text-gray-700 mb-1">Profile picture</label>
+                {{ account_form.avatar }}
+                {% if account_form.avatar.errors %}
+                <p class="text-sm text-red-600 mt-1">{{ account_form.avatar.errors.0 }}</p>
+                {% else %}
+                <p class="text-xs text-gray-400 mt-1">PNG or JPG, up to 5MB.</p>
+                {% endif %}
+            </div>
+        </div>
+
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-4">
+            <div>
+                <label for="{{ account_form.first_name.id_for_label }}" class="block text-sm font-medium text-gray-700 mb-1">First name</label>
+                {{ account_form.first_name }}
+                {% if account_form.first_name.errors %}
+                <p class="text-sm text-red-600 mt-1">{{ account_form.first_name.errors.0 }}</p>
+                {% endif %}
+            </div>
+            <div>
+                <label for="{{ account_form.last_name.id_for_label }}" class="block text-sm font-medium text-gray-700 mb-1">Last name</label>
+                {{ account_form.last_name }}
+                {% if account_form.last_name.errors %}
+                <p class="text-sm text-red-600 mt-1">{{ account_form.last_name.errors.0 }}</p>
+                {% endif %}
+            </div>
+            <div>
+                <label for="{{ account_form.username.id_for_label }}" class="block text-sm font-medium text-gray-700 mb-1">Username</label>
+                {{ account_form.username }}
+                {% if account_form.username.errors %}
+                <p class="text-sm text-red-600 mt-1">{{ account_form.username.errors.0 }}</p>
+                {% endif %}
+            </div>
+            <div>
+                <label for="{{ account_form.email.id_for_label }}" class="block text-sm font-medium text-gray-700 mb-1">Email</label>
+                {{ account_form.email }}
+                {% if account_form.email.errors %}
+                <p class="text-sm text-red-600 mt-1">{{ account_form.email.errors.0 }}</p>
+                {% endif %}
+                <p class="text-xs text-gray-400 mt-1">Used to reset your password, and can be used to log in instead of your username.</p>
+            </div>
+            <div class="sm:col-span-2">
+                <label for="{{ account_form.address.id_for_label }}" class="block text-sm font-medium text-gray-700 mb-1">Farm address</label>
+                {{ account_form.address }}
+                {% if account_form.address.errors %}
+                <p class="text-sm text-red-600 mt-1">{{ account_form.address.errors.0 }}</p>
+                {% endif %}
+                <p class="text-xs text-gray-400 mt-1">Your barangay in Libmanan — used to personalize weather suggestions on your daily log.</p>
+            </div>
+        </div>
+
+        <div class="flex items-center gap-3">
+            <button type="submit" class="bg-emerald-700 text-white font-semibold rounded-lg px-8 py-2.5 hover:bg-emerald-800">
+                Save changes
+            </button>
+            <button type="button" id="account-edit-cancel" class="text-sm font-medium text-gray-600 hover:text-gray-800">
+                Cancel
+            </button>
+        </div>
+    </form>
+</div>
+
+{% include "farm/_flock_profile_panel.html" %}

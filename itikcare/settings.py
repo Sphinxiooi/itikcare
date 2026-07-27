@@ -93,6 +93,15 @@ INSTALLED_APPS = [
 
 AUTH_USER_MODEL = 'accounts.User'
 
+# Lets a farmer log in with their username, email, or full name (accounts/
+# auth_backends.py) -- ModelBackend stays listed as a fallback per Django's own
+# "other authentication sources" pattern, though the custom backend already covers
+# plain username/password lookups too.
+AUTHENTICATION_BACKENDS = [
+    'accounts.auth_backends.UsernameEmailOrFullNameBackend',
+    'django.contrib.auth.backends.ModelBackend',
+]
+
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
     # Must sit directly after SecurityMiddleware (whitenoise's own requirement) so it can
@@ -179,7 +188,12 @@ AUTH_PASSWORD_VALIDATORS = [
 
 LANGUAGE_CODE = 'en-us'
 
-TIME_ZONE = 'UTC'
+
+# Single-farm deployment in Libmanan, Camarines Sur, Philippines (UTC+8, no DST) --
+# 'UTC' here made timezone.localdate() (used by DailyLog/Flock "date can't be in the
+# future" validation) run up to a day behind the farmer's actual local date, which
+# would reject a same-day entry as "in the future" for part of every day.
+TIME_ZONE = 'Asia/Manila'
 
 USE_I18N = True
 
@@ -195,6 +209,13 @@ STATICFILES_DIRS = [BASE_DIR / 'static']
 # whitenoise/any production server; the Django dev server ignores this and serves
 # STATICFILES_DIRS directly, so local dev works with or without ever running collectstatic.
 STATIC_ROOT = BASE_DIR / 'staticfiles'
+
+# Farmer-uploaded profile pictures (accounts.User.avatar) -- unlike STATIC_ROOT above,
+# whitenoise does not serve this, so it's only wired up for local dev in itikcare/urls.py
+# (guarded by DEBUG). A real deployment still needs its own story for this (an nginx
+# location block, or object storage) before avatar uploads go live on the VM.
+MEDIA_URL = 'media/'
+MEDIA_ROOT = BASE_DIR / 'media'
 
 STORAGES = {
     'default': {
