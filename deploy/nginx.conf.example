@@ -13,7 +13,7 @@ server {
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
         # Required for Django to see the request as HTTPS once TLS is added below and
-        # DJANGO_BEHIND_PROXY=True is set in .env -- see DEPLOYMENT.md.
+        # DJANGO_BEHIND_PROXY=True is set in .env.
         proxy_set_header X-Forwarded-Proto $scheme;
     }
 }

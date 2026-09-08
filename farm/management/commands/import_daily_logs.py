@@ -116,6 +116,9 @@ class Command(BaseCommand):
                 recorded_by=recorded_by,
                 **{field: parser(row[column]) for field, (column, parser) in FIELD_PARSERS.items()},
             )
+            # This backfill deliberately populates already-retired generations, so it
+            # opts out of DailyLog.clean()'s "no new logs for a retired flock" guard.
+            daily_log._allow_inactive_flock = True
             try:
                 daily_log.full_clean(exclude=["flock", "recorded_by"])
             except Exception as exc:

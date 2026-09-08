@@ -50,6 +50,10 @@ CSRF_TRUSTED_ORIGINS = [
 DJANGO_BEHIND_PROXY = os.environ.get('DJANGO_BEHIND_PROXY', 'False') == 'True'
 if DJANGO_BEHIND_PROXY:
     SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
+    # Also trust the proxy's X-Forwarded-Host so request.get_host() (and anything built
+    # from it, like the Google OAuth redirect_uri) reflects the public hostname the
+    # farmer's browser actually used, not the proxy's local target (e.g. localhost:8000).
+    USE_X_FORWARDED_HOST = True
 
 SECURE_SSL_REDIRECT = os.environ.get('DJANGO_SECURE_SSL_REDIRECT', 'False') == 'True'
 SECURE_HSTS_SECONDS = int(os.environ.get('DJANGO_SECURE_HSTS_SECONDS', '0'))

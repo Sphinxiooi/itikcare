@@ -4,7 +4,7 @@ After=network.target postgresql.service
 
 [Service]
 # Adjust User/Group and paths for your VM. This assumes the repo lives at
-# /home/itikcare/app and the venv was created inside it (see DEPLOYMENT.md).
+# /home/itikcare/app and the venv was created inside it.
 User=itikcare
 Group=itikcare
 WorkingDirectory=/home/itikcare/app

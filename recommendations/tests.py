@@ -1,4 +1,4 @@
-"""Tests for the prescriptive rule engine (itikcare-spec.md section 6, rules-table.pdf).
+"""Tests for the prescriptive rule engine (itikcare-spec.md section 6, Annex-A-Rules-Table.pdf).
 
 Split like ``forecasting/tests.py``: pure rule-evaluation logic is tested against
 plain dicts with ``SimpleTestCase`` (no DB), and the DB-backed orchestration in
@@ -45,7 +45,8 @@ class FlockAgeClassificationTests(SimpleTestCase):
         self.assertEqual(rules.classify_flock_age(40), Priority.MEDIUM)
         self.assertEqual(rules.classify_flock_age(26), Priority.MEDIUM_LOW)  # boundary: >26 excludes 26
         self.assertEqual(rules.classify_flock_age(22), Priority.MEDIUM_LOW)
-        self.assertEqual(rules.classify_flock_age(19), Priority.LOW)  # boundary: <=19
+        self.assertEqual(rules.classify_flock_age(19), Priority.MEDIUM_LOW)  # boundary: >18 includes 19
+        self.assertEqual(rules.classify_flock_age(18), Priority.LOW)  # boundary: <=18
         self.assertEqual(rules.classify_flock_age(10), Priority.LOW)
 
 
@@ -54,8 +55,8 @@ class TemperatureClassificationTests(SimpleTestCase):
         self.assertEqual(rules.classify_temperature(34.0), Priority.HIGH)
         self.assertEqual(rules.classify_temperature(33.0), Priority.HIGH)
         self.assertEqual(rules.classify_temperature(31.0), Priority.MEDIUM_HIGH)
-        self.assertEqual(rules.classify_temperature(30.0), Priority.MEDIUM_HIGH)
-        self.assertEqual(rules.classify_temperature(27.0), Priority.MEDIUM)
+        self.assertEqual(rules.classify_temperature(28.0), Priority.MEDIUM_HIGH)  # boundary: >27 includes 28
+        self.assertEqual(rules.classify_temperature(27.0), Priority.MEDIUM)  # boundary: >27 excludes 27
         self.assertEqual(rules.classify_temperature(23.0), Priority.MEDIUM_LOW)  # boundary: >23 excludes 23
         self.assertEqual(rules.classify_temperature(20.0), Priority.MEDIUM_LOW)
         self.assertEqual(rules.classify_temperature(18.0), Priority.LOW)
@@ -76,7 +77,7 @@ class HumidityClassificationTests(SimpleTestCase):
 
 
 class FeedClassificationTests(SimpleTestCase):
-    """Feed-per-bird thresholds are age-tier-dependent (rules-table.pdf 1.4)."""
+    """Feed-per-bird thresholds are age-tier-dependent (Annex A 1.4)."""
 
     def test_low_age_tier_thresholds(self):
         self.assertEqual(rules.classify_feed(Priority.LOW, 50), "underfed")
@@ -90,6 +91,12 @@ class FeedClassificationTests(SimpleTestCase):
         self.assertEqual(rules.classify_feed(Priority.MEDIUM, 90), "underfed")
         self.assertEqual(rules.classify_feed(Priority.MEDIUM, 140), "on_track")
         self.assertEqual(rules.classify_feed(Priority.MEDIUM, 170), "overfed")
+
+    def test_medium_low_age_tier_thresholds(self):
+        # Annex A 1.4: MEDIUM-LOW age -> <110 underfed, 110-150 on track, >=150 overfed.
+        self.assertEqual(rules.classify_feed(Priority.MEDIUM_LOW, 100), "underfed")
+        self.assertEqual(rules.classify_feed(Priority.MEDIUM_LOW, 145), "on_track")  # was "overfed" pre-Annex (140 floor)
+        self.assertEqual(rules.classify_feed(Priority.MEDIUM_LOW, 150), "overfed")
 
     def test_high_age_tier_thresholds(self):
         self.assertEqual(rules.classify_feed(Priority.HIGH, 80), "underfed")
@@ -110,7 +117,7 @@ class ImportanceForTests(SimpleTestCase):
 
 
 class FeedRecommendationSlotTests(SimpleTestCase):
-    """The feed_intake_kg slot: age tier x feed tier -> AF1-AF15 (rules-table.pdf 2.1)."""
+    """The feed_intake_kg slot: age tier x feed tier -> AF1-AF15 (Annex A 2.1)."""
 
     def _feed_rule(self, **overrides):
         fired = rules.evaluate_rules(_inputs(**overrides), {})

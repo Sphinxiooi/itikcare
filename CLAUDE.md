@@ -12,7 +12,7 @@ Figma prototype (for UI/dashboard reference): https://www.figma.com/design/TZqCW
 
 - Backend: Python 3.13, Django 5
 - Frontend: HTML, CSS, JavaScript, Tailwind CSS (no other CSS framework)
-- Database: MySQL
+- Database: PostgreSQL (switched from MySQL 2026-07-20 — adviser allows stack swaps with a reason; a `DB_ENGINE=sqlite` escape hatch exists for hosts with no managed Postgres)
 - ML: scikit-learn
 
 Adviser has approved changing stack choices (e.g. swapping the database engine) when there's a good reason (deployment constraints, free-tier availability, etc.) — no need to ask before proposing that. The thesis objectives below (RF forecasting requirements, prescriptive module requirements, acceptance thresholds) are NOT open for renegotiation and must be flagged if a change would affect them.
@@ -24,7 +24,9 @@ Five entities: **User, Flock, DailyLog, Forecast, Recommendation**. See `itikcar
 ## Hard requirements — check against these every time you touch the model or rule engine
 
 **Random Forest forecasting model:**
-- 80:20 train/test split
+- 85:15 train/test split (adviser-approved 2026-09-06, was 80:20 — small/gappy dataset
+  benefits from more training rows; re-validate all four thresholds after any split
+  change, and keep thesis Chapter 3 in sync). See `itikcare-spec.md` section 5.
 - Must support periodic rolling retraining (a repeatable script/management command, not a one-off notebook)
 - Must expose feature importance scores (the prescriptive module depends on these)
 - Acceptance thresholds: MAE ≤ 8% of avg daily yield · RMSE ≤ 10% of avg daily yield · MAPE ≤ 15% · R² ≥ 0.75

@@ -1,5 +1,17 @@
 {% load static %}
+{% comment %}
+Wrapped in a single id'd container so the AJAX submit handler (templates/base.html)
+can swap this whole thing -- personal-info card plus the included flock panel --
+back in after a save, wherever it currently lives (the full /account/settings/ page
+or the header avatar's modal).
+{% endcomment %}
+<div id="account-settings-content">
 <div class="bg-white border border-gray-200 rounded-xl p-6 max-w-3xl mb-6">
+    {% if just_saved %}
+    <div id="account-saved-banner" class="mb-4 text-sm font-medium text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-lg px-4 py-2.5 transition-opacity duration-500">
+        Saved
+    </div>
+    {% endif %}
     <div class="flex items-start justify-between gap-4 mb-1">
         <div>
             <h1 class="text-2xl font-bold text-gray-900">Personal Information</h1>
@@ -123,3 +135,4 @@
 </div>
 
 {% include "farm/_flock_profile_panel.html" %}
+</div>

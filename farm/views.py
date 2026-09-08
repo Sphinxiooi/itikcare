@@ -1,11 +1,10 @@
 import logging
-from datetime import date, timedelta
+from datetime import date
 
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.db.models import Max
 from django.shortcuts import get_object_or_404, redirect, render
-from django.utils import timezone
 from django.views.decorators.http import require_POST
 
 from forecasting.models import Forecast
@@ -18,9 +17,8 @@ from .services import (
     current_flock_age_weeks,
     detect_daily_log_anomalies,
     get_active_flock,
-    get_effective_coordinates,
+    recompute_caging_period,
 )
-from .weather import fetch_current_weather
 
 logger = logging.getLogger(__name__)
 
@@ -41,10 +39,8 @@ def log_daily_data(request):
     that log is long enough to imply a free-range-then-recage cycle happened in
     between (CAGING_PERIOD_GAP_DAYS).
 
-    temperature_c and humidity_pct are similarly best-effort pre-filled, from a live
-    weather API lookup at the farm's fixed coordinates (see weather.fetch_current_weather),
-    whenever that succeeds — always editable, and left blank exactly as before if the
-    lookup isn't configured or fails.
+    temperature_c and humidity_pct are always left blank for the farmer to enter
+    from their own thermometer/hygrometer reading — no pre-fill.
 
     A first valid submission never saves immediately: it renders a read-only
     confirmation screen (services.detect_daily_log_anomalies checked against this
@@ -101,7 +97,7 @@ def log_daily_data(request):
                 daily_log = form.save(commit=False)
                 daily_log.flock = active_flock
                 # assign_caging_periods (farm/services.py) is the single source of truth
-                # for this rule, shared with the bulk CSV import view — a flock's very
+                # for this rule, shared with the import_daily_logs command — a flock's very
                 # first entry always starts a new period (no prior date to gap-check
                 # against, and it continues this owner's overall counter across flock
                 # retirements per itikcare-spec.md section 10); later entries compare
@@ -174,43 +170,16 @@ def log_daily_data(request):
         if active_flock.pending_feed_intake_kg is not None:
             initial["feed_intake_kg"] = active_flock.pending_feed_intake_kg
 
-        lat, lon = get_effective_coordinates(request.user)
-        weather = fetch_current_weather(lat, lon)
-        if weather is not None:
-            initial["temperature_c"] = weather["temperature_c"]
-            initial["humidity_pct"] = weather["humidity_pct"]
-
         form = DailyLogForm(initial=initial, active_flock=active_flock)
-        if weather is not None:
-            # Only overridden when the fetch actually succeeded, so a failed/unconfigured
-            # lookup leaves DailyLog's default model help_text untouched, same as before
-            # this existed.
-            form.fields["temperature_c"].help_text = (
-                "Suggested from today's local weather — check against your own "
-                "thermometer reading and adjust if needed."
-            )
-            form.fields["humidity_pct"].help_text = (
-                "Suggested from today's local weather — check against your own "
-                "hygrometer reading and adjust if needed."
-            )
 
     context = {"active_nav": "log_daily_data", "form": form}
     return render(request, "farm/log_daily_data.html", context)
 
 
-RECORD_RANGE_CHOICES = {
-    "7": "Last 7 days",
-    "30": "Last 30 days",
-    "90": "Last 90 days",
-    "all": "All time",
-}
-DEFAULT_RECORD_RANGE = "30"
-
-
 @login_required
 def farm_records(request):
-    """List DailyLog entries for one of the owner's flocks, filtered by date range,
-    flock number, and month.
+    """List DailyLog entries for one of the owner's flocks, filtered by flock number
+    and month.
 
     Defaults to the active flock so the common case is unchanged; if the owner has no
     active flock (e.g. every flock so far has been retired), falls back to their most
@@ -218,8 +187,7 @@ def farm_records(request):
     flocks stay selectable (and their records visible) but are read-only — see
     farm_record_edit's is_active guard. The month dropdown's options are always
     derived from the *currently selected* flock's own records, so switching flocks
-    resets a now-meaningless ?month= back to "all", the same way an invalid ?range=
-    already falls back to DEFAULT_RECORD_RANGE.
+    resets a now-meaningless ?month= back to "all".
     """
 
     owner_flocks = list(Flock.objects.filter(owner=request.user).order_by("-generation_number"))
@@ -234,18 +202,10 @@ def farm_records(request):
     selected_flock = flocks_by_id.get(request.GET.get("flock"), default_flock)
     selected_flock_id = str(selected_flock.id) if selected_flock else ""
 
-    selected_range = request.GET.get("range", DEFAULT_RECORD_RANGE)
-    if selected_range not in RECORD_RANGE_CHOICES:
-        selected_range = DEFAULT_RECORD_RANGE
-
     logs = (
         DailyLog.objects.filter(flock=selected_flock).order_by("-date").prefetch_related("edits")
         if selected_flock else DailyLog.objects.none()
     )
-
-    if selected_range != "all":
-        cutoff = timezone.localdate() - timedelta(days=int(selected_range))
-        logs = logs.filter(date__gte=cutoff)
 
     month_values = (
         DailyLog.objects.filter(flock=selected_flock).dates("date", "month", order="DESC")
@@ -263,8 +223,6 @@ def farm_records(request):
     context = {
         "active_nav": "records",
         "logs": logs,
-        "range_choices": RECORD_RANGE_CHOICES,
-        "selected_range": selected_range,
         "flock_choices": flock_choices,
         "selected_flock_id": selected_flock_id,
         "month_choices": month_choices,
@@ -305,6 +263,16 @@ def farm_record_edit(request, pk):
     if request.method == "POST":
         form = DailyLogEditForm(request.POST, instance=daily_log)
         if form.is_valid():
+            # DailyLogEditForm can't enforce the unique (flock, date) constraint itself
+            # — `flock` isn't one of its fields, and Django skips a constraint whose
+            # fields are all excluded from validation — so a collision would otherwise
+            # only surface as an IntegrityError from form.save(). Check it here, the
+            # same way log_daily_data does on create.
+            new_date = form.cleaned_data["date"]
+            if DailyLog.objects.filter(flock=daily_log.flock, date=new_date).exclude(pk=daily_log.pk).exists():
+                form.add_error("date", "Another record already exists for this date — edit that one instead.")
+
+        if form.is_valid():
             changes = []
             for field_name in AUDITED_FIELDS:
                 old_value = old_values[field_name]
@@ -313,6 +281,10 @@ def farm_record_edit(request, pk):
                     changes.append((field_name, old_value, new_value))
 
             updated_log = form.save()
+            if updated_log.date != old_values["date"]:
+                # The date moved — its caging_period (assigned from the gap to the
+                # previous log when this row was first created) may no longer fit.
+                recompute_caging_period(updated_log)
             for field_name, old_value, new_value in changes:
                 DailyLogEdit.objects.create(
                     daily_log=updated_log,
@@ -420,10 +392,9 @@ def flock_profile(request):
     covers historical DailyLog data, not Flock lifecycle metadata.
 
     A GET request with ?partial=1 renders just the profile card, no header/sidebar —
-    this is what the header avatar's floating modal (base.html) fetches so it can show
-    Flock Profile over whatever page the farmer is currently on. The plain /flock/
-    page (no query param) still renders normally for direct links/bookmarks or
-    browsers without JS, sharing the same "farm/_flock_profile_panel.html" partial.
+    available for embedding elsewhere, same as accounts.views.account_settings does
+    with "farm/_flock_profile_panel.html" as its own second box. The plain /flock/
+    page (no query param) renders normally for direct links/bookmarks.
     """
 
     template_name = (

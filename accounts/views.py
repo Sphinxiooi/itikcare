@@ -128,11 +128,21 @@ def account_settings(request):
     context this view also gathers (via flock_profile_context) so the same
     "farm/_flock_profile_panel.html" partial can render as this page's second box —
     see templates/account/_settings_panel.html.
+
+    The edit form's own submit is intercepted client-side (templates/base.html) via
+    the same X-Requested-With header the header avatar's modal already fetches with
+    -- a normal redirect-on-save would otherwise blow away the modal with a full-page
+    navigation. On an AJAX save this re-renders the partial in place (with a fresh,
+    unbound form so it collapses back to view mode) and a just_saved flag the partial
+    turns into a self-dismissing banner, instead of going through messages.success +
+    redirect, which only ever surfaces on the next full-page render.
     """
+    is_ajax = request.headers.get("X-Requested-With") == "XMLHttpRequest"
     template_name = (
-        "account/_settings_panel.html" if request.GET.get("partial") == "1" else "account/settings.html"
+        "account/_settings_panel.html" if request.GET.get("partial") == "1" or is_ajax else "account/settings.html"
     )
 
+    just_saved = False
     if request.method == "POST":
         form = AccountSettingsForm(request.POST, request.FILES, instance=request.user)
         if form.is_valid():
@@ -152,14 +162,24 @@ def account_settings(request):
                 else:
                     user.latitude, user.longitude = None, None
             user.save()
-            messages.success(request, "Account settings updated.")
-            return redirect("account_settings")
+            if is_ajax:
+                just_saved = True
+                form = AccountSettingsForm(instance=request.user)
+            else:
+                messages.success(request, "Account settings updated.")
+                return redirect("account_settings")
     else:
         form = AccountSettingsForm(instance=request.user)
 
     context = {
         "active_nav": "account_settings",
         "account_form": form,
+        # Settings is a personal-info page (and the header avatar's quick-access
+        # modal, templates/base.html) -- flock lifecycle actions (retire, toggle
+        # caging, register) belong on the dedicated /flock/ page, not duplicated
+        # here, so the shared partial renders a read-only summary + link instead.
+        "compact": True,
+        "just_saved": just_saved,
         **flock_profile_context(request.user),
     }
     return render(request, template_name, context)

@@ -16,7 +16,7 @@ set) — see ``_load_records``.
 
 ``--tune`` replaces the fixed ``build_estimator(n_estimators)`` fit with a randomized
 hyperparameter search (``pipeline.tune_estimator``) scored on an inner, segment-aware CV
-carved out of the training partition only — the held-out 20% test set is never touched
+carved out of the training partition only — the held-out 15% test set is never touched
 during the search, only for the final metrics/threshold check. Omit ``--tune`` for the
 original fast, fixed-hyperparameter path (unchanged default behaviour) — this is what
 the signup flow uses for a new farmer's synchronous bootstrap train.
@@ -32,7 +32,8 @@ there. Stages:
    SEGMENT_COLUMN comment for why raw caging_period alone isn't safe once more than one
    flock/farm is pooled) and build the daily and tri-day datasets. The tri-day target is
    a 3-day forward sum that never spans a caging-period gap (itikcare-spec.md §10).
-3. Chronological 80:20 split within each segment.
+3. Chronological 85:15 split within each segment (adviser-approved 2026-09-06, was 80:20
+   — see pipeline.chronological_split's docstring).
 4. Fit a RandomForestRegressor for daily yield and a separate one for tri-day yield.
 5. Evaluate both against the §5 thresholds (MAE ≤ 8%, RMSE ≤ 10%, MAPE ≤ 15%, R² ≥ 0.75),
    alongside a mean-predictor baseline.
@@ -75,8 +76,10 @@ class Command(BaseCommand):
             help="Number of trees in each Random Forest (default: 300).",
         )
         parser.add_argument(
-            "--test-fraction", type=float, default=0.2,
-            help="Fraction of each caging period held out as the chronological test set (default: 0.2).",
+            "--test-fraction", type=float, default=0.15,
+            help="Fraction of each caging period held out as the chronological test set "
+                 "(default: 0.15 — the adviser-approved 85:15 split, see "
+                 "pipeline.chronological_split).",
         )
         parser.add_argument(
             "--output-dir", default=str(settings.BASE_DIR / "models"),

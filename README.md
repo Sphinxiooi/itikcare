@@ -55,10 +55,11 @@ For a one-off production-style build (minified, no watch):
   (optional email/address — address is geocoded for weather prefill, email
   enables self-service password reset) plus admin-created accounts via
   `/admin/`; optional "Sign in with Google" (`accounts/google_oauth.py`,
-  see `.env.example`/`DEPLOYMENT.md`) that creates or logs into an account
+  see `.env.example`) that creates or logs into an account
   with no local password to ever reset
 - `farm` — Flock (with caging-period/generation lifecycle), DailyLog,
-  DailyLogEdit (audit trail for historical data edits), CSV bulk import; also
+  DailyLogEdit (audit trail for historical data edits), and the
+  `import_daily_logs` management command for seeding history from CSV; also
   owns the Log Daily Data and Farm Records (list + audited edit) pages.
   `farm/weather.py` prefills temperature/humidity suggestions on the daily log
   form from a live weather API (Open-Meteo), geocoded to each farmer's own
@@ -81,4 +82,6 @@ prototype in `prototype/`.
 
 ## Deployment
 
-For running this somewhere other than your own machine, see `DEPLOYMENT.md`.
+For running this on a VM, see the sample configs in `deploy/` (`itikcare.service`
+for systemd, `gunicorn_conf.py`, `nginx.conf.example`) and the production-only
+variables at the bottom of `.env.example`.

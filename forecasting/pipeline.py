@@ -23,7 +23,7 @@ Design notes for the thesis defense (itikcare-spec.md sections 4, 5, 10):
 * Everything is seeded with ``random_state=42`` for reproducibility.
 * **Optional hyperparameter tuning** (``tune_estimator``) is scored with an inner,
   segment-aware CV (``segmented_time_series_splits``) built only from the training
-  partition returned by ``chronological_split`` — the held-out 20% test rows are never
+  partition returned by ``chronological_split`` — the held-out 15% test rows are never
   used to pick hyperparameters, only to run the final, honest acceptance check.
 """
 
@@ -164,8 +164,15 @@ def add_lag_features(df: pd.DataFrame) -> pd.DataFrame:
     return df.dropna(subset=LAG_FEATURES).reset_index(drop=True)
 
 
-def chronological_split(df: pd.DataFrame, test_fraction: float = 0.2):
-    """Split 80:20 chronologically *within each caging period*.
+def chronological_split(df: pd.DataFrame, test_fraction: float = 0.15):
+    """Split 85:15 chronologically *within each caging period*.
+
+    The 85:15 ratio (rather than a textbook 80:20) was adopted 2026-09-06 after adviser
+    consultation: this is a small real-world dataset with intentional gaps, so giving the
+    Random Forest the extra ~5% of rows to learn from is worth the slightly smaller test
+    set. The four acceptance thresholds (itikcare-spec.md section 5) must still be
+    re-validated on the held-out test set at every retrain, and thesis Chapter 3's
+    methodology text must state 85:15 to match.
 
     For every caging period the rows are ordered by date and the last
     ``test_fraction`` become the test set. This guarantees we never train on days that
@@ -277,7 +284,7 @@ def tune_estimator(
     """Randomized hyperparameter search over PARAM_DISTRIBUTIONS, scored by MAE.
 
     CV is ``segmented_time_series_splits(train_df, n_splits)`` — an inner split of the
-    *training* partition only. The real 20% test set from ``chronological_split`` is
+    *training* partition only. The real 15% test set from ``chronological_split`` is
     never passed to this function, so hyperparameters are chosen without ever looking at
     the held-out rows the final acceptance-threshold check runs against.
 

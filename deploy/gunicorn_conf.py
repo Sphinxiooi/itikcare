@@ -2,7 +2,8 @@
 
     gunicorn -c deploy/gunicorn_conf.py itikcare.wsgi:application
 
-from the project root, inside the venv. See DEPLOYMENT.md for the full setup.
+from the project root, inside the venv. See the other files in deploy/ (itikcare.service,
+nginx.conf.example) for the rest of the VM setup.
 """
 
 bind = "127.0.0.1:8000"  # nginx (deploy/nginx.conf.example) proxies to this

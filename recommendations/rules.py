@@ -8,18 +8,20 @@ Recommendation rows.
 Threshold source (see CLAUDE.md's "no black box" requirement):
 
 * Every tier boundary, combination table, and message below is copied verbatim from the
-  adviser-provided ``rules-table.pdf`` — this is now the single source of truth for the
-  prescriptive module, replacing the dataset-percentile-derived thresholds this file used
-  to carry. Anything not in that table (e.g. a cold-stress or dry-humidity tier this farm's
+  adviser-provided ``Annex-A-Rules-Table.pdf`` ("ItikCare Prescriptive Recommendations —
+  Rules/Threshold Table", the validated annex that supersedes the earlier ``rules-table.pdf``
+  draft) — this is now the single source of truth for the prescriptive module, replacing the
+  dataset-percentile-derived thresholds this file used to carry. Anything not in that table
+  (e.g. a cold-stress or dry-humidity tier this farm's
   own historical CSV never happened to record) is still implemented, because the table is
   the spec regardless of what one farm's data happened to show.
 * Recommendations collapse to exactly **3 slots**, always fired (nothing silently skipped,
   same forward-chaining philosophy as before) — see ``evaluate_rules``:
   - ``feed_intake_kg`` — flock age tier x age-tiered feed tier -> one of the AF1-AF15
-    combination rules (rules-table.pdf 2.1). Feed thresholds are themselves age-dependent
+    combination rules (Annex A 2.1). Feed thresholds are themselves age-dependent
     (1.4), so age and feed are evaluated together, not independently.
   - ``flock_age_weeks`` — flock age tier alone -> retirement/replacement guidance
-    (rules-table.pdf 2.6). A separate concern from the feed-ration advice above (this is
+    (Annex A 2.6). A separate concern from the feed-ration advice above (this is
     about flock succession planning, not day-to-day feeding).
   - ``environment`` — temperature and humidity are evaluated *together*: each one's
     5-tier reading feeds into two matrices (2.2 "temperature flag", 2.3 "humidity flag")
@@ -87,7 +89,7 @@ class FiredRule:
     message: str
 
 
-# --- 1.1 Flock age tiers (rules-table.pdf section 1.1) -----------------------------------
+# --- 1.1 Flock age tiers (Annex A section 1.1) -----------------------------------
 
 
 def classify_flock_age(age_weeks: float) -> str:
@@ -97,18 +99,18 @@ def classify_flock_age(age_weeks: float) -> str:
         return Priority.MEDIUM_HIGH  # post-peak decline
     if age_weeks > 26:
         return Priority.MEDIUM  # peak laying
-    if age_weeks > 19:
+    if age_weeks > 18:
         return Priority.MEDIUM_LOW  # onset of laying
     return Priority.LOW  # pre-lay / immature
 
 
-# --- 1.2 Temperature tiers (rules-table.pdf section 1.2) ----------------------------------
+# --- 1.2 Temperature tiers (Annex A section 1.2) ----------------------------------
 
 
 def classify_temperature(temperature_c: float) -> str:
     if temperature_c >= 33:
         return Priority.HIGH  # severe heat stress
-    if temperature_c >= 30:
+    if temperature_c > 27:
         return Priority.MEDIUM_HIGH  # elevated heat stress
     if temperature_c > 23:
         return Priority.MEDIUM  # thermoneutral comfort zone
@@ -117,7 +119,7 @@ def classify_temperature(temperature_c: float) -> str:
     return Priority.LOW  # cold stress risk
 
 
-# --- 1.3 Humidity tiers (rules-table.pdf section 1.3) -------------------------------------
+# --- 1.3 Humidity tiers (Annex A section 1.3) -------------------------------------
 
 
 def classify_humidity(humidity_pct: float) -> str:
@@ -132,12 +134,12 @@ def classify_humidity(humidity_pct: float) -> str:
     return Priority.LOW  # dry conditions
 
 
-# --- 1.4 Feed intake per bird, tiered by age (rules-table.pdf section 1.4) ----------------
+# --- 1.4 Feed intake per bird, tiered by age (Annex A section 1.4) ----------------
 # Each age tier has its own (underfed-ceiling, overfed-floor) in grams/bird/day: below the
 # first number is underfed, at/above the second is overfed, between is on track.
 FEED_TIER_THRESHOLDS_G: dict[str, tuple[float, float]] = {
     Priority.LOW: (70, 120),
-    Priority.MEDIUM_LOW: (110, 140),
+    Priority.MEDIUM_LOW: (110, 150),
     Priority.MEDIUM: (115, 160),
     Priority.MEDIUM_HIGH: (110, 150),
     Priority.HIGH: (90, 130),
@@ -160,7 +162,7 @@ def classify_feed(age_tier: str, feed_per_bird_g: float) -> str:
     return "overfed"
 
 
-# --- 2.1 Flock Age x Feed Intake combination rules (rules-table.pdf section 2.1, AF1-AF15) -
+# --- 2.1 Flock Age x Feed Intake combination rules (Annex A section 2.1, AF1-AF15) -
 # Text is the preventive-recommendation column verbatim; the leading "Increase/Maintain/
 # Reduce" phrasing already states the status, so the message wrapper below only needs to
 # add the actual readings for traceability.
@@ -203,15 +205,16 @@ AF_RULES: dict[tuple[str, str], str] = {
 }
 
 
-# --- 2.6 Flock age standalone text (rules-table.pdf section 2.6) -------------------------
+# --- 2.6 Flock age standalone text (Annex A section 2.6) -------------------------
 FLOCK_AGE_TEXT: dict[str, str] = {
     Priority.HIGH: (
         "Retire or cull declining layers and shift fully to the replacement cohort. Holding "
         "spent birds past this point mostly adds feed cost with little egg return."
     ),
     Priority.MEDIUM_HIGH: (
-        "Start raising a replacement cohort now — this is the actionable preventive window, "
-        "since new layers need ~22-23 weeks to reach first lay."
+        "Start raising a replacement cohort now — this is the actionable preventive window. "
+        "New layers typically need 22-26 weeks from hatching to first lay depending on strain "
+        "and management conditions, so initiate orders and brooding now to avoid a production gap."
     ),
     Priority.MEDIUM: (
         "No replacement action needed; focus on protecting production during this "
@@ -228,7 +231,7 @@ FLOCK_AGE_TEXT: dict[str, str] = {
 }
 
 
-# --- 2.2 / 2.3 Temperature <-> humidity flag matrices (rules-table.pdf) -------------------
+# --- 2.2 / 2.3 Temperature <-> humidity flag matrices (Annex A) -------------------
 # Both are keyed (row_tier, column_tier) exactly as the source table lays them out — they
 # are NOT the same matrix read two ways: looking up (temperature, humidity) for the
 # "temperature flag" gives a different result than (humidity, temperature) for the

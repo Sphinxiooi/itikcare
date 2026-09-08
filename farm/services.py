@@ -120,6 +120,38 @@ def assign_caging_periods(active_flock, owner, new_dates_sorted):
     return periods
 
 
+def recompute_caging_period(daily_log):
+    """Re-derive one DailyLog's caging_period after an edit moved its date.
+
+    caging_period is assigned once, when the row is first logged (assign_caging_periods
+    above), from the day-gap to the log immediately before it. farm_record_edit audits
+    a date change but that stored period can then be wrong — e.g. a date edited across
+    a >CAGING_PERIOD_GAP_DAYS gap now belongs to a different free-range/caging segment.
+    This recomputes just this row, from the log now immediately before it, using the
+    identical gap rule.
+
+    It deliberately does NOT cascade to later rows: a one- or two-day date correction
+    is the normal case and doesn't reshuffle the series, and a farmer can't move a date
+    far without the change being obvious in Farm Records. A bulk re-segmentation, if it
+    were ever needed, belongs in a management command, not a request cycle.
+    """
+    previous_log = (
+        DailyLog.objects.filter(flock=daily_log.flock, date__lt=daily_log.date)
+        .exclude(pk=daily_log.pk)
+        .order_by("-date")
+        .first()
+    )
+    if previous_log is None:
+        return  # now the flock's earliest entry — nothing before it to bridge from
+    gap_days = (daily_log.date - previous_log.date).days
+    new_period = (
+        previous_log.caging_period + 1 if gap_days > CAGING_PERIOD_GAP_DAYS else previous_log.caging_period
+    )
+    if new_period != daily_log.caging_period:
+        daily_log.caging_period = new_period
+        daily_log.save(update_fields=["caging_period"])
+
+
 def detect_daily_log_anomalies(active_flock, cleaned_data):
     """Flag newly entered values that look far outside this flock's own history.
 

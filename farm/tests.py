@@ -112,37 +112,15 @@ class LogDailyDataTests(TestCase):
         response = self.client.get("/log-daily-data/")
         self.assertEqual(response.context["form"].initial["flock_size"], 240)
 
-    @patch("farm.views.fetch_current_weather", return_value={"temperature_c": 30.5, "humidity_pct": 82.0})
-    def test_get_prefills_temperature_and_humidity_when_weather_fetch_succeeds(self, mock_fetch):
-        Flock.objects.create(owner=self.user, generation_number=1, started_on=date(2024, 1, 1))
-        response = self.client.get("/log-daily-data/")
-        form = response.context["form"]
-        self.assertEqual(form.initial["temperature_c"], 30.5)
-        self.assertEqual(form.initial["humidity_pct"], 82.0)
-        self.assertIn("weather", form.fields["temperature_c"].help_text)
-        self.assertIn("weather", form.fields["humidity_pct"].help_text)
-
-    @patch("farm.views.fetch_current_weather", return_value=None)
-    def test_get_leaves_temperature_and_humidity_blank_when_weather_fetch_fails(self, mock_fetch):
+    def test_get_never_prefills_temperature_and_humidity(self):
+        # Temperature and humidity are always entered by the farmer from their own
+        # thermometer/hygrometer reading -- the form leaves them blank.
         Flock.objects.create(owner=self.user, generation_number=1, started_on=date(2024, 1, 1))
         response = self.client.get("/log-daily-data/")
         self.assertEqual(response.status_code, 200)
         form = response.context["form"]
         self.assertNotIn("temperature_c", form.initial)
         self.assertNotIn("humidity_pct", form.initial)
-        # help_text falls back to DailyLog's model-level default (unrelated to weather)
-        # rather than being overwritten -- that only happens when the fetch succeeds.
-        self.assertNotIn("weather", form.fields["temperature_c"].help_text.lower())
-        self.assertNotIn("weather", form.fields["humidity_pct"].help_text.lower())
-
-    @patch("farm.views.fetch_current_weather")
-    def test_post_never_calls_weather_fetch(self, mock_fetch):
-        Flock.objects.create(owner=self.user, generation_number=1, started_on=date(2024, 1, 1))
-        self.client.post("/log-daily-data/", VALID_LOG_POST)
-        mock_fetch.assert_not_called()
-        log = DailyLog.objects.get(date=date(2024, 1, 1))
-        self.assertEqual(str(log.temperature_c), "28.0")
-        self.assertEqual(str(log.humidity_pct), "75.0")
 
     @patch("farm.services.date")
     def test_get_prefills_flock_age_advanced_by_calendar_weeks_since_last_log(self, mock_date):
@@ -425,12 +403,12 @@ class FarmRecordsTests(TestCase):
             flock_age_weeks=25, egg_count=150, feed_intake_kg="40.0",
             temperature_c="28.0", humidity_pct="75.0", recorded_by=self.user,
         )
-        response = self.client.get("/farm-records/", {"range": "all"})
+        response = self.client.get("/farm-records/")
         logs = list(response.context["logs"])
         self.assertEqual(len(logs), 1)
         self.assertEqual(logs[0].flock, new_flock)
 
-    def test_default_range_shows_only_last_30_days(self):
+    def test_default_shows_all_months(self):
         today = timezone.localdate()
         flock = Flock.objects.create(owner=self.user, generation_number=1, started_on=date(2024, 1, 1), is_active=True)
         DailyLog.objects.create(
@@ -445,24 +423,8 @@ class FarmRecordsTests(TestCase):
         )
         response = self.client.get("/farm-records/")
         logs = list(response.context["logs"])
-        self.assertEqual(len(logs), 1)
-        self.assertEqual(response.context["selected_range"], "30")
-
-    def test_range_filter_widens_results(self):
-        today = timezone.localdate()
-        flock = Flock.objects.create(owner=self.user, generation_number=1, started_on=date(2024, 1, 1), is_active=True)
-        DailyLog.objects.create(
-            flock=flock, date=today - timedelta(days=45), flock_size=200, caging_period=1,
-            flock_age_weeks=48, egg_count=130, feed_intake_kg="34.0",
-            temperature_c="27.0", humidity_pct="70.0", recorded_by=self.user,
-        )
-        response = self.client.get("/farm-records/", {"range": "90"})
-        logs = list(response.context["logs"])
-        self.assertEqual(len(logs), 1)
-
-    def test_invalid_range_falls_back_to_default(self):
-        response = self.client.get("/farm-records/", {"range": "bogus"})
-        self.assertEqual(response.context["selected_range"], "30")
+        self.assertEqual(len(logs), 2)
+        self.assertEqual(response.context["selected_month"], "all")
 
     def test_locked_record_shows_locked_indicator_instead_of_edit_link(self):
         flock = Flock.objects.create(owner=self.user, generation_number=1, started_on=date(2024, 1, 1), is_active=True)
@@ -492,7 +454,7 @@ class FarmRecordsTests(TestCase):
             flock_age_weeks=50, egg_count=140, feed_intake_kg="35.0",
             temperature_c="27.0", humidity_pct="70.0", recorded_by=self.user,
         )
-        response = self.client.get("/farm-records/", {"range": "all"})
+        response = self.client.get("/farm-records/")
         self.assertEqual(response.context["selected_flock_id"], str(newer_flock.id))
         self.assertEqual(len(response.context["logs"]), 1)
 
@@ -504,7 +466,7 @@ class FarmRecordsTests(TestCase):
             flock_age_weeks=50, egg_count=140, feed_intake_kg="35.0",
             temperature_c="27.0", humidity_pct="70.0", recorded_by=self.user,
         )
-        response = self.client.get("/farm-records/", {"flock": old_flock.id, "range": "all"})
+        response = self.client.get("/farm-records/", {"flock": old_flock.id})
         logs = list(response.context["logs"])
         self.assertEqual(len(logs), 1)
         self.assertEqual(logs[0].flock, old_flock)
@@ -529,8 +491,8 @@ class FarmRecordsTests(TestCase):
             flock_age_weeks=50, egg_count=140, feed_intake_kg="35.0",
             temperature_c="27.0", humidity_pct="70.0", recorded_by=self.user,
         )
-        response_a = self.client.get("/farm-records/", {"flock": flock_a.id, "range": "all"})
-        response_b = self.client.get("/farm-records/", {"flock": flock_b.id, "range": "all"})
+        response_a = self.client.get("/farm-records/", {"flock": flock_a.id})
+        response_b = self.client.get("/farm-records/", {"flock": flock_b.id})
         self.assertEqual(list(response_a.context["month_choices"].keys()), ["all", "2023-06"])
         self.assertEqual(
             list(response_b.context["month_choices"].keys()),
@@ -549,7 +511,7 @@ class FarmRecordsTests(TestCase):
             flock_age_weeks=55, egg_count=145, feed_intake_kg="36.0",
             temperature_c="27.0", humidity_pct="70.0", recorded_by=self.user,
         )
-        response = self.client.get("/farm-records/", {"month": "2024-01", "range": "all"})
+        response = self.client.get("/farm-records/", {"month": "2024-01"})
         logs = list(response.context["logs"])
         self.assertEqual(len(logs), 1)
         self.assertEqual(logs[0].date, date(2024, 1, 1))
@@ -573,7 +535,7 @@ class FarmRecordsTests(TestCase):
             temperature_c="27.0", humidity_pct="70.0", recorded_by=self.user,
         )
         # 2023-06 is only valid for flock_a; requesting it against flock_b should fall back to "all".
-        response = self.client.get("/farm-records/", {"flock": flock_b.id, "month": "2023-06", "range": "all"})
+        response = self.client.get("/farm-records/", {"flock": flock_b.id, "month": "2023-06"})
         self.assertEqual(response.context["selected_month"], "all")
         self.assertEqual(len(response.context["logs"]), 1)
 
@@ -589,7 +551,7 @@ class FarmRecordsTests(TestCase):
             flock_age_weeks=50, egg_count=140, feed_intake_kg="35.0",
             temperature_c="27.0", humidity_pct="70.0", recorded_by=self.user,
         )
-        response = self.client.get("/farm-records/", {"flock": old_flock.id, "range": "all"})
+        response = self.client.get("/farm-records/", {"flock": old_flock.id})
         self.assertContains(response, "Read-only")
         self.assertNotContains(response, f"/farm-records/{log.pk}/edit/")
 
@@ -679,6 +641,36 @@ class FarmRecordEditTests(TestCase):
         self.log.refresh_from_db()
         self.assertEqual(self.log.egg_count, 150)
         self.assertEqual(DailyLogEdit.objects.filter(daily_log=self.log).count(), 0)
+
+    def test_editing_date_onto_an_existing_record_is_rejected_cleanly(self):
+        """Moving a record's date onto a day this flock already has a log for must
+        surface as a form error, not a 500 from the unique (flock, date) constraint."""
+        DailyLog.objects.create(
+            flock=self.flock, date=date(2024, 1, 2), flock_size=240, caging_period=1,
+            flock_age_weeks=25, egg_count=160, feed_intake_kg="40.0",
+            temperature_c="28.0", humidity_pct="75.0", recorded_by=self.user,
+        )
+        response = self._edit_post(date="2024-01-02")
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("date", response.context["form"].errors)
+        self.log.refresh_from_db()
+        self.assertEqual(self.log.date, date(2024, 1, 1))
+        self.assertEqual(DailyLogEdit.objects.filter(daily_log=self.log).count(), 0)
+
+    def test_editing_date_across_a_gap_recomputes_caging_period(self):
+        """If an edit moves a date across a >CAGING_PERIOD_GAP_DAYS gap, the stored
+        caging_period (derived from the gap to the previous log) is recomputed to match."""
+        DailyLog.objects.create(
+            flock=self.flock, date=date(2024, 1, 3), flock_size=240, caging_period=1,
+            flock_age_weeks=25, egg_count=160, feed_intake_kg="40.0",
+            temperature_c="28.0", humidity_pct="75.0", recorded_by=self.user,
+        )
+        # self.log sits at 2024-01-01 in caging_period 1. Move it 40 days out, well past
+        # the 14-day boundary from the 2024-01-03 log, so it lands in a new period.
+        self._edit_post(date="2024-02-12")
+        self.log.refresh_from_db()
+        self.assertEqual(self.log.date, date(2024, 2, 12))
+        self.assertEqual(self.log.caging_period, 2)
 
 
 class FarmRecordDeleteTests(TestCase):
@@ -1384,6 +1376,30 @@ class DailyLogModelValidationTests(TestCase):
 
     def test_valid_date_passes_full_clean(self):
         self._log().full_clean()  # should not raise
+
+    def test_new_log_for_a_retired_flock_rejected_by_full_clean(self):
+        self.flock.is_active = False
+        self.flock.save(update_fields=["is_active"])
+        with self.assertRaises(ValidationError) as ctx:
+            self._log().full_clean()
+        self.assertIn("flock", ctx.exception.message_dict)
+
+    def test_retired_flock_guard_can_be_bypassed_for_the_historical_import(self):
+        self.flock.is_active = False
+        self.flock.save(update_fields=["is_active"])
+        log = self._log()
+        log._allow_inactive_flock = True
+        log.full_clean()  # should not raise
+
+    def test_editing_an_existing_retired_flock_log_still_passes_full_clean(self):
+        """The guard only blocks *creating* a log for a retired flock — re-cleaning an
+        existing row (the admin edit path) must still work."""
+        log = self._log()
+        log.save()
+        self.flock.is_active = False
+        self.flock.save(update_fields=["is_active"])
+        log.egg_count = 175
+        log.full_clean()  # not adding -> retired-flock guard doesn't apply
 
 
 class DailyLogAdminTests(TestCase):

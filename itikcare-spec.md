@@ -72,7 +72,11 @@ Known variable relationships to keep in mind when building/validating the model:
 ## 5. Random Forest Regression — model requirements
 
 - Preprocessing: handle missing values/outliers, normalize/scale numerical features
-- Train/test split: 80:20
+- Train/test split: **85:15** (changed from 80:20 on 2026-09-06 after adviser
+  consultation — the dataset is small and gappy, so the extra ~5% of training rows is
+  worth the slightly smaller test set; chronological, split within each caging period).
+  Thesis Chapter 3 methodology text must be updated to match, and all four acceptance
+  thresholds below must be re-validated on the held-out test set after this change.
 - Library: scikit-learn
 - Designed for **periodic rolling retraining** as the farmer adds new daily data (not a one-time trained model)
 - Must expose **feature importance scores** — these feed directly into the prescriptive module's rule logic

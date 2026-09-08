@@ -140,10 +140,11 @@ class DailyLog(models.Model):
         return f"{self.date} — {self.flock}"
 
     def clean(self):
-        """Model-level backstop for the date-range rule DailyLogForm/DailyLogEditForm
-        already enforce (farm/forms.py clean_date). Those forms only guard the
-        farmer-facing views — this makes the same rule hold for full_clean() callers
-        that bypass the forms entirely, like the Django admin and import_daily_logs."""
+        """Model-level backstop for the rules the farmer-facing layer already enforces
+        elsewhere (DailyLogForm/DailyLogEditForm.clean_date for the date range,
+        farm/views.py::log_daily_data for "active flock only"). Those forms/views only
+        guard the farmer path — this makes the same rules hold for full_clean() callers
+        that bypass them entirely, like the Django admin and import_daily_logs."""
         super().clean()
         if self.date and self.date > timezone.localdate():
             raise ValidationError({"date": "You can't log data for a future date."})
@@ -152,6 +153,20 @@ class DailyLog(models.Model):
                 "date": f"This flock started on {self.flock.started_on:%b %d, %Y} — "
                 "you can't log data from before then."
             })
+        # A retired flock's history is closed — no new entries for it. This only blocks
+        # *creating* a log (self._state.adding); existing rows can still be re-cleaned,
+        # since edits go through farm_record_edit, which has its own is_active guard.
+        # The historical CSV import legitimately backfills already-retired generations,
+        # so import_daily_logs opts out via _allow_inactive_flock.
+        if (
+            self._state.adding
+            and self.flock_id
+            and not self.flock.is_active
+            and not getattr(self, "_allow_inactive_flock", False)
+        ):
+            raise ValidationError(
+                {"flock": "This flock has been retired — you can't log new data for it."}
+            )
 
 
 class DailyLogEdit(models.Model):
