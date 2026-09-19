@@ -20,6 +20,14 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 
 load_dotenv(BASE_DIR / '.env')
 
+# Where runtime-written files live: farmer-uploaded media and the trained model artifacts
+# (forecasting/services.py::MODEL_DIR). Defaults to the project folder, so local dev and
+# the VM deployment behave exactly as before. On a host whose app filesystem is wiped on
+# every deploy (Railway), point DJANGO_DATA_DIR at a mounted persistent volume (e.g.
+# /data) so uploads and models survive redeploys and restarts.
+DATA_DIR = Path(os.environ.get('DJANGO_DATA_DIR') or BASE_DIR)
+MODEL_DIR = DATA_DIR / 'models'
+
 
 # Quick-start development settings - unsuitable for production
 # See https://docs.djangoproject.com/en/5.2/howto/deployment/checklist/
@@ -54,6 +62,10 @@ if DJANGO_BEHIND_PROXY:
     # from it, like the Google OAuth redirect_uri) reflects the public hostname the
     # farmer's browser actually used, not the proxy's local target (e.g. localhost:8000).
     USE_X_FORWARDED_HOST = True
+    # django-ratelimit's key="ip" reads REMOTE_ADDR, which behind a proxy is the proxy's
+    # own address -- every farmer would share one rate-limit bucket (e.g. 5 signups/day
+    # for the whole world). Read the real client address from X-Forwarded-For instead.
+    RATELIMIT_IP_META_KEY = 'accounts.ratelimit.client_ip'
 
 SECURE_SSL_REDIRECT = os.environ.get('DJANGO_SECURE_SSL_REDIRECT', 'False') == 'True'
 SECURE_HSTS_SECONDS = int(os.environ.get('DJANGO_SECURE_HSTS_SECONDS', '0'))
@@ -166,6 +178,24 @@ else:
             'PORT': os.environ['DB_PORT'],
         }
     }
+    # Only needed for an external managed Postgres reached over the public internet
+    # (e.g. Neon/Supabase: DB_SSLMODE=require). Railway's private network and a local
+    # Postgres leave this unset.
+    if os.environ.get('DB_SSLMODE'):
+        DATABASES['default']['OPTIONS'] = {'sslmode': os.environ['DB_SSLMODE']}
+
+# django-ratelimit (accounts/views.py) keeps its counters in Django's cache. The default
+# per-process LocMemCache gives each gunicorn worker its own counter, so N workers would
+# silently allow N x the configured limit. DJANGO_SHARED_CACHE=True stores the counters
+# in a database table instead (create it once with `manage.py createcachetable`), shared
+# by every worker and surviving restarts. Off by default so local dev needs no extra step.
+if os.environ.get('DJANGO_SHARED_CACHE', 'False') == 'True':
+    CACHES = {
+        'default': {
+            'BACKEND': 'django.core.cache.backends.db.DatabaseCache',
+            'LOCATION': 'django_cache',
+        }
+    }
 
 
 # Password validation
@@ -215,11 +245,11 @@ STATICFILES_DIRS = [BASE_DIR / 'static']
 STATIC_ROOT = BASE_DIR / 'staticfiles'
 
 # Farmer-uploaded profile pictures (accounts.User.avatar) -- unlike STATIC_ROOT above,
-# whitenoise does not serve this, so it's only wired up for local dev in itikcare/urls.py
-# (guarded by DEBUG). A real deployment still needs its own story for this (an nginx
-# location block, or object storage) before avatar uploads go live on the VM.
+# whitenoise does not serve this, so itikcare/urls.py serves it through Django's own
+# static-file view (fine at single-farm scale). On a VM, nginx can serve MEDIA_ROOT
+# directly instead; on Railway, DATA_DIR above puts it on the persistent volume.
 MEDIA_URL = 'media/'
-MEDIA_ROOT = BASE_DIR / 'media'
+MEDIA_ROOT = DATA_DIR / 'media'
 
 STORAGES = {
     'default': {
@@ -255,7 +285,13 @@ LOGOUT_REDIRECT_URL = 'dashboard'
 # locally without a real mail provider; point EMAIL_HOST at real SMTP credentials
 # (Gmail app password, SendGrid, Mailgun, etc.) when one is available.
 EMAIL_HOST = os.environ.get('DJANGO_EMAIL_HOST')
-if EMAIL_HOST:
+# BREVO_API_KEY takes precedence: it sends over HTTPS (accounts/email_backend.py), which
+# works on hosts that block outbound SMTP (Railway's non-Pro plans). DEFAULT_FROM_EMAIL
+# below must then be a sender address verified in the Brevo account.
+BREVO_API_KEY = os.environ.get('BREVO_API_KEY')
+if BREVO_API_KEY:
+    EMAIL_BACKEND = 'accounts.email_backend.BrevoEmailBackend'
+elif EMAIL_HOST:
     EMAIL_BACKEND = 'django.core.mail.backends.smtp.EmailBackend'
     EMAIL_PORT = int(os.environ.get('DJANGO_EMAIL_PORT', '587'))
     EMAIL_HOST_USER = os.environ.get('DJANGO_EMAIL_HOST_USER', '')

@@ -82,6 +82,21 @@ prototype in `prototype/`.
 
 ## Deployment
 
-For running this on a VM, see the sample configs in `deploy/` (`itikcare.service`
+**Railway:** follow `deploy/RAILWAY.md` (config: `railway.toml`,
+`deploy/railway-cron.toml`). `static/dist/output.css` is committed so the Railway
+build needs no Tailwind binary — rebuild it with the `--minify` command above
+before deploying any template/CSS change.
+
+**VM:** see the sample configs in `deploy/` (`itikcare.service`
 for systemd, `gunicorn_conf.py`, `nginx.conf.example`) and the production-only
 variables at the bottom of `.env.example`.
+
+`deploy/itikcare-reminders.service` + `.timer` run `manage.py send_daily_log_reminders`
+once a day, emailing (and, in-app, banner-nudging) any farmer who hasn't logged
+today's data yet. Enable with:
+
+```
+sudo cp deploy/itikcare-reminders.* /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable --now itikcare-reminders.timer
+```

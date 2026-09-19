@@ -1,0 +1,12 @@
+# Railway service config for the ItikCare web service -- see deploy/RAILWAY.md for the
+# full walkthrough (Postgres, volume, variables, cron service).
+#
+# Everything the app needs before it can serve requests runs in the start command, in
+# this order: schema migrations, the rate-limit cache table, static files, then gunicorn.
+# It runs in the *running* container (not a separate pre-deploy one), so collectstatic's
+# output and the mounted volume are exactly what gunicorn then serves. All three prep
+# steps are idempotent, so a restart is safe.
+[deploy]
+startCommand = "sh -c 'python manage.py migrate --noinput && python manage.py createcachetable && python manage.py collectstatic --noinput && exec gunicorn -c deploy/gunicorn_conf.py itikcare.wsgi:application'"
+restartPolicyType = "ON_FAILURE"
+restartPolicyMaxRetries = 5

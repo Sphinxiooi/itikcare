@@ -1,0 +1,11 @@
+# Config for the *second* Railway service: the daily log reminder (the Railway equivalent
+# of itikcare-reminders.service/.timer). Point that service's "Config file path" setting
+# at /deploy/railway-cron.toml so it doesn't inherit the web service's root railway.toml.
+# See deploy/RAILWAY.md.
+#
+# Railway cron schedules are in UTC. The old timer fired at 17:00 Manila time (UTC+8, no
+# DST), which is 09:00 UTC.
+[deploy]
+startCommand = "python manage.py send_daily_log_reminders"
+cronSchedule = "0 9 * * *"
+restartPolicyType = "NEVER"

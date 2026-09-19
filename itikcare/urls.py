@@ -5,10 +5,10 @@ full django.contrib.auth.urls) to keep the URL surface easy to reason about and 
 attach this project's own styled forms/templates/rate limiting to each view.
 """
 from django.conf import settings
-from django.conf.urls.static import static
 from django.contrib import admin
 from django.contrib.auth import views as auth_views
-from django.urls import include, path
+from django.urls import include, path, re_path
+from django.views.static import serve
 
 from accounts import views as accounts_views
 from accounts.forms import StyledAuthenticationForm
@@ -28,6 +28,7 @@ urlpatterns = [
     path('accounts/google/login/', accounts_views.google_login, name='google_login'),
     path('accounts/google/callback/', accounts_views.google_callback, name='google_callback'),
     path('account/settings/', accounts_views.account_settings, name='account_settings'),
+    path('account/delete/', accounts_views.delete_account, name='delete_account'),
     path(
         'accounts/password-reset/',
         accounts_views.request_reset_code,
@@ -48,7 +49,14 @@ urlpatterns = [
     path('', include('forecasting.urls')),
 ]
 
-if settings.DEBUG:
-    # Dev-only: whitenoise (MIDDLEWARE) serves STATIC_ROOT but not MEDIA_ROOT -- see
-    # MEDIA_URL's comment in settings.py for the production media-serving caveat.
-    urlpatterns += static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)
+# Farmer-uploaded avatars. whitenoise serves STATIC_ROOT but never MEDIA_ROOT, and
+# django.conf.urls.static.static() is a no-op when DEBUG=False, so route MEDIA_URL through
+# Django's own static-file view explicitly -- fine at single-farm scale. (On a VM, an nginx
+# location block over MEDIA_ROOT can take over this job; this route is then simply unused.)
+urlpatterns += [
+    re_path(
+        r'^%s(?P<path>.*)$' % settings.MEDIA_URL.lstrip('/'),
+        serve,
+        {'document_root': settings.MEDIA_ROOT},
+    ),
+]

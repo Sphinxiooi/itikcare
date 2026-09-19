@@ -11,7 +11,9 @@ db.sqlite3-journal
 
 media/
 staticfiles/
-static/dist/
+# static/dist/output.css is committed on purpose: the Railway build has no Tailwind
+# binary (the local one is Windows-only), so it ships the pre-built, minified CSS.
+# Rebuild it before deploying any template/CSS change (see README).
 
 tailwindcss.exe
 
@@ -22,6 +24,8 @@ models/*.json
 ~$*
 
 data_backup.json
+# Farm data export (password hashes, emails) -- never commit; see deploy/RAILWAY.md.
+deploy/farm_data.json
 
 .vscode/
 .idea/

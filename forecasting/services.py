@@ -11,7 +11,7 @@ and persists the result — the same role ``train_forecast_model.py`` plays for 
 import logging
 import subprocess
 import sys
-from datetime import date, datetime, timedelta
+from datetime import datetime, timedelta
 from decimal import Decimal
 
 import joblib
@@ -21,7 +21,7 @@ from django.conf import settings
 from django.db import transaction
 
 from farm.models import DailyLog
-from farm.services import get_effective_coordinates
+from farm.services import get_effective_coordinates, operational_today
 from farm.weather import fetch_forecast_weather
 from recommendations.engine import generate_recommendations
 
@@ -30,7 +30,7 @@ from .models import Forecast
 
 logger = logging.getLogger(__name__)
 
-MODEL_DIR = settings.BASE_DIR / "models"
+MODEL_DIR = settings.MODEL_DIR
 RETRAIN_LOG_PATH = MODEL_DIR / "retrain.log"
 
 
@@ -151,10 +151,11 @@ def generate_forecast(daily_log: DailyLog, model_path=None) -> Forecast:
     Also persists a recursive best-effort day+1/day+2/day+3 breakdown (see
     _predict_next_days) for the dashboard's "Next 3-Day Forecast" panel — genuinely
     distinct per-day numbers, unlike predicted_tri_day_yield's 3-day sum above. Weather
-    for those future days is only fetched when daily_log.date is today (Open-Meteo's
-    forecast is anchored to real "now", so it can't meaningfully inform a backdated log's
-    future days); otherwise the recursion falls back to daily_log's own carried-forward
-    temperature_c/humidity_pct.
+    for those future days is only fetched when daily_log.date is today — operationally,
+    not just by the calendar (see farm.services.operational_today: this farm's logging
+    day rolls over at 8am, not midnight) — since Open-Meteo's forecast is anchored to
+    real "now" and can't meaningfully inform a backdated log's future days; otherwise
+    the recursion falls back to daily_log's own carried-forward temperature_c/humidity_pct.
     """
     artifact = _load_artifact(model_path or model_path_for(daily_log.flock.owner_id))
     X, priors = _build_feature_row(daily_log)
@@ -162,7 +163,7 @@ def generate_forecast(daily_log: DailyLog, model_path=None) -> Forecast:
     daily_pred = max(float(artifact["daily_pipeline"].predict(X)[0]), 0.0)
     tri_pred = max(float(artifact["tri_day_pipeline"].predict(X)[0]), 0.0)
 
-    if daily_log.date == date.today():
+    if daily_log.date == operational_today():
         lat, lon = get_effective_coordinates(daily_log.flock.owner)
         weather_by_date = fetch_forecast_weather(lat, lon)
     else:
@@ -192,7 +193,7 @@ def generate_forecast(daily_log: DailyLog, model_path=None) -> Forecast:
 
 
 def trigger_retrain(reason: str, owner_id: int) -> None:
-    """Fire-and-forget a background `train_forecast_model --owner-id ID --tune --strict` run.
+    """Fire-and-forget a background `train_forecast_model --owner-id ID --tune --fallback-untuned --strict` run.
 
     Called right after a DailyLog write closes out a caging period or retires a flock —
     the two points where a genuinely new, complete segment of training data exists (see
@@ -227,7 +228,7 @@ def trigger_retrain(reason: str, owner_id: int) -> None:
             subprocess.Popen(
                 [
                     sys.executable, str(settings.BASE_DIR / "manage.py"), "train_forecast_model",
-                    "--owner-id", str(owner_id), "--tune", "--strict",
+                    "--owner-id", str(owner_id), "--tune", "--fallback-untuned", "--strict",
                 ],
                 stdout=log_fh,
                 stderr=subprocess.STDOUT,

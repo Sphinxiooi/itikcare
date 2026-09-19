@@ -6,6 +6,7 @@ tri-day target construction and the chronological split — since those are the
 spec-section-10 rules the model's defensibility rests on.
 """
 
+import json
 import random
 import sys
 import tempfile
@@ -23,9 +24,11 @@ from django.core.management.base import CommandError
 from django.test import Client, SimpleTestCase, TestCase
 
 from farm.models import DailyLog, Flock
+from farm.services import operational_today
 from forecasting import pipeline as ml
 from forecasting import services
 from forecasting.models import Forecast
+from recommendations.models import Recommendation
 
 User = get_user_model()
 
@@ -283,15 +286,19 @@ class GenerateForecastTests(TestCase):
         self.assertEqual(forecast.feature_importances, daily_importances)
 
     def test_generates_next_day_forecasts_using_weather_when_todays_log(self):
+        # operational_today(), not date.today(): generate_forecast only fetches live
+        # weather when the log's date matches the farm's current logging day, which
+        # rolls over at 8am rather than midnight (farm.services.operational_today).
+        today = operational_today()
         today_log = DailyLog.objects.create(
-            flock=self.flock, date=date.today(), caging_period=1,
+            flock=self.flock, date=today, caging_period=1,
             flock_size=240, flock_age_weeks=25, egg_count=170, feed_intake_kg="40.0",
             temperature_c="33.0", humidity_pct="70.0", recorded_by=self.user,
         )
         weather = {
-            date.today() + timedelta(days=1): {"temperature_c": 30.0, "humidity_pct": 80.0},
-            date.today() + timedelta(days=2): {"temperature_c": 31.0, "humidity_pct": 78.0},
-            date.today() + timedelta(days=3): {"temperature_c": 32.0, "humidity_pct": 76.0},
+            today + timedelta(days=1): {"temperature_c": 30.0, "humidity_pct": 80.0},
+            today + timedelta(days=2): {"temperature_c": 31.0, "humidity_pct": 78.0},
+            today + timedelta(days=3): {"temperature_c": 32.0, "humidity_pct": 76.0},
         }
         with patch("forecasting.services.fetch_forecast_weather", return_value=weather) as mock_fetch:
             forecast = services.generate_forecast(today_log, model_path=self.model_path)
@@ -303,7 +310,7 @@ class GenerateForecastTests(TestCase):
 
     def test_next_day_forecasts_fall_back_to_carried_forward_weather_on_fetch_failure(self):
         today_log = DailyLog.objects.create(
-            flock=self.flock, date=date.today(), caging_period=1,
+            flock=self.flock, date=operational_today(), caging_period=1,
             flock_size=240, flock_age_weeks=25, egg_count=170, feed_intake_kg="40.0",
             temperature_c="33.0", humidity_pct="70.0", recorded_by=self.user,
         )
@@ -394,6 +401,119 @@ class TrainForecastModelLockTests(TestCase):
         self.assertFalse(DailyLog.objects.filter(flock=self.flock, is_locked=True).exists())
 
 
+class TrainForecastModelFallbackTests(TestCase):
+    """--tune --fallback-untuned: a tuned model that misses a threshold is discarded and
+    the fixed-hyperparameter model is trained/scored instead. ml.tune_estimator is
+    patched (a real 120-iteration search is far too slow for a unit test) to return
+    either a deliberately useless model or a good one, so what's under test is the
+    command's decision logic, not the search itself."""
+
+    def setUp(self):
+        self.foundation_user = User.objects.create_user(
+            username="foundationfarmer", password="pw12345", is_foundation_farmer=True,
+        )
+        self.user = User.objects.create_user(username="farmer1", password="pw12345")
+        self.flock = Flock.objects.create(owner=self.user, generation_number=1, started_on=date(2024, 1, 1))
+        # A cyclic flock_size with egg_count a fixed share of it: learnable from the
+        # features alone (unlike a plain upward trend, which a forest can't extrapolate
+        # into the held-out final rows), so the *untuned* fit comfortably clears every
+        # threshold and only the patched "tuned" model is ever the one that fails.
+        for i in range(120):
+            flock_size = 200 + (i % 7) * 10
+            DailyLog.objects.create(
+                flock=self.flock, date=date(2024, 1, 1) + timedelta(days=i), caging_period=1,
+                flock_size=flock_size, flock_age_weeks=25, egg_count=int(flock_size * 0.6),
+                feed_intake_kg=str(flock_size / 6), temperature_c="28.0", humidity_pct="70.0",
+                recorded_by=self.user,
+            )
+        self.tmpdir = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmpdir.cleanup)
+
+    def _train(self, **extra_options):
+        options = {"owner_id": self.user.id, "n_estimators": 10, "output_dir": self.tmpdir.name}
+        options.update(extra_options)
+        call_command("train_forecast_model", **options)
+
+    def _metrics(self):
+        path = Path(self.tmpdir.name) / f"forecast_metrics_{self.user.id}.json"
+        return json.loads(path.read_text(encoding="utf-8"))
+
+    @staticmethod
+    def _bad_tuned_model(train_df, feats, target, **kwargs):
+        """Stand-in for tune_estimator whose 'best' model learned only noise."""
+        rng = np.random.default_rng(0)
+        model = ml.build_estimator(5)
+        model.fit(train_df[feats], rng.uniform(1, 999, len(train_df)))
+        return model, {"rf__max_depth": 1}
+
+    @staticmethod
+    def _good_tuned_model(train_df, feats, target, **kwargs):
+        model = ml.build_estimator(10)
+        model.fit(train_df[feats], train_df[target])
+        return model, {"rf__max_depth": 8}
+
+    def test_untuned_baseline_passes_on_this_data(self):
+        # Guards the other tests: if the plain fit didn't clear the thresholds here, the
+        # fallback tests below would be proving nothing.
+        self._train(strict=True)
+        self.assertTrue(self._metrics()["daily"]["metrics"]["passes"]["r2"])
+
+    def test_failed_tuned_model_falls_back_to_untuned_and_persists_it(self):
+        with patch.object(ml, "tune_estimator", side_effect=self._bad_tuned_model):
+            self._train(tune=True, fallback_untuned=True, strict=True)
+
+        metrics = self._metrics()
+        self.assertFalse(metrics["tuned"])
+        self.assertTrue(metrics["fell_back_from_tuned"])
+        self.assertEqual(metrics["best_params"], {"daily": None, "tri_day": None})
+        self.assertTrue(all(metrics["daily"]["metrics"]["passes"].values()))
+        self.assertTrue(all(metrics["tri_day"]["metrics"]["passes"].values()))
+        self.assertTrue((Path(self.tmpdir.name) / f"forecast_model_{self.user.id}.joblib").exists())
+        self.assertEqual(DailyLog.objects.filter(flock=self.flock, is_locked=True).count(), 120)
+
+    def test_passing_tuned_model_is_kept_without_falling_back(self):
+        with patch.object(ml, "tune_estimator", side_effect=self._good_tuned_model) as mock_tune:
+            self._train(tune=True, fallback_untuned=True, strict=True)
+
+        metrics = self._metrics()
+        self.assertTrue(metrics["tuned"])
+        self.assertFalse(metrics["fell_back_from_tuned"])
+        self.assertEqual(metrics["best_params"]["daily"], {"rf__max_depth": 8})
+        self.assertEqual(mock_tune.call_count, 2)  # daily + tri-day, and no second pass
+
+    def test_without_the_flag_a_failed_tuned_model_is_still_refused(self):
+        with patch.object(ml, "tune_estimator", side_effect=self._bad_tuned_model):
+            with self.assertRaises(CommandError):
+                self._train(tune=True, strict=True)
+
+        self.assertFalse(list(Path(self.tmpdir.name).glob("forecast_model_*.joblib")))
+        self.assertFalse(DailyLog.objects.filter(flock=self.flock, is_locked=True).exists())
+
+    def test_fallback_is_ignored_without_tune(self):
+        with patch.object(ml, "tune_estimator") as mock_tune:
+            self._train(fallback_untuned=True, strict=True)
+
+        mock_tune.assert_not_called()
+        metrics = self._metrics()
+        self.assertFalse(metrics["tuned"])
+        self.assertFalse(metrics["fell_back_from_tuned"])
+
+    def test_if_the_untuned_model_also_fails_strict_refuses_and_keeps_old_artifact(self):
+        rng = random.Random(42)
+        for log in DailyLog.objects.filter(flock=self.flock):
+            log.egg_count = rng.randint(50, 500)
+            log.save(update_fields=["egg_count"])
+        existing = Path(self.tmpdir.name) / f"forecast_model_{self.user.id}.joblib"
+        existing.write_bytes(b"previous-artifact")
+
+        with patch.object(ml, "tune_estimator", side_effect=self._bad_tuned_model):
+            with self.assertRaises(CommandError):
+                self._train(tune=True, fallback_untuned=True, strict=True)
+
+        self.assertEqual(existing.read_bytes(), b"previous-artifact")
+        self.assertFalse(DailyLog.objects.filter(flock=self.flock, is_locked=True).exists())
+
+
 class PredictNextDaysTests(SimpleTestCase):
     """Direct unit test of the recursive lag1/roll3 feature construction in
     services._predict_next_days, isolated from real RF prediction values via a stub
@@ -461,7 +581,7 @@ class TriggerRetrainTests(SimpleTestCase):
         self.addCleanup(patcher.stop)
 
     @patch("forecasting.services.subprocess.Popen")
-    def test_launches_the_tune_strict_management_command_without_waiting(self, mock_popen):
+    def test_launches_the_tune_fallback_strict_management_command_without_waiting(self, mock_popen):
         services.trigger_retrain("caging_period_closed", owner_id=7)
 
         mock_popen.assert_called_once()
@@ -471,6 +591,7 @@ class TriggerRetrainTests(SimpleTestCase):
         self.assertIn("--owner-id", cmd)
         self.assertIn("7", cmd)
         self.assertIn("--tune", cmd)
+        self.assertIn("--fallback-untuned", cmd)
         self.assertIn("--strict", cmd)
         # Fire-and-forget: never blocks on the child process.
         mock_popen.return_value.wait.assert_not_called()
@@ -519,18 +640,53 @@ class ForecastRecommendationsViewTests(TestCase):
         response = self.client.get("/forecast-recommendations/")
         shown = dict(response.context["feature_importances"])
         self.assertEqual(
-            set(shown), {"flock_size", "flock_age_weeks", "feed_intake_kg", "temperature_c", "humidity_pct"}
+            set(shown), {"Flock Size", "Flock Age", "Feed Intake", "Temperature", "Humidity"}
         )
-        self.assertNotIn("lag1", shown)
-        self.assertNotIn("roll3", shown)
 
-    def test_key_influencing_factors_converts_fraction_to_percent_unscaled(self):
+    def test_key_influencing_factors_sum_to_exactly_100_percent(self):
         response = self.client.get("/forecast-recommendations/")
         shown = dict(response.context["feature_importances"])
-        # True RF fraction * 100, not rescaled to sum to 100 across just the 5 shown.
-        self.assertAlmostEqual(shown["flock_size"], 55.0)
-        self.assertAlmostEqual(shown["feed_intake_kg"], 20.0)
-        self.assertContains(response, "55%")
+        # setUp's five raw importances total 0.85 (lag1/roll3 hold the other 0.15), so they
+        # are rescaled: 0.55/0.85 = 64.7, 0.20/0.85 = 23.5, 0.06/0.85 = 7.1, 0.03/0.85 = 3.5,
+        # 0.01/0.85 = 1.2 -> largest-remainder rounding gives 65 + 24 + 7 + 3 + 1.
+        self.assertEqual(sum(shown.values()), 100)
+        self.assertEqual(shown["Flock Size"], 65)
+        self.assertEqual(shown["Feed Intake"], 24)
+        self.assertContains(response, "65%")
+
+    def test_key_influencing_factors_uses_human_friendly_labels(self):
+        response = self.client.get("/forecast-recommendations/")
+        self.assertContains(response, "Temperature")
+        self.assertContains(response, "Humidity")
+        self.assertNotContains(response, "temperature_c")
+        self.assertNotContains(response, "humidity_pct")
+
+    def test_next_3_day_forecast_shows_three_distinct_recursive_predictions(self):
+        # setUp's Forecast has distinct predicted_next_day1/2/3_yield values (157/155/172).
+        # Under the old upcoming_forecasts logic, only one same-day Forecast row exists,
+        # so this would have shown just one card instead of three distinct days.
+        response = self.client.get("/forecast-recommendations/")
+        self.assertEqual(len(response.context["next_day_forecasts"]), 3)
+        self.assertContains(response, "157")
+        self.assertContains(response, "155")
+        self.assertContains(response, "172")
+
+    def test_temperature_and_humidity_recommendations_nest_under_one_environment_block(self):
+        Recommendation.objects.bulk_create([
+            Recommendation(forecast=self.forecast, triggered_by="flock_age_weeks", message="age advice", priority="low"),
+            Recommendation(forecast=self.forecast, triggered_by="feed_intake_kg", message="feed advice", priority="low"),
+            Recommendation(forecast=self.forecast, triggered_by="temperature_c", message="temp advice", priority="low"),
+            Recommendation(forecast=self.forecast, triggered_by="humidity_pct", message="humidity advice", priority="low"),
+        ])
+        response = self.client.get("/forecast-recommendations/")
+        blocks = response.context["grouped_recommendations"]
+
+        env_blocks = [b for b in blocks if b["kind"] == "environment"]
+        single_blocks = [b for b in blocks if b["kind"] == "single"]
+        self.assertEqual(len(env_blocks), 1)
+        self.assertEqual(len(single_blocks), 2)
+        sub_titles = {sub["meta"]["title"] for sub in env_blocks[0]["sub_cards"]}
+        self.assertEqual(sub_titles, {"Temperature Management", "Humidity Management"})
 
     def test_trend_context_matches_dashboards_shape(self):
         response = self.client.get("/forecast-recommendations/")

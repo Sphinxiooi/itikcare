@@ -7,13 +7,14 @@ first-ever entry with no historical data, and out-of-range manual input values.
 
 import json
 import tempfile
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 from decimal import Decimal
 from pathlib import Path
 from unittest.mock import Mock, patch
 
 import requests
 from django.contrib.auth import get_user_model
+from django.core import mail
 from django.core.exceptions import ValidationError
 from django.core.management import call_command
 from django.test import Client, TestCase, override_settings
@@ -22,15 +23,20 @@ from django.utils import timezone
 from forecasting.models import Forecast
 from recommendations.models import Recommendation
 
-from .models import DailyLog, DailyLogEdit, Flock
+from .models import DailyLog, DailyLogEdit, DailyLogReminder, Flock
 from .services import (
+    FARM_DAY_START_HOUR,
+    RECORDS_CHART_MIN_LOGS,
     assign_caging_periods,
     build_next_day_forecasts,
+    build_records_chart_data,
+    build_records_summary,
     build_trend_chart_data,
     get_effective_coordinates,
+    operational_today,
     resolve_trend_range,
 )
-from .weather import fetch_current_weather, geocode_address
+from .weather import fetch_current_weather, fetch_historical_weather, geocode_address
 
 User = get_user_model()
 
@@ -58,13 +64,13 @@ class LogDailyDataTests(TestCase):
 
     def test_no_active_flock_redirects_with_error(self):
         response = self.client.get("/log-daily-data/", follow=True)
-        self.assertRedirects(response, "/")
+        self.assertRedirects(response, "/flock/")
         messages = list(response.context["messages"])
         self.assertTrue(any("No active flock" in str(m) for m in messages))
 
     def test_no_active_flock_post_does_not_create_log(self):
         response = self.client.post("/log-daily-data/", VALID_LOG_POST, follow=True)
-        self.assertRedirects(response, "/")
+        self.assertRedirects(response, "/flock/")
         self.assertEqual(DailyLog.objects.count(), 0)
 
     def test_free_range_flock_redirects_to_flock_profile_with_error(self):
@@ -122,8 +128,8 @@ class LogDailyDataTests(TestCase):
         self.assertNotIn("temperature_c", form.initial)
         self.assertNotIn("humidity_pct", form.initial)
 
-    @patch("farm.services.date")
-    def test_get_prefills_flock_age_advanced_by_calendar_weeks_since_last_log(self, mock_date):
+    @patch("farm.services.timezone")
+    def test_get_prefills_flock_age_advanced_by_calendar_weeks_since_last_log(self, mock_timezone):
         """A flock logged at 94 weeks that free-ranges for 6 calendar weeks should be
         pre-filled at 100 weeks on its next entry, not still 94 (itikcare-spec.md
         section 10 — the ducks keep aging during the gap even though nothing is logged)."""
@@ -133,19 +139,21 @@ class LogDailyDataTests(TestCase):
             flock_age_weeks=94, egg_count=150, feed_intake_kg="40.0",
             temperature_c="28.0", humidity_pct="75.0", recorded_by=self.user,
         )
-        mock_date.today.return_value = date(2024, 2, 12)  # exactly 6 weeks (42 days) later
+        mock_timezone.localdate.return_value = date(2024, 2, 12)  # exactly 6 weeks (42 days) later
+        mock_timezone.localtime.return_value = datetime(2024, 2, 12, 12, 0)  # same day, past the 8am rollover
         response = self.client.get("/log-daily-data/")
         self.assertEqual(response.context["form"].initial["flock_age_weeks"], 100)
 
-    @patch("farm.services.date")
-    def test_get_prefills_flock_age_unchanged_for_a_same_day_entry(self, mock_date):
+    @patch("farm.services.timezone")
+    def test_get_prefills_flock_age_unchanged_for_a_same_day_entry(self, mock_timezone):
         flock = Flock.objects.create(owner=self.user, generation_number=1, started_on=date(2024, 1, 1))
         DailyLog.objects.create(
             flock=flock, date=date(2024, 1, 1), flock_size=240, caging_period=1,
             flock_age_weeks=25, egg_count=150, feed_intake_kg="40.0",
             temperature_c="28.0", humidity_pct="75.0", recorded_by=self.user,
         )
-        mock_date.today.return_value = date(2024, 1, 3)  # 2 days later, under a full week
+        mock_timezone.localdate.return_value = date(2024, 1, 3)  # 2 days later, under a full week
+        mock_timezone.localtime.return_value = datetime(2024, 1, 3, 12, 0)  # same day, past the 8am rollover
         response = self.client.get("/log-daily-data/")
         self.assertEqual(response.context["form"].initial["flock_age_weeks"], 25)
 
@@ -258,21 +266,24 @@ class LogDailyDataTests(TestCase):
 
     def test_future_date_is_rejected(self):
         Flock.objects.create(owner=self.user, generation_number=1, started_on=date(2024, 1, 1))
-        tomorrow = timezone.localdate() + timedelta(days=1)
+        # operational_today(), not timezone.localdate(): the logging day rolls over at
+        # 8am, not midnight, so this must use the same "today" the view itself checks
+        # against, or this test would be wall-clock-flaky in the midnight-8am window.
+        tomorrow = operational_today() + timedelta(days=1)
         response = self.client.post("/log-daily-data/", {**VALID_LOG_POST, "date": tomorrow.isoformat()})
         self.assertFalse(DailyLog.objects.filter(date=tomorrow).exists())
         self.assertIn("date", response.context["form"].errors)
 
     def test_todays_date_is_accepted(self):
         Flock.objects.create(owner=self.user, generation_number=1, started_on=date(2024, 1, 1))
-        today = timezone.localdate()
+        today = operational_today()
         self.client.post("/log-daily-data/", {**VALID_LOG_POST, "date": today.isoformat()})
         self.assertTrue(DailyLog.objects.filter(date=today).exists())
 
     @patch("farm.views.generate_forecast")
     def test_todays_entry_generates_forecast(self, mock_generate_forecast):
         Flock.objects.create(owner=self.user, generation_number=1, started_on=date(2024, 1, 1))
-        today = timezone.localdate()
+        today = operational_today()
         self.client.post("/log-daily-data/", {**VALID_LOG_POST, "date": today.isoformat()})
         log = DailyLog.objects.get(date=today)
         mock_generate_forecast.assert_called_once_with(log)
@@ -377,6 +388,72 @@ class LogDailyDataConfirmationTests(TestCase):
     def test_egg_count_equal_to_flock_size_is_not_flagged(self):
         response = self._unconfirmed_post(date="2024-01-10", egg_count=400, flock_size=400)
         self.assertEqual(response.context["anomaly_warnings"], [])
+
+
+class WeatherForDateViewTests(TestCase):
+    """Covers the weather_for_date JSON endpoint backing log_daily_data.html's
+    date-change auto-fill (see farm.weather.fetch_historical_weather's own tests for
+    the archive/forecast fallback logic that lives behind this view)."""
+
+    def setUp(self):
+        self.user = User.objects.create_user(username="farmer1", password="pw12345")
+        self.client = Client()
+
+    def test_unauthenticated_request_redirects_to_login(self):
+        response = self.client.get("/weather-for-date/?date=2024-01-01")
+        self.assertRedirects(response, "/accounts/login/?next=/weather-for-date/%3Fdate%3D2024-01-01")
+
+    @patch("farm.views.fetch_historical_weather")
+    def test_past_date_returns_the_fetched_weather_as_json(self, mock_fetch):
+        # self.user has no latitude/longitude of their own (accounts.User's
+        # latitude/longitude, captured at signup, is left unset here) -- so
+        # get_effective_coordinates falls through to (None, None), same as any
+        # pre-existing farmer without a saved location; fetch_historical_weather
+        # itself is the layer that then falls back to settings.FARM_LATITUDE/
+        # FARM_LONGITUDE, which this test isn't exercising since fetch itself is mocked.
+        self.client.login(username="farmer1", password="pw12345")
+        mock_fetch.return_value = {"temperature_c": 29.5, "humidity_pct": 81.0}
+        past_date = date.today() - timedelta(days=5)
+        response = self.client.get(f"/weather-for-date/?date={past_date.isoformat()}")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(json.loads(response.content), {"temperature_c": 29.5, "humidity_pct": 81.0})
+        mock_fetch.assert_called_once_with(past_date, None, None)
+
+    @patch("farm.weather.requests.get")
+    def test_today_returns_null_without_calling_the_api(self, mock_get):
+        # Today's own "no lookup" rule lives inside fetch_historical_weather (see its
+        # tests), not as separate view-level logic -- this exercises the real function
+        # end-to-end through the view instead of stubbing it out, to confirm the view
+        # doesn't add its own (redundant, and possibly inconsistent) date check.
+        self.client.login(username="farmer1", password="pw12345")
+        response = self.client.get(f"/weather-for-date/?date={date.today().isoformat()}")
+        self.assertEqual(response.status_code, 200)
+        self.assertIsNone(json.loads(response.content))
+        mock_get.assert_not_called()
+
+    @patch("farm.views.fetch_historical_weather")
+    def test_missing_date_returns_null_without_calling_fetch(self, mock_fetch):
+        self.client.login(username="farmer1", password="pw12345")
+        response = self.client.get("/weather-for-date/")
+        self.assertEqual(response.status_code, 200)
+        self.assertIsNone(json.loads(response.content))
+        mock_fetch.assert_not_called()
+
+    @patch("farm.views.fetch_historical_weather")
+    def test_malformed_date_returns_null_without_calling_fetch(self, mock_fetch):
+        self.client.login(username="farmer1", password="pw12345")
+        response = self.client.get("/weather-for-date/?date=not-a-date")
+        self.assertEqual(response.status_code, 200)
+        self.assertIsNone(json.loads(response.content))
+        mock_fetch.assert_not_called()
+
+    @patch("farm.views.fetch_historical_weather", return_value=None)
+    def test_lookup_miss_returns_null(self, mock_fetch):
+        self.client.login(username="farmer1", password="pw12345")
+        past_date = date.today() - timedelta(days=5)
+        response = self.client.get(f"/weather-for-date/?date={past_date.isoformat()}")
+        self.assertEqual(response.status_code, 200)
+        self.assertIsNone(json.loads(response.content))
 
 
 class FarmRecordsTests(TestCase):
@@ -832,8 +909,8 @@ class FlockProfileTests(TestCase):
         self.assertEqual(response.context["current_age_weeks"], 25)
         self.assertContains(response, "240 ducks")
 
-    @patch("farm.services.date")
-    def test_profile_current_age_is_projected_forward_to_today(self, mock_date):
+    @patch("farm.services.timezone")
+    def test_profile_current_age_is_projected_forward_to_today(self, mock_timezone):
         """Average Age on the profile card must reflect calendar weeks elapsed since
         the latest log, not that log's stale snapshot (same rule as the log_daily_data
         prefill — itikcare-spec.md section 10)."""
@@ -843,7 +920,7 @@ class FlockProfileTests(TestCase):
             flock_age_weeks=94, egg_count=150, feed_intake_kg="40.0",
             temperature_c="28.0", humidity_pct="75.0", recorded_by=self.user,
         )
-        mock_date.today.return_value = date(2024, 2, 12)  # exactly 6 weeks (42 days) later
+        mock_timezone.localdate.return_value = date(2024, 2, 12)  # exactly 6 weeks (42 days) later
         response = self.client.get("/flock/")
         self.assertEqual(response.context["latest_log"].flock_age_weeks, 94)
         self.assertEqual(response.context["current_age_weeks"], 100)
@@ -1086,11 +1163,73 @@ class WeatherFetchTests(TestCase):
 def _fake_response(json_data):
     """A requests.Response stand-in whose .json() returns json_data and whose
     raise_for_status() is a no-op — used to build per-call side_effect lists for
-    geocode_address's one-request-per-word behavior."""
+    geocode_address's one-request-per-word behavior, and for
+    fetch_historical_weather's archive/forecast fallback tests below."""
     response = Mock()
     response.json.return_value = json_data
     response.raise_for_status.return_value = None
     return response
+
+
+@override_settings(FARM_LATITUDE=14.1, FARM_LONGITUDE=122.9)
+class HistoricalWeatherFetchTests(TestCase):
+    """Covers farm.weather.fetch_historical_weather in isolation (no view/DB
+    involvement), including its archive-API-first/forecast-endpoint-fallback tiers."""
+
+    def setUp(self):
+        self.past_date = date.today() - timedelta(days=10)
+
+    @patch("farm.weather.requests.get")
+    def test_today_returns_none_without_calling_the_api(self, mock_get):
+        self.assertIsNone(fetch_historical_weather(date.today()))
+        mock_get.assert_not_called()
+
+    @patch("farm.weather.requests.get")
+    def test_future_date_returns_none_without_calling_the_api(self, mock_get):
+        self.assertIsNone(fetch_historical_weather(date.today() + timedelta(days=1)))
+        mock_get.assert_not_called()
+
+    @override_settings(FARM_LATITUDE=None, FARM_LONGITUDE=None)
+    @patch("farm.weather.requests.get")
+    def test_missing_coordinates_returns_none_without_calling_the_api(self, mock_get):
+        self.assertIsNone(fetch_historical_weather(self.past_date))
+        mock_get.assert_not_called()
+
+    @patch("farm.weather.requests.get")
+    def test_archive_hit_returns_rounded_average_without_forecast_fallback(self, mock_get):
+        mock_get.return_value = _fake_response({
+            "hourly": {
+                "temperature_2m": [28.0, 30.0],
+                "relative_humidity_2m": [80.0, 84.0],
+            }
+        })
+        result = fetch_historical_weather(self.past_date)
+        self.assertEqual(result, {"temperature_c": 29.0, "humidity_pct": 82.0})
+        mock_get.assert_called_once()
+        self.assertIn("archive-api.open-meteo.com", mock_get.call_args.args[0])
+
+    @patch("farm.weather.requests.get")
+    def test_archive_lag_falls_back_to_forecast_endpoint(self, mock_get):
+        # The archive endpoint hasn't caught up to this date yet -- an all-null hourly
+        # series, the same shape Open-Meteo actually returns for a not-yet-available
+        # date -- so the second call (the regular forecast endpoint's own date-range
+        # query) should be tried next, and its result used instead.
+        mock_get.side_effect = [
+            _fake_response({"hourly": {"temperature_2m": [None, None], "relative_humidity_2m": [None, None]}}),
+            _fake_response({"hourly": {"temperature_2m": [26.0], "relative_humidity_2m": [88.0]}}),
+        ]
+        result = fetch_historical_weather(self.past_date)
+        self.assertEqual(result, {"temperature_c": 26.0, "humidity_pct": 88.0})
+        self.assertEqual(mock_get.call_count, 2)
+        first_url = mock_get.call_args_list[0].args[0]
+        second_url = mock_get.call_args_list[1].args[0]
+        self.assertIn("archive-api.open-meteo.com", first_url)
+        self.assertIn("api.open-meteo.com/v1/forecast", second_url)
+
+    @patch("farm.weather.requests.get", side_effect=requests.exceptions.Timeout)
+    def test_both_endpoints_failing_returns_none(self, mock_get):
+        self.assertIsNone(fetch_historical_weather(self.past_date))
+        self.assertEqual(mock_get.call_count, 2)
 
 
 class GeocodeAddressTests(TestCase):
@@ -1178,6 +1317,34 @@ class GetEffectiveCoordinatesTests(TestCase):
     def test_returns_none_none_when_owner_has_no_coordinates(self):
         owner = User.objects.create_user(username="unlocated", password="pw")
         self.assertEqual(get_effective_coordinates(owner), (None, None))
+
+
+class OperationalTodayTests(TestCase):
+    """Covers operational_today() in isolation, pinning `now` explicitly so these never
+    depend on the real wall clock — the whole point of the function is behavior that
+    only shows up in the midnight-FARM_DAY_START_HOUR window, which a real-clock test
+    would only exercise on the rare run that happens to land there."""
+
+    def test_before_8am_rolls_back_to_yesterday(self):
+        now = timezone.make_aware(datetime(2024, 6, 15, 3, 0))
+        self.assertEqual(operational_today(now=now), date(2024, 6, 14))
+
+    def test_just_before_8am_still_rolls_back_to_yesterday(self):
+        now = timezone.make_aware(datetime(2024, 6, 15, 7, 59))
+        self.assertEqual(operational_today(now=now), date(2024, 6, 14))
+
+    def test_at_8am_sharp_rolls_forward_to_today(self):
+        now = timezone.make_aware(datetime(2024, 6, 15, 8, 0))
+        self.assertEqual(operational_today(now=now), date(2024, 6, 15))
+
+    def test_late_evening_is_still_todays_calendar_date(self):
+        now = timezone.make_aware(datetime(2024, 6, 15, 23, 0))
+        self.assertEqual(operational_today(now=now), date(2024, 6, 15))
+
+    def test_farm_day_start_hour_matches_the_documented_8am_boundary(self):
+        # A guard, not a tautology: if this constant is ever tuned, the four tests
+        # above stop meaning what their names say unless updated alongside it.
+        self.assertEqual(FARM_DAY_START_HOUR, 8)
 
 
 class AssignCagingPeriodsTests(TestCase):
@@ -1291,6 +1458,95 @@ class TrendChartHelpersTests(TestCase):
         # The 2 real logged days come first (index 0, 1); the dashed forecast tail starts
         # right after, at index 2.
         self.assertEqual(data["trend_future_start_index"], 2)
+
+
+class RecordsChartHelpersTests(TestCase):
+    """Covers services.build_records_chart_data/build_records_summary — the Farm
+    Records page's chart panels and stat tiles (farm/views.py::farm_records)."""
+
+    def setUp(self):
+        self.user = User.objects.create_user(username="farmer1", password="pw12345")
+        self.flock = Flock.objects.create(owner=self.user, generation_number=1, started_on=date(2024, 1, 1))
+
+    def _make_log(self, day, egg_count, feed_intake_kg, flock_size=200, temperature_c="28.0", humidity_pct="75.0"):
+        return DailyLog.objects.create(
+            flock=self.flock, date=date(2024, 1, day), flock_size=flock_size, caging_period=1,
+            flock_age_weeks=25, egg_count=egg_count, feed_intake_kg=feed_intake_kg,
+            temperature_c=temperature_c, humidity_pct=humidity_pct, recorded_by=self.user,
+        )
+
+    def test_chart_data_is_ordered_oldest_to_newest_regardless_of_input_order(self):
+        log2 = self._make_log(2, egg_count=155, feed_intake_kg="40.0")
+        log1 = self._make_log(1, egg_count=150, feed_intake_kg="40.0")
+        data = build_records_chart_data([log2, log1])
+        self.assertEqual(json.loads(data["records_chart_labels_json"]), ["Jan 1", "Jan 2"])
+        self.assertEqual(json.loads(data["records_chart_egg_yield_json"]), [150, 155])
+
+    def test_feed_per_bird_grams_matches_recommendations_rules_formula(self):
+        # 40kg feed / 200 birds * 1000 = 200 g/bird/day (recommendations/rules.py's
+        # _feed_per_bird_grams formula, mirrored in farm/services.py so the two
+        # numbers can never silently drift apart).
+        log = self._make_log(1, egg_count=150, feed_intake_kg="40.0", flock_size=200)
+        data = build_records_chart_data([log])
+        self.assertEqual(json.loads(data["records_chart_feed_per_bird_json"]), [200.0])
+
+    def test_summary_reports_latest_flock_size_and_averages(self):
+        self._make_log(1, egg_count=150, feed_intake_kg="40.0", flock_size=200)
+        log2 = self._make_log(2, egg_count=160, feed_intake_kg="44.0", flock_size=198)
+        summary = build_records_summary([log2, DailyLog.objects.get(date=date(2024, 1, 1))], [])
+        self.assertEqual(summary["avg_egg_yield"], 155.0)
+        self.assertEqual(summary["current_flock_size"], 198)  # from the latest-dated log, not input order
+
+    def test_summary_delta_is_none_without_a_previous_month(self):
+        self._make_log(1, egg_count=150, feed_intake_kg="40.0")
+        log2 = self._make_log(2, egg_count=160, feed_intake_kg="40.0")
+        summary = build_records_summary([log2], [])
+        self.assertIsNone(summary["egg_yield_delta_pct"])
+
+    def test_summary_delta_is_computed_against_previous_month_average(self):
+        current = self._make_log(2, egg_count=165, feed_intake_kg="40.0")
+        previous = DailyLog.objects.create(
+            flock=self.flock, date=date(2023, 12, 1), flock_size=200, caging_period=1,
+            flock_age_weeks=24, egg_count=150, feed_intake_kg="40.0",
+            temperature_c="28.0", humidity_pct="75.0", recorded_by=self.user,
+        )
+        summary = build_records_summary([current], [previous])
+        # (165 - 150) / 150 * 100 = 10.0%
+        self.assertEqual(summary["egg_yield_delta_pct"], 10.0)
+
+
+class FarmRecordsChartAvailabilityTests(TestCase):
+    """Covers the farm_records view's records_charts_available gate: the charts/stat
+    tiles must only appear once there's enough data for them to mean anything (a
+    single point has no trend) — see RECORDS_CHART_MIN_LOGS."""
+
+    def setUp(self):
+        self.user = User.objects.create_user(username="farmer1", password="pw12345")
+        self.flock = Flock.objects.create(owner=self.user, generation_number=1, started_on=date(2024, 1, 1))
+        self.client = Client()
+        self.client.login(username="farmer1", password="pw12345")
+
+    def _make_log(self, day):
+        return DailyLog.objects.create(
+            flock=self.flock, date=date(2024, 1, day), flock_size=200, caging_period=1,
+            flock_age_weeks=25, egg_count=150, feed_intake_kg="40.0",
+            temperature_c="28.0", humidity_pct="75.0", recorded_by=self.user,
+        )
+
+    def test_charts_hidden_below_the_minimum_log_count(self):
+        self.assertEqual(RECORDS_CHART_MIN_LOGS, 2)
+        self._make_log(1)
+        response = self.client.get("/farm-records/")
+        self.assertFalse(response.context["records_charts_available"])
+        self.assertNotIn("avg_egg_yield", response.context)
+
+    def test_charts_shown_at_the_minimum_log_count(self):
+        self._make_log(1)
+        self._make_log(2)
+        response = self.client.get("/farm-records/")
+        self.assertTrue(response.context["records_charts_available"])
+        self.assertIn("avg_egg_yield", response.context)
+        self.assertEqual(json.loads(response.context["records_chart_egg_yield_json"]), [150, 150])
 
 
 class BackfillLockedDailyLogsCommandTests(TestCase):
@@ -1473,3 +1729,121 @@ class DailyLogAdminTests(TestCase):
     def test_unlocked_record_can_still_be_deleted_via_admin(self):
         self.client.post(f"/admin/farm/dailylog/{self.log.pk}/delete/", {"post": "yes"}, follow=True)
         self.assertFalse(DailyLog.objects.filter(pk=self.log.pk).exists())
+
+
+class SendDailyLogRemindersCommandTests(TestCase):
+    """Covers send_daily_log_reminders: it should email + record a reminder only
+    for an owner whose active flock is caged and has no DailyLog for today, and be
+    a no-op (no email, no DailyLogReminder row) for every other flock state, plus
+    stay idempotent if run twice in the same day (DailyLogReminder's unique
+    constraint on owner+reminder_date)."""
+
+    def setUp(self):
+        # operational_today(), matching what the command itself now uses (rolls over
+        # at 8am, not midnight — see farm.services.operational_today).
+        self.today = operational_today()
+
+    def _make_owner(self, username, **flock_kwargs):
+        owner = User.objects.create_user(username=username, password="pw12345", email=f"{username}@example.com")
+        flock = Flock.objects.create(
+            owner=owner, generation_number=1, started_on=date(2024, 1, 1), **flock_kwargs
+        )
+        return owner, flock
+
+    def _log_today(self, owner, flock):
+        DailyLog.objects.create(
+            flock=flock, date=self.today, flock_size=240, caging_period=1,
+            flock_age_weeks=25, egg_count=150, feed_intake_kg="40.0",
+            temperature_c="28.0", humidity_pct="75.0", recorded_by=owner,
+        )
+
+    def test_sends_and_records_reminder_for_eligible_owner(self):
+        owner, flock = self._make_owner("farmer1")
+        call_command("send_daily_log_reminders")
+        self.assertEqual(len(mail.outbox), 1)
+        self.assertEqual(mail.outbox[0].to, [owner.email])
+        reminders = DailyLogReminder.objects.filter(owner=owner, reminder_date=self.today)
+        self.assertEqual(reminders.count(), 1)
+        self.assertEqual(reminders.first().flock, flock)
+
+    def test_no_reminder_when_owner_has_no_flock(self):
+        User.objects.create_user(username="noflockfarmer", password="pw12345", email="noflock@example.com")
+        call_command("send_daily_log_reminders")
+        self.assertEqual(len(mail.outbox), 0)
+        self.assertEqual(DailyLogReminder.objects.count(), 0)
+
+    def test_no_reminder_for_retired_flock(self):
+        self._make_owner("retiredfarmer", is_active=False)
+        call_command("send_daily_log_reminders")
+        self.assertEqual(len(mail.outbox), 0)
+
+    def test_no_reminder_for_free_range_flock(self):
+        self._make_owner("freerangefarmer", is_caged=False)
+        call_command("send_daily_log_reminders")
+        self.assertEqual(len(mail.outbox), 0)
+
+    def test_no_reminder_when_already_logged_today(self):
+        owner, flock = self._make_owner("loggedfarmer")
+        self._log_today(owner, flock)
+        call_command("send_daily_log_reminders")
+        self.assertEqual(len(mail.outbox), 0)
+        self.assertEqual(DailyLogReminder.objects.count(), 0)
+
+    def test_rerunning_same_day_does_not_double_send(self):
+        self._make_owner("farmer1")
+        call_command("send_daily_log_reminders")
+        call_command("send_daily_log_reminders")
+        self.assertEqual(len(mail.outbox), 1)
+        self.assertEqual(DailyLogReminder.objects.count(), 1)
+
+
+class ExportFarmDataCommandTests(TestCase):
+    """export_farm_data: only the chosen owners' rows (plus referenced accounts), with
+    avatars blanked and every foreign key still resolvable inside the fixture."""
+
+    def setUp(self):
+        self.admin = User.objects.create_user(username="admin_rec", password="pw12345")
+        self.owner = User.objects.create_user(username="farmer_a", password="pw12345", avatar="avatars/a.png")
+        self.other = User.objects.create_user(username="farmer_b", password="pw12345")
+        self.owner_flock = Flock.objects.create(owner=self.owner, generation_number=1, started_on=date(2024, 1, 1))
+        self.other_flock = Flock.objects.create(owner=self.other, generation_number=1, started_on=date(2024, 1, 1))
+        log_kwargs = dict(
+            flock_size=240, caging_period=1, flock_age_weeks=30, egg_count=150,
+            feed_intake_kg=Decimal("30.0"), temperature_c=Decimal("28.0"),
+            humidity_pct=Decimal("70.0"),
+        )
+        # Recorded by a third account (like the admin who imported the historical CSV).
+        self.owner_log = DailyLog.objects.create(
+            flock=self.owner_flock, date=date(2024, 1, 1), recorded_by=self.admin, **log_kwargs
+        )
+        DailyLog.objects.create(
+            flock=self.other_flock, date=date(2024, 1, 1), recorded_by=self.other, **log_kwargs
+        )
+
+    def _export(self, owner_ids):
+        with tempfile.TemporaryDirectory() as tmp:
+            output = Path(tmp) / "farm_data.json"
+            call_command("export_farm_data", owner_ids=owner_ids, output=str(output), stdout=Mock())
+            return json.loads(output.read_text(encoding="utf-8"))
+
+    def test_exports_only_chosen_owner_and_referenced_accounts(self):
+        rows = self._export([self.owner.pk])
+        by_model = {}
+        for row in rows:
+            by_model.setdefault(row["model"], []).append(row["pk"])
+        self.assertEqual(sorted(by_model["accounts.user"]), sorted([self.owner.pk, self.admin.pk]))
+        self.assertEqual(by_model["farm.flock"], [self.owner_flock.pk])
+        self.assertEqual(by_model["farm.dailylog"], [self.owner_log.pk])
+
+    def test_avatar_is_blanked_and_database_row_untouched(self):
+        rows = self._export([self.owner.pk])
+        owner_row = next(r for r in rows if r["model"] == "accounts.user" and r["pk"] == self.owner.pk)
+        self.assertEqual(owner_row["fields"]["avatar"], "")
+        self.owner.refresh_from_db()
+        self.assertEqual(self.owner.avatar.name, "avatars/a.png")
+
+    def test_unknown_owner_id_is_rejected(self):
+        from django.core.management.base import CommandError
+
+        with self.assertRaises(CommandError):
+            self._export([999999])

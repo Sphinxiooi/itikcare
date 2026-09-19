@@ -4,7 +4,7 @@ from datetime import timedelta
 
 from django.conf import settings
 from django.contrib import messages
-from django.contrib.auth import login
+from django.contrib.auth import login, logout
 from django.contrib.auth.decorators import login_required
 from django.contrib.auth.hashers import check_password, make_password
 from django.contrib.auth.views import LoginView
@@ -17,13 +17,20 @@ from django.urls import reverse
 from django.utils import timezone
 from django.utils.decorators import method_decorator
 from django.utils.http import url_has_allowed_host_and_scheme
+from django.views.decorators.http import require_POST
 from django_ratelimit.decorators import ratelimit
 
 from farm.views import flock_profile_context
 from farm.weather import geocode_address
 
 from . import google_oauth
-from .forms import AccountSettingsForm, SignupForm, UsernameLookupForm, VerifyResetCodeForm
+from .forms import (
+    AccountDeletionForm,
+    AccountSettingsForm,
+    SignupForm,
+    UsernameLookupForm,
+    VerifyResetCodeForm,
+)
 from .models import PasswordResetCode, User
 
 logger = logging.getLogger(__name__)
@@ -35,9 +42,10 @@ class RateLimitedLoginView(LoginView):
     password a few times, tight enough to make password-guessing impractical.
 
     Uses django_ratelimit's default cache backend (Django's CACHES, LocMemCache unless
-    configured) — correct for a single-process VM deployment; would need a shared cache
-    (e.g. Redis) to stay accurate across multiple gunicorn workers, since each worker
-    process would otherwise keep its own separate counter.
+    DJANGO_SHARED_CACHE=True, see itikcare/settings.py). LocMemCache is accurate only for
+    a single process; with several gunicorn workers set DJANGO_SHARED_CACHE=True so all
+    of them share one counter instead of each keeping its own. Behind a reverse proxy,
+    the client IP comes from accounts/ratelimit.py (RATELIMIT_IP_META_KEY).
     """
 
     @method_decorator(ratelimit(key="ip", rate="10/m", method="POST", block=True))
@@ -110,7 +118,10 @@ def signup(request):
             # to, same as google_callback below.
             login(request, user, backend="accounts.auth_backends.UsernameEmailOrFullNameBackend")
             _bootstrap_train(request, user)
-            return redirect("dashboard")
+            # A brand-new account has no Flock, and nothing can be logged or forecast
+            # without one -- send them straight to the Register Flock form.
+            messages.warning(request, "Welcome! Register your flock to start logging daily data.")
+            return redirect("flock_profile")
     else:
         form = SignupForm()
     return render(request, "registration/signup.html", {"form": form})
@@ -183,6 +194,65 @@ def account_settings(request):
         **flock_profile_context(request.user),
     }
     return render(request, template_name, context)
+
+
+@login_required
+@require_POST
+def delete_account(request):
+    """Self-service account deletion, triggered from the "Danger Zone" card on
+    Account Settings (templates/account/_settings_panel.html). This is a soft
+    delete: it deactivates the account and scrubs personally-identifying fields
+    rather than removing the row, so the farmer's Flock/DailyLog/Forecast/
+    Recommendation history survives intact for the forecasting model's training
+    data -- there's no real benefit to cascade-deleting that, only lost history.
+
+    The foundation farmer (User.is_foundation_farmer) is exempt: their historical
+    DailyLog data bootstraps every new farmer's starter model (see
+    train_forecast_model's docstring), so deleting that one account would break
+    onboarding for everyone else. Also enforced in the template, which doesn't
+    render a working delete button for that account at all -- this check is the
+    real gate.
+
+    Beyond the fields a farmer would recognize as "their info" (email, name,
+    avatar, address, coordinates), this also clears google_sub and blanks the
+    password. Without that, a deactivated Google-linked account could still sign
+    back in: google_callback resolves a user by google_sub and calls login()
+    directly, bypassing the is_active check that authenticate() would normally
+    apply for a plain password login. Clearing google_sub closes that path too,
+    so "deactivated" actually holds for every sign-in method the account has.
+    """
+    user = request.user
+    if user.is_foundation_farmer:
+        messages.error(
+            request,
+            "This account can't be deleted — it seeds every new farmer's starter "
+            "forecasting model.",
+        )
+        return redirect("account_settings")
+
+    form = AccountDeletionForm(request.POST, user=user)
+    if not form.is_valid():
+        messages.error(request, form.errors["confirmation"][0])
+        return redirect("account_settings")
+
+    with transaction.atomic():
+        if user.avatar:
+            user.avatar.delete(save=False)
+        user.email = ""
+        user.first_name = ""
+        user.last_name = ""
+        user.avatar = None
+        user.address = ""
+        user.latitude = None
+        user.longitude = None
+        user.google_sub = None
+        user.set_unusable_password()
+        user.is_active = False
+        user.save()
+
+    logout(request)
+    messages.info(request, "Your account has been deleted.")
+    return redirect("login")
 
 
 RESET_CODE_EXPIRY_MINUTES = 10
@@ -457,5 +527,6 @@ def google_callback(request):
             "Welcome! Add your name and farm location so we can personalize your "
             "dashboard.",
         )
+        messages.warning(request, "You also need to register your flock before you can log daily data.")
         return redirect("account_settings")
     return redirect(next_url) if next_url else redirect("dashboard")

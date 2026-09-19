@@ -2,9 +2,14 @@ Django==5.2.16
 psycopg[binary]>=3.2
 python-dotenv>=1.0
 requests>=2.31
-scikit-learn
-pandas
-numpy
+# ML stack pinned to the versions the forecasting model was developed and validated on,
+# so a deploy trains and predicts exactly like local (unpinned, a rebuild could pull a
+# newer scikit-learn/pandas and shift results or break loading saved model artifacts).
+scikit-learn==1.9.0
+pandas==3.0.3
+numpy==2.5.1
+scipy==1.18.0
+joblib==1.5.3
 gunicorn>=23.0
 whitenoise>=6.12
 django-ratelimit>=4.1

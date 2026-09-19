@@ -4,7 +4,8 @@ Run as:
     python manage.py train_forecast_model --owner-id ID [--dry-run] [--strict]
                                           [--n-estimators N] [--test-fraction F]
                                           [--output-dir DIR]
-                                          [--tune [--tune-iter N] [--cv-folds K]]
+                                          [--tune [--tune-iter N] [--cv-folds K]
+                                                  [--fallback-untuned]]
 
 There is no single global model: every farmer (User) gets a separate artifact, and
 ``--owner-id`` says whose. The foundation farmer (accounts.User.is_foundation_farmer,
@@ -20,6 +21,14 @@ carved out of the training partition only — the held-out 15% test set is never
 during the search, only for the final metrics/threshold check. Omit ``--tune`` for the
 original fast, fixed-hyperparameter path (unchanged default behaviour) — this is what
 the signup flow uses for a new farmer's synchronous bootstrap train.
+
+``--fallback-untuned`` (only meaningful with ``--tune``): a tuned search can overfit its
+inner CV on a small dataset and land a model that misses an acceptance threshold the
+plain fixed-hyperparameter fit clears. With this flag, a tuned run that misses any
+threshold is discarded and the whole train/evaluate step is redone untuned; that model
+is then persisted if it passes (or refused under ``--strict``, leaving the previous
+artifact in place). A tuned model that passes everything is always preferred. This is
+what the automatic retrain (forecasting/services.py::trigger_retrain) uses.
 
 Per CLAUDE.md, retraining must be a repeatable command (not a one-off notebook) so it
 can run periodically as new DailyLog data comes in. This command is the orchestration
@@ -82,7 +91,7 @@ class Command(BaseCommand):
                  "pipeline.chronological_split).",
         )
         parser.add_argument(
-            "--output-dir", default=str(settings.BASE_DIR / "models"),
+            "--output-dir", default=str(settings.MODEL_DIR),
             help="Directory the model artifact and metrics report are written to.",
         )
         parser.add_argument(
@@ -114,6 +123,14 @@ class Command(BaseCommand):
             "--cv-folds", type=int, default=4,
             help="Number of inner CV folds used to score candidates when --tune is set (default: 4).",
         )
+        parser.add_argument(
+            "--fallback-untuned", action="store_true",
+            help=(
+                "With --tune: if the tuned models miss any acceptance threshold, discard "
+                "them and retrain with the fixed default hyperparameters instead, "
+                "persisting that model if it passes. Ignored without --tune."
+            ),
+        )
 
     def handle(self, *args, **options):
         owner_id = options["owner_id"]
@@ -130,13 +147,70 @@ class Command(BaseCommand):
             )
 
         df = ml.build_feature_frame(records)
+
+        tuned = options["tune"]
+        result = self._train_all(df, options, tune=tuned)
+
+        fell_back_from_tuned = False
+        if tuned and not result["all_pass"] and options["fallback_untuned"]:
+            self.stdout.write(self.style.WARNING(
+                "\nThe tuned models missed at least one threshold; discarding them and "
+                "retraining with the fixed default hyperparameters (--fallback-untuned)."
+            ))
+            result = self._train_all(df, options, tune=False)
+            tuned = False
+            fell_back_from_tuned = True
+
+        daily_model, tri_model = result["daily_model"], result["tri_model"]
+        daily_metrics, tri_metrics = result["daily_metrics"], result["tri_metrics"]
+        daily_importances, tri_importances = result["daily_importances"], result["tri_importances"]
+        all_pass = result["all_pass"]
+
+        # --- Persist -----------------------------------------------------------------
+        model_version = f"rf-{owner_id}-{datetime.now():%Y%m%d-%H%M%S}"
+        metrics_payload = {
+            "model_version": model_version,
+            "owner_id": owner_id,
+            "trained_at": datetime.now().isoformat(timespec="seconds"),
+            "n_samples_total": len(records),
+            "features": ml.MODEL_FEATURES,
+            "thresholds": ml.THRESHOLDS,
+            "tuned": tuned,
+            "fell_back_from_tuned": fell_back_from_tuned,
+            "best_params": {"daily": result["daily_best_params"], "tri_day": result["tri_best_params"]},
+            "daily": {"metrics": daily_metrics, "baseline": result["daily_baseline"],
+                      "feature_importances": daily_importances},
+            "tri_day": {"metrics": tri_metrics, "baseline": result["tri_baseline"],
+                        "feature_importances": tri_importances},
+        }
+
+        if options["dry_run"]:
+            self.stdout.write(self.style.NOTICE("\n[DRY RUN] Nothing written."))
+            return
+        if options["strict"] and not all_pass:
+            raise CommandError(
+                "--strict is set and at least one threshold failed; refusing to persist the model."
+            )
+
+        self._persist(options["output_dir"], owner_id, model_version, metrics_payload,
+                      daily_model, tri_model, daily_importances, tri_importances, len(records))
+        self._lock_records(owner)
+
+    def _train_all(self, df, options, tune):
+        """Fit, evaluate and report both the daily and the tri-day model once.
+
+        Pure orchestration of pipeline.py's functions, with no persistence side effects,
+        so handle() can call it a second time (untuned) for --fallback-untuned. The
+        chronological split is deterministic, so both attempts are scored on exactly the
+        same held-out rows.
+        """
         feats = ml.MODEL_FEATURES
 
         # --- Daily model -------------------------------------------------------------
         daily_df = ml.add_lag_features(df)
         daily_train, daily_test = ml.chronological_split(daily_df, options["test_fraction"])
         daily_mean = float(daily_df[ml.DAILY_TARGET].mean())
-        daily_model, daily_best_params = self._fit(daily_train, feats, ml.DAILY_TARGET, options)
+        daily_model, daily_best_params = self._fit(daily_train, feats, ml.DAILY_TARGET, options, tune)
         daily_metrics = ml.evaluate(
             daily_test[ml.DAILY_TARGET],
             daily_model.predict(daily_test[feats]),
@@ -153,7 +227,7 @@ class Command(BaseCommand):
         tri_df = ml.add_lag_features(ml.add_tri_day_target(df))
         tri_train, tri_test = ml.chronological_split(tri_df, options["test_fraction"])
         tri_mean = float(tri_df[ml.TRI_DAY_TARGET].mean())
-        tri_model, tri_best_params = self._fit(tri_train, feats, ml.TRI_DAY_TARGET, options)
+        tri_model, tri_best_params = self._fit(tri_train, feats, ml.TRI_DAY_TARGET, options, tune)
         tri_metrics = ml.evaluate(
             tri_test[ml.TRI_DAY_TARGET],
             tri_model.predict(tri_test[feats]),
@@ -175,34 +249,15 @@ class Command(BaseCommand):
         else:
             self.stdout.write(self.style.WARNING("\nSome acceptance thresholds were NOT met (see above)."))
 
-        # --- Persist -----------------------------------------------------------------
-        model_version = f"rf-{owner_id}-{datetime.now():%Y%m%d-%H%M%S}"
-        metrics_payload = {
-            "model_version": model_version,
-            "owner_id": owner_id,
-            "trained_at": datetime.now().isoformat(timespec="seconds"),
-            "n_samples_total": len(records),
-            "features": ml.MODEL_FEATURES,
-            "thresholds": ml.THRESHOLDS,
-            "tuned": options["tune"],
-            "best_params": {"daily": daily_best_params, "tri_day": tri_best_params},
-            "daily": {"metrics": daily_metrics, "baseline": daily_baseline,
-                      "feature_importances": daily_importances},
-            "tri_day": {"metrics": tri_metrics, "baseline": tri_baseline,
-                        "feature_importances": tri_importances},
+        return {
+            "all_pass": all_pass,
+            "daily_model": daily_model, "daily_metrics": daily_metrics,
+            "daily_baseline": daily_baseline, "daily_importances": daily_importances,
+            "daily_best_params": daily_best_params,
+            "tri_model": tri_model, "tri_metrics": tri_metrics,
+            "tri_baseline": tri_baseline, "tri_importances": tri_importances,
+            "tri_best_params": tri_best_params,
         }
-
-        if options["dry_run"]:
-            self.stdout.write(self.style.NOTICE("\n[DRY RUN] Nothing written."))
-            return
-        if options["strict"] and not all_pass:
-            raise CommandError(
-                "--strict is set and at least one threshold failed; refusing to persist the model."
-            )
-
-        self._persist(options["output_dir"], owner_id, model_version, metrics_payload,
-                      daily_model, tri_model, daily_importances, tri_importances, len(records))
-        self._lock_records(owner)
 
     def _load_records(self, owner):
         """Pull this owner's training DailyLogs into plain dicts (ORM stays out of pipeline.py).
@@ -239,13 +294,14 @@ class Command(BaseCommand):
         """
         DailyLog.objects.filter(flock__owner_id=owner.id).update(is_locked=True)
 
-    def _fit(self, train_df, feats, target, options):
+    def _fit(self, train_df, feats, target, options, tune):
         """Fit one model, either with fixed hyperparameters or --tune's randomized search.
 
-        Returns (fitted_pipeline, best_params) where best_params is None on the
-        untuned path (there's nothing to report).
+        `tune` is passed explicitly (not read from options) because --fallback-untuned
+        fits the same data a second time with tuning off. Returns (fitted_pipeline,
+        best_params) where best_params is None on the untuned path (nothing to report).
         """
-        if not options["tune"]:
+        if not tune:
             model = ml.build_estimator(options["n_estimators"])
             model.fit(train_df[feats], train_df[target])
             return model, None
