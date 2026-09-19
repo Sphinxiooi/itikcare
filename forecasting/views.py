@@ -1,5 +1,3 @@
-from datetime import date
-
 from django.contrib.auth.decorators import login_required
 from django.shortcuts import render
 
@@ -8,26 +6,60 @@ from farm.services import (
     build_next_day_forecasts,
     build_trend_chart_data,
     get_active_flock,
+    operational_today,
     resolve_trend_range,
 )
 
 from recommendations import rules as recommendation_rules
 
 from .models import Forecast
-from .pipeline import FEATURES as RAW_FEATURES
+from .pipeline import FEATURE_LABELS, FEATURES as RAW_FEATURES
 
 # Maps a Recommendation.triggered_by key to how it's grouped and labeled on the Forecast &
 # Recommendations page, matching the Figma categories (Flock Management, Feeding
-# Management, Environmental Control). Kept as a plain dict, not a model, since it's
-# presentation grouping only — the traceability itself lives in Recommendation.triggered_by.
-# "environment" is the synthetic key recommendations/rules.py uses for the merged
-# temperature+humidity recommendation (see that module's docstring for why the two are
-# evaluated together rather than as separate categories).
+# Management, Temperature/Humidity Management). Kept as a plain dict, not a model, since
+# it's presentation grouping only — the traceability itself lives in
+# Recommendation.triggered_by.
 RECOMMENDATION_CATEGORIES = {
-    "flock_age_weeks": {"title": "Flock Management", "icon": "🔧", "color": "amber"},
-    "feed_intake_kg": {"title": "Feeding Management", "icon": "🌾", "color": "emerald"},
-    "environment": {"title": "Environmental Management", "icon": "🌡️", "color": "blue"},
+    "flock_age_weeks": {"title": "Flock Management", "icon": "wrench", "color": "amber"},
+    "feed_intake_kg": {"title": "Feeding Management", "icon": "wheat", "color": "emerald"},
+    "temperature_c": {"title": "Temperature Management", "icon": "thermometer", "color": "red"},
+    "humidity_pct": {"title": "Humidity Management", "icon": "droplet", "color": "blue"},
 }
+
+# These two triggered_by keys render nested inside one outer "Environmental Management"
+# frame (Figma) instead of each getting its own top-level card — see the grouping loop in
+# forecast_recommendations() below. Kept as a literal tuple (not a generic "groups of
+# groups" abstraction) since this is thesis code that needs to be walked through in a
+# defense — a reviewer asking "why do these two nest together" is better answered by this
+# one line than by an extra layer of indirection.
+ENVIRONMENTAL_KEYS = ("temperature_c", "humidity_pct")
+ENVIRONMENT_FRAME_META = {"title": "Environmental Management", "icon": "cloud", "color": "gray"}
+
+
+def _percent_shares(importances):
+    """Rescale {name: importance} to whole-number percents that sum to exactly 100.
+
+    Returns [(name, percent), ...] sorted by percent descending. Uses the largest-
+    remainder method: floor every share, then hand the leftover points to the entries
+    with the biggest fractional parts (ties go to the more important feature), so
+    rounding never leaves the panel at 99% or 101%.
+    """
+    total = sum(importances.values())
+    if total <= 0:
+        return []
+    exact = {name: value / total * 100 for name, value in importances.items()}
+    percents = {name: int(share) for name, share in exact.items()}
+    leftover = 100 - sum(percents.values())
+    by_remainder = sorted(
+        exact,
+        # Rounded so float noise can't break a genuine tie in the fractional parts.
+        key=lambda name: (round(exact[name] - percents[name], 9), exact[name]),
+        reverse=True,
+    )
+    for name in by_remainder[:leftover]:
+        percents[name] += 1
+    return sorted(percents.items(), key=lambda item: item[1], reverse=True)
 
 
 @login_required
@@ -46,23 +78,19 @@ def forecast_recommendations(request):
     # "Latest" means the soonest still-actionable forecast, not the furthest-out one
     # — see dashboard.views.index for the same convention and reasoning.
     latest_forecast = (
-        Forecast.objects.filter(flock=active_flock, forecast_date__gte=date.today())
+        Forecast.objects.filter(flock=active_flock, forecast_date__gte=operational_today())
         .order_by("forecast_date")
         .first()
         if flock_is_caged
         else None
     )
-    upcoming_forecasts = (
-        Forecast.objects.filter(flock=active_flock, forecast_date__gte=date.today())
-        .order_by("forecast_date")[:3]
-        if flock_is_caged
-        else []
-    )
-    # Next 3-Day Forecast panel data used only to extend the Egg Yield Trend chart's
-    # predicted line with a dashed forward-looking tail -- shared with the dashboard's
-    # own trend chart, see farm.services. Distinct from upcoming_forecasts above, which
-    # drives this page's own "Next 3-day Forecast" cards from separately stored Forecast
-    # rows rather than this recursive same-forecast projection.
+    # Next 3-Day Forecast panel data: the recursive day+1/2/3 projection (see
+    # farm.services.build_next_day_forecasts), shared with the dashboard's identical
+    # panel and also used to extend the Egg Yield Trend chart's predicted line with a
+    # dashed forward-looking tail. This page used to instead query stored Forecast rows
+    # directly (forecast_date >= today), but every Forecast row is a same-day nowcast, so
+    # that query almost never returned more than 1 distinct future day -- next_day_forecasts
+    # is the correct source for a genuine 3-day-ahead view.
     next_day_forecasts = build_next_day_forecasts(latest_forecast)
     trend_range = resolve_trend_range(request.GET.get("trend_range", "7"))
     trend_data = build_trend_chart_data(active_flock, flock_is_caged, trend_range, next_day_forecasts)
@@ -76,41 +104,58 @@ def forecast_recommendations(request):
         # the model's own lag1/roll3 history features are real inputs to the RF model
         # (see forecasting/pipeline.py's MODEL_FEATURES) but aren't something a farmer
         # entered or can act on, so they're excluded from this farmer-facing panel.
-        # Values are RF fractions summing to 1 across all 7 MODEL_FEATURES, not just
-        # these 5, so they're converted to percent but intentionally NOT rescaled to
-        # sum to 100 among themselves -- each percentage is the feature's true,
-        # unadjusted share of the model's total importance.
-        feature_importances = sorted(
-            (
-                (name, importance * 100)
-                for name, importance in latest_forecast.feature_importances.items()
-                if name in RAW_FEATURES
-            ),
-            key=lambda item: item[1], reverse=True,
-        )
+        # The RF importances sum to 1 across all 7 MODEL_FEATURES, so the 5 shown here
+        # cover less than 100% on their own. They're rescaled to share 100% among
+        # themselves (each factor's share of the farmer-controllable importance) and
+        # rounded to whole percents that add up to exactly 100. Recommendation ordering
+        # still uses the unscaled importances (recommendation_rules.importance_for).
+        raw_importances = {
+            name: importance
+            for name, importance in latest_forecast.feature_importances.items()
+            if name in RAW_FEATURES
+        }
+        feature_importances = [
+            (FEATURE_LABELS.get(name, name), percent)
+            for name, percent in _percent_shares(raw_importances)
+        ]
 
         recs_by_feature = {}
         for rec in latest_forecast.recommendations.all():
             recs_by_feature.setdefault(rec.triggered_by, []).append(rec)
 
-        # Grouped by whatever triggered_by keys the recommendations actually carry (not
-        # by iterating RAW_FEATURES above) since "environment" is a synthetic key covering
-        # two raw features and would never match that list -- see recommendations/rules.py.
-        ordered_keys = sorted(
-            recs_by_feature,
-            key=lambda key: recommendation_rules.importance_for(key, latest_forecast.feature_importances),
-            reverse=True,
-        )
-        for key in ordered_keys:
-            meta = RECOMMENDATION_CATEGORIES.get(key, {"title": key, "icon": "📌", "color": "gray"})
-            grouped_recommendations.append({"meta": meta, "recommendations": recs_by_feature[key]})
+        fi = latest_forecast.feature_importances
+
+        def _card(key):
+            meta = RECOMMENDATION_CATEGORIES.get(key, {"title": key, "icon": "tag", "color": "gray"})
+            return {"meta": meta, "recommendations": recs_by_feature[key]}
+
+        # Non-environmental keys each become their own top-level card; temperature_c and
+        # humidity_pct (if present) collapse into one "Environmental Management" block
+        # containing both as sub-cards -- see ENVIRONMENTAL_KEYS above.
+        blocks = [
+            {"sort_key": recommendation_rules.importance_for(key, fi), "kind": "single", "card": _card(key)}
+            for key in recs_by_feature
+            if key not in ENVIRONMENTAL_KEYS
+        ]
+        env_keys = [key for key in recs_by_feature if key in ENVIRONMENTAL_KEYS]
+        if env_keys:
+            env_keys.sort(key=lambda key: recommendation_rules.importance_for(key, fi), reverse=True)
+            blocks.append({
+                "sort_key": max(recommendation_rules.importance_for(key, fi) for key in env_keys),
+                "kind": "environment",
+                "meta": ENVIRONMENT_FRAME_META,
+                "sub_cards": [_card(key) for key in env_keys],
+            })
+
+        blocks.sort(key=lambda block: block["sort_key"], reverse=True)
+        grouped_recommendations = blocks
 
     context = {
         "active_nav": "forecast",
         "active_flock": active_flock,
         "flock_is_caged": flock_is_caged,
         "latest_forecast": latest_forecast,
-        "upcoming_forecasts": upcoming_forecasts,
+        "next_day_forecasts": next_day_forecasts,
         "feature_importances": feature_importances,
         "grouped_recommendations": grouped_recommendations,
         "trend_range": trend_range,

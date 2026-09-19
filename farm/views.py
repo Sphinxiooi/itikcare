@@ -4,8 +4,9 @@ from datetime import date
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.db.models import Max
+from django.http import JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
-from django.views.decorators.http import require_POST
+from django.views.decorators.http import require_GET, require_POST
 
 from forecasting.models import Forecast
 from forecasting.services import ModelNotTrainedError, generate_forecast, trigger_retrain
@@ -13,12 +14,18 @@ from forecasting.services import ModelNotTrainedError, generate_forecast, trigge
 from .forms import DailyLogEditForm, DailyLogForm, FlockRegisterForm, FlockResumeCagingForm
 from .models import AUDITED_FIELDS, DailyLog, DailyLogEdit, Flock
 from .services import (
+    RECORDS_CHART_MIN_LOGS,
     assign_caging_periods,
+    build_records_chart_data,
+    build_records_summary,
     current_flock_age_weeks,
     detect_daily_log_anomalies,
     get_active_flock,
+    get_effective_coordinates,
+    operational_today,
     recompute_caging_period,
 )
+from .weather import fetch_historical_weather
 
 logger = logging.getLogger(__name__)
 
@@ -63,8 +70,8 @@ def log_daily_data(request):
 
     active_flock = get_active_flock(request.user)
     if active_flock is None:
-        messages.error(request, "No active flock exists yet. Create one from Flock Profile before logging daily data.")
-        return redirect("dashboard")
+        messages.error(request, "No active flock exists yet. Register your flock before logging daily data.")
+        return redirect("flock_profile")
     if not active_flock.is_caged:
         messages.error(request, "This flock is currently free-range in the field. Mark it as caged from Flock Profile before logging daily data.")
         return redirect("flock_profile")
@@ -121,7 +128,7 @@ def log_daily_data(request):
                         update_fields=["pending_flock_size", "pending_flock_age_weeks", "pending_feed_intake_kg"]
                     )
                 messages.success(request, "Daily data saved.")
-                if new_date == date.today():
+                if new_date == operational_today():
                     try:
                         generate_forecast(daily_log)
                     except ModelNotTrainedError:
@@ -177,6 +184,31 @@ def log_daily_data(request):
 
 
 @login_required
+@require_GET
+def weather_for_date(request):
+    """JSON endpoint backing log_daily_data.html's date-change handler: suggests
+    temperature_c/humidity_pct for a backdated entry from historical weather (see
+    farm.weather.fetch_historical_weather's docstring for the archive/forecast
+    fallback it uses).
+
+    Takes ?date=YYYY-MM-DD. Returns {"temperature_c": .., "humidity_pct": ..} as JSON,
+    or JSON null if the date is missing/malformed, today or in the future (matching
+    log_daily_data's own "today stays blank, no pre-fill" rule — see its docstring),
+    or the lookup otherwise came back empty. Never a 4xx/5xx for a bad date: the
+    frontend only acts on a non-null body, so there's nothing gained by distinguishing
+    "bad input" from "no weather data available" at the HTTP-status level here.
+    """
+    try:
+        target_date = date.fromisoformat(request.GET.get("date", ""))
+    except ValueError:
+        return JsonResponse(None, safe=False)
+
+    latitude, longitude = get_effective_coordinates(request.user)
+    weather = fetch_historical_weather(target_date, latitude, longitude)
+    return JsonResponse(weather, safe=False)
+
+
+@login_required
 def farm_records(request):
     """List DailyLog entries for one of the owner's flocks, filtered by flock number
     and month.
@@ -220,6 +252,23 @@ def farm_records(request):
         year, month = (int(part) for part in selected_month.split("-"))
         logs = logs.filter(date__year=year, date__month=month)
 
+    # Evaluated once here (rather than left as a queryset) since both the chart/
+    # summary builders and the min-logs guard below need to inspect it more than
+    # once -- a queryset would otherwise re-hit the database for each access.
+    logs = list(logs)
+
+    # A month-over-month delta on the stat tiles only makes sense when a specific
+    # month is selected -- "All months" has no natural "previous period" to diff
+    # against, so previous_month_logs stays [] and build_records_summary returns
+    # every delta as None in that case.
+    previous_month_logs = []
+    if selected_flock and selected_month != "all":
+        year, month = (int(part) for part in selected_month.split("-"))
+        prev_year, prev_month = (year - 1, 12) if month == 1 else (year, month - 1)
+        previous_month_logs = list(
+            DailyLog.objects.filter(flock=selected_flock, date__year=prev_year, date__month=prev_month)
+        )
+
     context = {
         "active_nav": "records",
         "logs": logs,
@@ -227,7 +276,11 @@ def farm_records(request):
         "selected_flock_id": selected_flock_id,
         "month_choices": month_choices,
         "selected_month": selected_month,
+        "records_charts_available": len(logs) >= RECORDS_CHART_MIN_LOGS,
     }
+    if context["records_charts_available"]:
+        context.update(build_records_chart_data(logs))
+        context.update(build_records_summary(logs, previous_month_logs))
     return render(request, "farm/farm_records.html", context)
 
 

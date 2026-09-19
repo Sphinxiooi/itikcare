@@ -22,6 +22,18 @@ class Recommendation(models.Model):
     forecast = models.ForeignKey(Forecast, on_delete=models.CASCADE, related_name="recommendations")
     triggered_by = models.CharField(max_length=50, help_text="The input variable/rule that triggered this recommendation.")
     message = models.TextField(help_text="Plain-language, farmer-facing actionable advice.")
+    status = models.CharField(
+        max_length=30, blank=True, default="",
+        help_text="Short status label shown before the message, e.g. 'Underfed', 'High'.",
+    )
+    learn_more = models.TextField(
+        blank=True, default="",
+        help_text="Rationale paragraph from Annex A's 'Learn More' column.",
+    )
+    reading_summary = models.CharField(
+        max_length=100, blank=True, default="",
+        help_text="The raw farm reading that triggered this rule, e.g. '33.0°C'.",
+    )
     priority = models.CharField(max_length=11, choices=Priority.choices, default=Priority.MEDIUM)
     created_at = models.DateTimeField(auto_now_add=True)
 

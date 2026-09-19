@@ -7,9 +7,10 @@ requesting farmer now that more than one farm's data lives in the same tables.
 
 import json
 import statistics
-from datetime import date, timedelta
+from datetime import timedelta
 
 from django.db.models import Max
+from django.utils import timezone
 
 from .models import DailyLog, Flock
 
@@ -65,6 +66,33 @@ def get_effective_coordinates(owner):
     return None, None
 
 
+# Duck egg collection that finishes in the early morning (e.g. 2-7am) still belongs to
+# the previous day's collection cycle, not a fresh one -- so the farm's logging day
+# rolls over at this local hour instead of at midnight.
+FARM_DAY_START_HOUR = 8
+
+
+def operational_today(now=None):
+    """The farm's current logging day, rolling over at FARM_DAY_START_HOUR local time
+    instead of midnight. Single source of truth for every "is this today" comparison
+    touching DailyLog/Forecast dates (form validation, forecast generation, the
+    dashboard's "logged today" state, the reminder command) — see itikcare-spec.md
+    section 10 for why a plain calendar day doesn't match how this farm actually
+    operates.
+
+    timezone.localtime() is TIME_ZONE/USE_TZ-aware by construction, so this is immune
+    to the naive datetime.date.today() bug documented in itikcare/settings.py's
+    TIME_ZONE comment (that bug used the server's OS clock instead of Asia/Manila).
+
+    now: override for tests, so a specific instant can be pinned instead of the real
+    clock (e.g. to exercise the 8am boundary itself either side).
+    """
+    now = now or timezone.localtime()
+    if now.hour < FARM_DAY_START_HOUR:
+        return now.date() - timedelta(days=1)
+    return now.date()
+
+
 def current_flock_age_weeks(daily_log):
     """Project a DailyLog's flock_age_weeks forward to today's calendar date.
 
@@ -73,10 +101,13 @@ def current_flock_age_weeks(daily_log):
     itikcare-spec.md section 10), so anywhere the UI displays "current" flock age must
     add the calendar weeks elapsed since that snapshot rather than showing it as-is.
     Mirrors the prefill math in views.log_daily_data. Returns None if daily_log is None.
+
+    Uses timezone.localdate() rather than operational_today(): a rough weekly bucket
+    like this doesn't need the 8am cutoff, just the naive-date fix.
     """
     if daily_log is None:
         return None
-    weeks_elapsed = (date.today() - daily_log.date).days // 7
+    weeks_elapsed = (timezone.localdate() - daily_log.date).days // 7
     return daily_log.flock_age_weeks + weeks_elapsed
 
 
@@ -251,7 +282,7 @@ def build_trend_chart_data(active_flock, flock_is_caged, trend_range, next_day_f
     if trend_range == "all":
         trend_logs = list(DailyLog.objects.filter(flock=active_flock).order_by("-date")) if flock_is_caged else []
     else:
-        trend_cutoff = date.today() - timedelta(days=int(trend_range) - 1)
+        trend_cutoff = timezone.localdate() - timedelta(days=int(trend_range) - 1)
         trend_logs = (
             list(DailyLog.objects.filter(flock=active_flock, date__gte=trend_cutoff).order_by("-date"))
             if flock_is_caged
@@ -292,4 +323,86 @@ def build_trend_chart_data(active_flock, flock_is_caged, trend_range, next_day_f
         "trend_predicted_json": json.dumps(trend_predicted),
         "trend_future_start_index": trend_future_start_index,
         "trend_has_future_forecast": trend_future_start_index is not None,
+    }
+
+
+# Below this many logs in the selected Farm Records filter, a chart/summary would
+# be drawn from too little data to mean anything (a single point has no trend, and
+# a month-over-month delta needs something to compare against) -- the view falls
+# back to the plain table only.
+RECORDS_CHART_MIN_LOGS = 2
+
+
+def _feed_per_bird_grams(log):
+    """Grams of feed per bird for one DailyLog -- mirrors recommendations/rules.py's
+    _feed_per_bird_grams formula exactly (feed_intake_kg / flock_size * 1000), kept
+    as a separate copy here rather than imported since recommendations depends on
+    farm (not the other way around) and this one-line formula isn't worth a new
+    cross-app dependency to share.
+    """
+    return (float(log.feed_intake_kg) / log.flock_size) * 1000
+
+
+def build_records_chart_data(logs):
+    """Chart.js-ready arrays for the Farm Records page's two panels -- egg yield vs.
+    feed-per-bird, and temperature vs. humidity -- oldest-to-newest across whatever
+    `logs` the caller already filtered by flock/month (see farm/views.py::farm_records).
+    Caller is expected to only invoke this once len(logs) >= RECORDS_CHART_MIN_LOGS.
+    """
+    ordered_logs = sorted(logs, key=lambda log: log.date)
+    labels = [f"{log.date.strftime('%b')} {log.date.day}" for log in ordered_logs]
+
+    return {
+        "records_chart_labels_json": json.dumps(labels),
+        "records_chart_egg_yield_json": json.dumps([log.egg_count for log in ordered_logs]),
+        "records_chart_feed_per_bird_json": json.dumps(
+            [round(_feed_per_bird_grams(log), 1) for log in ordered_logs]
+        ),
+        "records_chart_temperature_json": json.dumps([float(log.temperature_c) for log in ordered_logs]),
+        "records_chart_humidity_json": json.dumps([float(log.humidity_pct) for log in ordered_logs]),
+    }
+
+
+def build_records_summary(logs, previous_month_logs):
+    """Farm Records stat-tile values: averages over `logs` (the current flock/month
+    filter) for egg yield, feed per bird, temperature and humidity, plus the most
+    recently logged flock size. Each average also gets a month-over-month delta
+    (percent change) against `previous_month_logs` when that's non-empty -- the
+    caller only passes a real previous-month queryset when a specific month is
+    selected (see farm/views.py::farm_records); "All months" has no natural
+    previous period to compare against, so it passes [] and every delta comes
+    back None.
+
+    Caller is expected to only invoke this once len(logs) >= RECORDS_CHART_MIN_LOGS.
+    """
+    ordered_logs = sorted(logs, key=lambda log: log.date)
+    latest_log = ordered_logs[-1]
+
+    avg_egg_yield = statistics.fmean(log.egg_count for log in ordered_logs)
+    avg_feed_per_bird = statistics.fmean(_feed_per_bird_grams(log) for log in ordered_logs)
+    avg_temperature = statistics.fmean(float(log.temperature_c) for log in ordered_logs)
+    avg_humidity = statistics.fmean(float(log.humidity_pct) for log in ordered_logs)
+
+    def _delta_pct(current_avg, previous_values):
+        if not previous_values:
+            return None
+        previous_avg = statistics.fmean(previous_values)
+        if previous_avg == 0:
+            return None
+        return round((current_avg - previous_avg) / previous_avg * 100, 1)
+
+    return {
+        "avg_egg_yield": round(avg_egg_yield, 1),
+        "avg_feed_per_bird": round(avg_feed_per_bird, 1),
+        "avg_temperature": round(avg_temperature, 1),
+        "avg_humidity": round(avg_humidity, 1),
+        "current_flock_size": latest_log.flock_size,
+        "egg_yield_delta_pct": _delta_pct(avg_egg_yield, [log.egg_count for log in previous_month_logs]),
+        "feed_per_bird_delta_pct": _delta_pct(
+            avg_feed_per_bird, [_feed_per_bird_grams(log) for log in previous_month_logs]
+        ),
+        "temperature_delta_pct": _delta_pct(
+            avg_temperature, [float(log.temperature_c) for log in previous_month_logs]
+        ),
+        "humidity_delta_pct": _delta_pct(avg_humidity, [float(log.humidity_pct) for log in previous_month_logs]),
     }

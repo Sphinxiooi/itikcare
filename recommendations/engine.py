@@ -45,7 +45,10 @@ def generate_recommendations(forecast: Forecast) -> list[Recommendation]:
                 Recommendation(
                     forecast=forecast,
                     triggered_by=f.feature,
-                    message=f.message,
+                    message=f.action_text,
+                    status=f.status,
+                    learn_more=f.learn_more,
+                    reading_summary=f.reading_summary,
                     priority=f.priority,
                 )
                 for f in fired

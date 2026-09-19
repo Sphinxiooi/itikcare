@@ -49,6 +49,18 @@ FEATURES = [
     "humidity_pct",
 ]
 
+# Short, unit-free farmer-facing labels for FEATURES, used by the Key Influencing Factors
+# panel (forecasting/views.py). Deliberately shorter than farm/forms.py's DailyLogForm
+# labels (e.g. "Temperature (°C)"), which serve the data-entry form rather than this
+# compact panel.
+FEATURE_LABELS: dict[str, str] = {
+    "flock_size": "Flock Size",
+    "flock_age_weeks": "Flock Age",
+    "feed_intake_kg": "Feed Intake",
+    "temperature_c": "Temperature",
+    "humidity_pct": "Humidity",
+}
+
 # Within-segment history features derived from past daily yield (see add_lag_features).
 LAG_FEATURES = ["lag1", "roll3"]
 

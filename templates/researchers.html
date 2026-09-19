@@ -1,0 +1,205 @@
+{% load static %}
+{% load itik_icons %}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>About the Researchers — ItikCare</title>
+    <link rel="stylesheet" href="{% static 'dist/output.css' %}">
+    <link rel="icon" type="image/png" href="{% static 'images/favicon.png' %}">
+    <link rel="apple-touch-icon" href="{% static 'images/apple-touch-icon.png' %}">
+</head>
+<body class="bg-white text-gray-900">
+
+    <header class="sticky top-0 z-10 bg-white border-b border-gray-200">
+        <div class="max-w-6xl mx-auto flex items-center justify-between px-6 py-4">
+            <a href="{% url 'dashboard' %}" class="flex items-center gap-3">
+                <img src="{% static 'images/logo-mark.png' %}" alt="" class="w-10 h-10 rounded-lg">
+                <span class="leading-tight">
+                    <span class="block text-xl font-bold text-emerald-700">ItikCare</span>
+                    <span class="block text-xs font-semibold text-emerald-700 -mt-1">Egg Yield Forecasting</span>
+                </span>
+            </a>
+            <a href="{% url 'dashboard' %}"
+               class="inline-flex items-center gap-2 text-sm font-semibold text-emerald-700 hover:text-emerald-800 transition-colors duration-200">
+                <span aria-hidden="true">←</span> Back to Home
+            </a>
+        </div>
+    </header>
+
+    <main>
+        <!-- Hero -->
+        <section class="bg-emerald-50">
+            <div class="max-w-6xl mx-auto px-6 py-16 text-center">
+                <h1 class="text-4xl sm:text-5xl font-extrabold leading-tight text-gray-900">
+                    Meet the Team Behind <span class="text-emerald-700">ItikCare</span>
+                </h1>
+                <p class="mt-4 max-w-2xl mx-auto text-gray-600">
+                    A capstone research project by BS Information Technology students at Central
+                    Bicol State University of Agriculture, Sipocot Campus, built to give
+                    small-scale itik farmers a practical, data-driven way to forecast egg yield.
+                </p>
+            </div>
+        </section>
+
+        <!-- Researchers -->
+        <section class="bg-white">
+            <div class="max-w-6xl mx-auto px-6 py-16">
+                <div class="text-center max-w-2xl mx-auto mb-12">
+                    <h2 class="text-3xl font-extrabold text-gray-900">The Researchers</h2>
+                    <p class="mt-3 text-gray-600">
+                        The two developers who designed, built, and validated ItikCare as their
+                        thesis project.
+                    </p>
+                </div>
+
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-8">
+                    <article class="rounded-2xl border border-gray-200 p-8 text-center">
+                        <span class="mx-auto flex items-center justify-center w-20 h-20 rounded-full bg-emerald-700 text-white text-2xl font-bold">
+                            ML
+                        </span>
+                        <h3 class="mt-5 text-xl font-bold text-gray-900">Mark Justine C. Labay</h3>
+                        <p class="text-sm font-semibold text-emerald-700">Lead Developer &amp; Researcher</p>
+                        <p class="mt-4 text-sm text-gray-600">
+                            Led the Django backend and the Random Forest forecasting pipeline —
+                            data preprocessing, model training, and rolling retraining. BS
+                            Information Technology, Central Bicol State University of
+                            Agriculture, Sipocot Campus.
+                        </p>
+                        <ul class="mt-5 flex flex-wrap justify-center gap-2 text-xs">
+                            <li class="px-3 py-1 rounded-full bg-emerald-50 text-emerald-700 font-semibold">Django</li>
+                            <li class="px-3 py-1 rounded-full bg-emerald-50 text-emerald-700 font-semibold">scikit-learn</li>
+                            <li class="px-3 py-1 rounded-full bg-emerald-50 text-emerald-700 font-semibold">Data Engineering</li>
+                        </ul>
+                    </article>
+
+                    <article class="rounded-2xl border border-gray-200 p-8 text-center">
+                        <span class="mx-auto flex items-center justify-center w-20 h-20 rounded-full bg-emerald-700 text-white text-2xl font-bold">
+                            JP
+                        </span>
+                        <h3 class="mt-5 text-xl font-bold text-gray-900">Jhanmae Angela S. Peñaredondo</h3>
+                        <p class="text-sm font-semibold text-emerald-700">Co-Developer &amp; Researcher</p>
+                        <p class="mt-4 text-sm text-gray-600">
+                            Led the prescriptive analytics module and farmer-facing UI — turning
+                            forecasts and adviser-approved rules into clear, traceable
+                            recommendations. BS Information Technology, Central Bicol State
+                            University of Agriculture, Sipocot Campus.
+                        </p>
+                        <ul class="mt-5 flex flex-wrap justify-center gap-2 text-xs">
+                            <li class="px-3 py-1 rounded-full bg-emerald-50 text-emerald-700 font-semibold">UI/UX Design</li>
+                            <li class="px-3 py-1 rounded-full bg-emerald-50 text-emerald-700 font-semibold">Rule-Based Systems</li>
+                            <li class="px-3 py-1 rounded-full bg-emerald-50 text-emerald-700 font-semibold">Tailwind CSS</li>
+                        </ul>
+                    </article>
+                </div>
+            </div>
+        </section>
+
+        <!-- Adviser -->
+        <section class="bg-emerald-50">
+            <div class="max-w-6xl mx-auto px-6 py-16">
+                <div class="text-center max-w-2xl mx-auto mb-12">
+                    <h2 class="text-3xl font-extrabold text-gray-900">Project Adviser</h2>
+                    <p class="mt-3 text-gray-600">
+                        Guiding the project's methodology and technical direction from proposal
+                        to defense.
+                    </p>
+                </div>
+
+                <article class="max-w-lg mx-auto rounded-2xl bg-white p-8 text-center shadow-sm">
+                    <span class="mx-auto flex items-center justify-center w-20 h-20 rounded-full bg-emerald-700 text-white text-2xl font-bold">
+                        RC
+                    </span>
+                    <h3 class="mt-5 text-xl font-bold text-gray-900">Richard Jr. Castuera</h3>
+                    <p class="text-sm font-semibold text-emerald-700">Thesis Adviser</p>
+                    <p class="mt-4 text-sm text-gray-600">
+                        Faculty adviser overseeing ItikCare's research design, model validation
+                        approach, and adherence to the capstone's scope and objectives.
+                    </p>
+                </article>
+            </div>
+        </section>
+
+        <!-- Project info -->
+        <section class="bg-white">
+            <div class="max-w-3xl mx-auto px-6 py-16">
+                <h2 class="text-3xl font-extrabold text-gray-900 text-center">About the Project</h2>
+                <dl class="mt-8 divide-y divide-gray-200 border-y border-gray-200 text-sm">
+                    <div class="grid grid-cols-3 gap-4 py-4">
+                        <dt class="font-semibold text-gray-900">Program</dt>
+                        <dd class="col-span-2 text-gray-600">BS Information Technology</dd>
+                    </div>
+                    <div class="grid grid-cols-3 gap-4 py-4">
+                        <dt class="font-semibold text-gray-900">Institution</dt>
+                        <dd class="col-span-2 text-gray-600">Central Bicol State University of Agriculture, Sipocot Campus</dd>
+                    </div>
+                    <div class="grid grid-cols-3 gap-4 py-4">
+                        <dt class="font-semibold text-gray-900">Project Type</dt>
+                        <dd class="col-span-2 text-gray-600">Capstone / Thesis Project</dd>
+                    </div>
+                    <div class="grid grid-cols-3 gap-4 py-4">
+                        <dt class="font-semibold text-gray-900">Focus</dt>
+                        <dd class="col-span-2 text-gray-600">
+                            Random Forest-based egg yield forecasting with a rule-based
+                            prescriptive recommendation module for small-scale itik farms.
+                        </dd>
+                    </div>
+                    <div class="grid grid-cols-3 gap-4 py-4">
+                        <dt class="font-semibold text-gray-900">Year</dt>
+                        <dd class="col-span-2 text-gray-600">2026</dd>
+                    </div>
+                </dl>
+            </div>
+        </section>
+
+        <!-- CTA -->
+        <section class="bg-emerald-700">
+            <div class="max-w-6xl mx-auto px-6 py-12 text-center">
+                <h2 class="text-2xl sm:text-3xl font-extrabold text-white">Curious about ItikCare itself?</h2>
+                <a href="{% url 'dashboard' %}"
+                   class="mt-6 inline-flex items-center gap-2 bg-white text-emerald-800 font-semibold rounded-lg px-6 py-3 hover:bg-emerald-50 transition-colors duration-200">
+                    Back to Home <span aria-hidden="true">→</span>
+                </a>
+            </div>
+        </section>
+    </main>
+
+    <footer class="bg-emerald-950 text-gray-300">
+        <div class="max-w-6xl mx-auto px-6 py-12 grid grid-cols-1 sm:grid-cols-3 gap-10">
+            <div>
+                <div class="flex items-center gap-3">
+                    <img src="{% static 'images/logo-mark.png' %}" alt="" class="w-10 h-10 rounded-lg">
+                    <span class="leading-tight">
+                        <span class="block text-lg font-bold text-white">ItikCare</span>
+                        <span class="block text-xs font-semibold text-emerald-400 -mt-1">Egg Yield Forecasting</span>
+                    </span>
+                </div>
+            </div>
+            <div>
+                <h3 class="text-sm font-semibold text-white mb-3">Project</h3>
+                <ul class="space-y-1 text-sm text-gray-300">
+                    <li>Capstone Project</li>
+                    <li>BS Information Technology</li>
+                    <li>Central Bicol State University of Agriculture</li>
+                    <li>Sipocot Campus</li>
+                </ul>
+            </div>
+            <div>
+                <h3 class="text-sm font-semibold text-white mb-3">About the Researchers</h3>
+                <ul class="space-y-1 text-sm text-gray-300">
+                    <li>Developed by: Labay, Mark Justine C.</li>
+                    <li class="pl-[6.5em]">Peñaredondo, Jhanmae Angela S.</li>
+                    <li>Developed for: Mario A. Realizan</li>
+                    <li>Year: 2026</li>
+                </ul>
+            </div>
+        </div>
+        <div class="border-t border-emerald-900 px-6 py-4 text-center text-xs text-gray-400 space-y-0.5">
+            <p>ItikCare v1.0</p>
+            <p>Labay &amp; Peñaredondo et al.</p>
+        </div>
+    </footer>
+
+</body>
+</html>

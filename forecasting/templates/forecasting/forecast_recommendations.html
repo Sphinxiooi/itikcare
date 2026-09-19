@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% load itik_icons %}
 
 {% block title %}Forecast & Recommendations — ItikCare{% endblock %}
 
@@ -13,7 +14,7 @@
 
     {% if active_flock and not flock_is_caged %}
     <div class="bg-amber-50 border border-amber-200 text-amber-800 text-sm rounded-md p-4 mb-4">
-        🌾 This flock is currently <strong>free-range in the field</strong>. Forecasts and recommendations are
+        {% icon "wheat" "w-4 h-4 inline -mt-0.5" %} This flock is currently <strong>free-range in the field</strong>. Forecasts and recommendations are
         paused until it's caged again.
         <a href="{% url 'flock_profile' %}" class="underline font-medium">Mark it as caged from Flock Profile</a>
         once logging resumes.
@@ -30,10 +31,10 @@
     <div id="tab-forecast" class="mt-6">
         {% if latest_forecast %}
         <div class="bg-emerald-50 rounded-xl p-6 flex items-center gap-4">
-            <span class="text-4xl">🧺</span>
+            <span class="flex items-center justify-center w-12 h-12 rounded-lg bg-emerald-700 text-white shrink-0">{% icon "basket" "w-6 h-6" %}</span>
             <div>
                 <p class="text-gray-600">Predicted Egg Yield Tomorrow</p>
-                <p class="text-4xl font-bold text-emerald-700">{{ latest_forecast.predicted_daily_yield }} eggs</p>
+                <p class="text-4xl font-bold text-emerald-700">{{ latest_forecast.predicted_next_day1_yield|floatformat:0 }} eggs</p>
             </div>
         </div>
         {% else %}
@@ -43,10 +44,10 @@
         <div class="mt-6">
             <h2 class="text-lg font-bold text-gray-900 mb-3">Next 3-day Forecast</h2>
             <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                {% for forecast in upcoming_forecasts %}
+                {% for day in next_day_forecasts %}
                 <div class="border border-emerald-200 rounded-xl p-4 text-center">
-                    <p class="text-sm text-gray-600">{{ forecast.forecast_date|date:"M j" }}</p>
-                    <p class="text-3xl font-bold text-emerald-700">{{ forecast.predicted_daily_yield }}</p>
+                    <p class="text-sm text-gray-600">{{ day.date|date:"M j" }}{% if day.is_tomorrow %} | Tomorrow{% endif %}</p>
+                    <p class="text-3xl font-bold text-emerald-700">{{ day.value|floatformat:0|default:"—" }}</p>
                     <p class="text-sm text-gray-500">Eggs</p>
                 </div>
                 {% empty %}
@@ -79,13 +80,14 @@
                 {% endif %}
             </div>
             <div class="bg-emerald-50 rounded-xl p-5">
-                <h2 class="font-bold text-gray-900 mb-3">💡 Key Influencing Factors</h2>
+                <h2 class="font-bold text-gray-900 mb-1 flex items-center gap-1.5">{% icon "lightbulb" "w-5 h-5" %} Key Influencing Factors</h2>
+                <p class="text-sm text-gray-500 mb-3">How much each farm condition is shaping this forecast</p>
                 {% if feature_importances %}
                 <div class="space-y-3">
-                    {% for feature_name, importance in feature_importances %}
+                    {% for feature_label, importance in feature_importances %}
                     <div>
                         <div class="flex justify-between text-sm mb-1">
-                            <span class="text-gray-700">{{ feature_name }}</span>
+                            <span class="text-gray-700">{{ feature_label }}</span>
                             <span class="font-semibold text-gray-900">{{ importance|floatformat:0 }}%</span>
                         </div>
                         <div class="w-full bg-gray-200 rounded-full h-2">
@@ -95,7 +97,7 @@
                     {% endfor %}
                 </div>
                 {% else %}
-                <p class="text-sm text-gray-500">No current forecast — feature importances will appear here once today's data is logged and a forecast is generated.</p>
+                <p class="text-sm text-gray-500">No current forecast yet — once you log today's data and a forecast is generated, you'll see the factors influencing it here.</p>
                 {% endif %}
             </div>
         </div>
@@ -103,27 +105,43 @@
 
     <div id="tab-recommendations" class="mt-6 hidden">
         <h2 class="text-lg font-bold text-gray-900">Guide & Preventive Recommendations</h2>
-        <p class="text-sm text-gray-500 mb-4">Actionable recommendations generated based on key influencing factors, ordered by feature importance</p>
+        <p class="text-sm text-gray-500 mb-4">Practical steps based on your Key Influencing Factors, with the biggest ones listed first</p>
 
         {% if grouped_recommendations %}
         <div class="space-y-4">
-            {% for group in grouped_recommendations %}
-            <div class="border rounded-xl p-5
-                {% if group.meta.color == 'amber' %}border-amber-200 bg-amber-50
-                {% elif group.meta.color == 'emerald' %}border-emerald-200 bg-emerald-50
-                {% elif group.meta.color == 'blue' %}border-blue-200 bg-blue-50
-                {% elif group.meta.color == 'red' %}border-red-200 bg-red-50
-                {% else %}border-gray-200 bg-gray-50{% endif %}">
-                <p class="font-bold text-gray-900">{{ group.meta.icon }} {{ group.meta.title }}</p>
-                <div class="space-y-2 mt-3">
-                    {% for rec in group.recommendations %}
-                    <div class="bg-white rounded-lg p-3 text-sm flex items-start gap-2">
-                        <span class="text-emerald-600">✓</span>
-                        <span>{{ rec.message }}</span>
+            {% for block in grouped_recommendations %}
+                {% if block.kind == "environment" %}
+                <div class="border border-gray-300 bg-gray-50 rounded-xl p-5">
+                    <p class="font-bold text-gray-900 mb-3 flex items-center gap-1.5">{% icon block.meta.icon "w-4 h-4" %} {{ block.meta.title }}</p>
+                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                        {% for sub in block.sub_cards %}
+                        <div class="border rounded-lg p-4
+                            {% if sub.meta.color == 'red' %}border-red-200 bg-red-50
+                            {% elif sub.meta.color == 'blue' %}border-blue-200 bg-blue-50
+                            {% else %}border-gray-200 bg-gray-50{% endif %}">
+                            <p class="font-semibold text-gray-900 mb-2 flex items-center gap-1.5">{% icon sub.meta.icon "w-4 h-4" %} {{ sub.meta.title }}</p>
+                            <div class="space-y-2">
+                                {% for rec in sub.recommendations %}
+                                {% include "forecasting/_recommendation_card.html" with rec=rec %}
+                                {% endfor %}
+                            </div>
+                        </div>
+                        {% endfor %}
                     </div>
-                    {% endfor %}
                 </div>
-            </div>
+                {% else %}
+                <div class="border rounded-xl p-5
+                    {% if block.card.meta.color == 'amber' %}border-amber-200 bg-amber-50
+                    {% elif block.card.meta.color == 'emerald' %}border-emerald-200 bg-emerald-50
+                    {% else %}border-gray-200 bg-gray-50{% endif %}">
+                    <p class="font-bold text-gray-900 flex items-center gap-1.5">{% icon block.card.meta.icon "w-4 h-4" %} {{ block.card.meta.title }}</p>
+                    <div class="space-y-2 mt-3">
+                        {% for rec in block.card.recommendations %}
+                        {% include "forecasting/_recommendation_card.html" with rec=rec %}
+                        {% endfor %}
+                    </div>
+                </div>
+                {% endif %}
             {% endfor %}
         </div>
         {% else %}
@@ -145,10 +163,15 @@
 
     {% if trend_logs %}
     const trendFutureStartIndex = {{ trend_future_start_index|default_if_none:"null" }};
+    const trendLabels = {{ trend_labels_json|safe }};
+    // Dot markers become visual noise once "All data" packs in months of daily
+    // points -- shrink them to 0 past ~60 points so the trend reads as a clean
+    // line instead of a dot-chain, while short ranges keep visible dots.
+    const trendPointRadius = trendLabels.length > 60 ? 0 : trendLabels.length > 30 ? 2 : 4;
     new Chart(document.getElementById("trendChart"), {
         type: "line",
         data: {
-            labels: {{ trend_labels_json|safe }},
+            labels: trendLabels,
             datasets: [
                 {
                     label: "Actual egg yield",
@@ -156,7 +179,8 @@
                     borderColor: "#047857",
                     backgroundColor: "#047857",
                     borderWidth: 2,
-                    pointRadius: 4,
+                    pointRadius: trendPointRadius,
+                    pointHoverRadius: 4,
                     tension: 0.3,
                     spanGaps: false,
                 },
@@ -166,7 +190,8 @@
                     borderColor: "#2a78d6",
                     backgroundColor: "#2a78d6",
                     borderWidth: 2,
-                    pointRadius: 4,
+                    pointRadius: trendPointRadius,
+                    pointHoverRadius: 4,
                     tension: 0.3,
                     spanGaps: false,
                     // The tail beyond trendFutureStartIndex is the Next 3-Day Forecast
@@ -182,8 +207,15 @@
             ],
         },
         options: {
-            plugins: { legend: { position: "bottom" } },
-            scales: { y: { beginAtZero: true } },
+            plugins: {
+                legend: { position: "bottom" },
+                tooltip: {
+                    callbacks: {
+                        label: (ctx) => `${ctx.dataset.label}: ${Math.round(ctx.parsed.y)}`,
+                    },
+                },
+            },
+            scales: { y: { beginAtZero: true, ticks: { precision: 0 } } },
         },
     });
     {% endif %}

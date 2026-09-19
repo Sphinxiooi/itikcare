@@ -1,0 +1,12 @@
+[Unit]
+Description=Run itikcare-reminders.service once a day
+
+[Timer]
+# 5pm local server time -- tune to whatever your VM's timezone is set to (this
+# project's own TIME_ZONE setting is Asia/Manila; set the VM's system clock to
+# match if you want this to line up with it).
+OnCalendar=*-*-* 17:00:00
+Persistent=true
+
+[Install]
+WantedBy=timers.target

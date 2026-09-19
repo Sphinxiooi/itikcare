@@ -1,6 +1,6 @@
 from django.contrib import admin
 
-from .models import AUDITED_FIELDS, DailyLog, DailyLogEdit, Flock
+from .models import AUDITED_FIELDS, DailyLog, DailyLogEdit, DailyLogReminder, Flock
 
 # No per-tenant filtering is needed here: only is_staff accounts can reach /admin/ at
 # all (Django's own AdminSite.has_permission), and self-registered farmers never get
@@ -64,6 +64,25 @@ class DailyLogEditAdmin(admin.ModelAdmin):
     """Read-only in the admin: this is an audit trail, not user-editable data."""
 
     list_display = ("daily_log", "field_name", "old_value", "new_value", "changed_by", "changed_at")
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        return False
+
+
+@admin.register(DailyLogReminder)
+class DailyLogReminderAdmin(admin.ModelAdmin):
+    """Read-only in the admin: this is an audit trail of sent reminder emails, not
+    user-editable data (see send_daily_log_reminders management command)."""
+
+    list_display = ("owner", "flock", "reminder_date", "sent_at")
+    list_filter = ("owner",)
+    date_hierarchy = "reminder_date"
 
     def has_add_permission(self, request):
         return False

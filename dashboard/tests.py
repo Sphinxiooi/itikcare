@@ -1,4 +1,4 @@
-from datetime import date
+from datetime import date, datetime
 from decimal import Decimal
 from unittest.mock import patch
 
@@ -6,6 +6,7 @@ from django.contrib.auth import get_user_model
 from django.test import Client, TestCase, override_settings
 
 from farm.models import DailyLog, Flock
+from farm.services import operational_today
 from forecasting.models import Forecast
 
 User = get_user_model()
@@ -59,9 +60,49 @@ class DashboardIndexTests(TestCase):
         response = self.client.get("/")
         self.assertContains(response, "Next 3-Day Forecast")
         self.assertContains(response, "Tomorrow")
-        self.assertContains(response, "157.00")
-        self.assertContains(response, "155.00")
-        self.assertContains(response, "172.00")
+        self.assertContains(response, "157")
+        self.assertContains(response, "155")
+        self.assertContains(response, "172")
+
+
+@override_settings(FARM_LATITUDE=None, FARM_LONGITUDE=None)
+class DashboardDailyLogReminderBannerTests(TestCase):
+    """The dashboard's "log today's data" banner is computed live from logged_today/
+    flock_is_caged (see dashboard/views.py) -- it must show whenever there's an
+    active, caged flock with no DailyLog for today, and never once one exists, or
+    while the flock is free-range/nonexistent (nothing to log yet either way)."""
+
+    def setUp(self):
+        self.user = User.objects.create_user(username="farmer1", password="pw12345")
+        self.client = Client()
+        self.client.login(username="farmer1", password="pw12345")
+
+    def test_banner_shown_when_active_caged_flock_has_no_log_today(self):
+        Flock.objects.create(owner=self.user, generation_number=1, started_on=date(2024, 1, 1))
+        response = self.client.get("/")
+        self.assertContains(response, "haven't logged today's data yet")
+
+    def test_banner_hidden_once_logged_today(self):
+        # operational_today(), not date.today(): the dashboard's logged_today check
+        # compares against the farm's current logging day, which rolls over at 8am
+        # rather than midnight (farm.services.operational_today).
+        flock = Flock.objects.create(owner=self.user, generation_number=1, started_on=date(2024, 1, 1))
+        DailyLog.objects.create(
+            flock=flock, date=operational_today(), flock_size=240, caging_period=1,
+            flock_age_weeks=25, egg_count=150, feed_intake_kg="40.0",
+            temperature_c="28.0", humidity_pct="75.0", recorded_by=self.user,
+        )
+        response = self.client.get("/")
+        self.assertNotContains(response, "haven't logged today's data yet")
+
+    def test_banner_hidden_for_free_range_flock(self):
+        Flock.objects.create(owner=self.user, generation_number=1, started_on=date(2024, 1, 1), is_caged=False)
+        response = self.client.get("/")
+        self.assertNotContains(response, "haven't logged today's data yet")
+
+    def test_banner_hidden_with_no_active_flock(self):
+        response = self.client.get("/")
+        self.assertNotContains(response, "haven't logged today's data yet")
 
 
 class DashboardFlockAgeTests(TestCase):
@@ -74,15 +115,16 @@ class DashboardFlockAgeTests(TestCase):
         self.client = Client()
         self.client.login(username="farmer1", password="pw12345")
 
-    @patch("farm.services.date")
-    def test_age_card_projects_forward_from_a_stale_log(self, mock_date):
+    @patch("farm.services.timezone")
+    def test_age_card_projects_forward_from_a_stale_log(self, mock_timezone):
         flock = Flock.objects.create(owner=self.user, generation_number=1, started_on=date(2023, 1, 1))
         DailyLog.objects.create(
             flock=flock, date=date(2024, 1, 1), flock_size=240, caging_period=1,
             flock_age_weeks=94, egg_count=150, feed_intake_kg="40.0",
             temperature_c="28.0", humidity_pct="75.0", recorded_by=self.user,
         )
-        mock_date.today.return_value = date(2024, 2, 12)  # exactly 6 weeks (42 days) later
+        mock_timezone.localdate.return_value = date(2024, 2, 12)  # exactly 6 weeks (42 days) later
+        mock_timezone.localtime.return_value = datetime(2024, 2, 12, 12, 0)  # same day, past the 8am rollover
         response = self.client.get("/")
         self.assertEqual(response.context["current_age_weeks"], 100)
         self.assertContains(response, "100")

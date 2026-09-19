@@ -4,6 +4,7 @@ from . import views
 
 urlpatterns = [
     path("log-daily-data/", views.log_daily_data, name="log_daily_data"),
+    path("weather-for-date/", views.weather_for_date, name="weather_for_date"),
     path("farm-records/", views.farm_records, name="farm_records"),
     path("farm-records/<int:pk>/edit/", views.farm_record_edit, name="farm_record_edit"),
     path("farm-records/<int:pk>/delete/", views.farm_record_delete, name="farm_record_delete"),

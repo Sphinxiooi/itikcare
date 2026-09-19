@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% load itik_icons %}
 
 {% block title %}Dashboard — ItikCare{% endblock %}
 
@@ -12,9 +13,9 @@
         <div>
             <h1 class="text-2xl font-bold text-gray-900">Good Day, {{ user.get_full_name|default:user.username }}!</h1>
             {% if user.address %}
-            <p class="text-sm text-gray-500 mt-1">📍 {{ user.address }}</p>
+            <p class="text-sm text-gray-500 mt-1 flex items-center gap-1">{% icon "map-pin" "w-4 h-4" %} {{ user.address }}</p>
             {% endif %}
-            <p class="text-sm text-gray-500">📅 {% now "F j, Y" %}</p>
+            <p class="text-sm text-gray-500 flex items-center gap-1">{% icon "calendar" "w-4 h-4" %} {% now "F j, Y" %}</p>
         </div>
         {% if current_weather %}
         <div class="ml-auto text-right text-sm text-gray-600">
@@ -27,17 +28,25 @@
 
     {% if not active_flock %}
     <div class="bg-amber-50 border border-amber-200 text-amber-800 text-sm rounded-md p-4 mt-6">
-        No active flock yet. Add a Flock and some DailyLog entries in the
-        <a href="/admin/" class="underline font-medium">admin</a>, or use
-        <a href="{% url 'log_daily_data' %}" class="underline font-medium">Log Daily Data</a>,
-        to see forecasts and recommendations here.
+        No flock registered yet.
+        <a href="{% url 'flock_profile' %}" class="underline font-medium">Register a flock</a>
+        to start logging daily data and see forecasts and recommendations here.
     </div>
     {% elif not flock_is_caged %}
     <div class="bg-amber-50 border border-amber-200 text-amber-800 text-sm rounded-md p-4 mt-6">
-        🌾 This flock is currently <strong>free-range in the field</strong>. Daily logging, forecasts, and the
+        {% icon "wheat" "w-4 h-4 inline -mt-0.5" %} This flock is currently <strong>free-range in the field</strong>. Daily logging, forecasts, and the
         data summary are paused until it's caged again.
         <a href="{% url 'flock_profile' %}" class="underline font-medium">Mark it as caged from Flock Profile</a>
         once logging resumes.
+    </div>
+    {% endif %}
+
+    {% if active_flock and flock_is_caged and not logged_today %}
+    <div class="bg-amber-50 border border-amber-200 text-amber-800 text-sm rounded-md p-4 mt-6 flex flex-wrap items-center justify-between gap-3">
+        <span class="flex items-center gap-1">{% icon "clock" "w-4 h-4" %} You haven't logged today's data yet.</span>
+        <a href="{% url 'log_daily_data' %}" class="inline-block text-xs font-medium bg-amber-700 text-white rounded-md px-3 py-1.5 hover:bg-amber-800">
+            Record Today's Data
+        </a>
     </div>
     {% endif %}
 
@@ -73,7 +82,7 @@
         </div>
         {% if forecast_low_confidence %}
         <div class="bg-blue-50 border border-blue-200 text-blue-800 text-sm rounded-md p-3 mb-4">
-            ℹ️ Logging just resumed ({{ forecast_history_days }}/3 days so far) — forecasts may be less accurate
+            {% icon "info-circle" "w-4 h-4 inline -mt-0.5" %} Logging just resumed ({{ forecast_history_days }}/3 days so far) — forecasts may be less accurate
             until more history builds up.
         </div>
         {% endif %}
@@ -84,7 +93,7 @@
                 <p class="text-sm text-gray-600">
                     {{ day.date|date:"M j" }}{% if day.is_tomorrow %} | Tomorrow{% endif %}
                 </p>
-                <p class="text-3xl font-bold text-emerald-700 mt-2">{{ day.value|default:"—" }}</p>
+                <p class="text-3xl font-bold text-emerald-700 mt-2">{{ day.value|floatformat:0|default:"—" }}</p>
                 <p class="text-sm text-gray-500">Eggs</p>
             </div>
             {% endfor %}
@@ -120,18 +129,21 @@
 
         <div class="bg-amber-50 border border-amber-200 rounded-xl p-4">
             <div class="flex justify-between items-center mb-3">
-                <h2 class="text-lg font-bold text-gray-900">💡 Top Recommendation</h2>
+                <h2 class="text-lg font-bold text-gray-900 flex items-center gap-1.5">{% icon "lightbulb" "w-5 h-5" %} Top Recommendation</h2>
                 <a href="{% url 'forecast_recommendations' %}" class="text-sm font-medium text-emerald-700 hover:underline">View all</a>
             </div>
             {% if top_recommendation %}
             <p class="rounded-lg p-3 text-sm
                 {% if top_recommendation.priority == 'high' %}bg-red-50
                 {% else %}bg-orange-50{% endif %}">
-                {{ top_recommendation.message }}
+                <span class="font-bold uppercase text-xs tracking-wide
+                    {% if top_recommendation.priority == 'high' %}text-red-700
+                    {% else %}text-orange-600{% endif %}">{{ top_recommendation.status }}</span>
+                — {{ top_recommendation.message }}
             </p>
             {% elif has_calm_recommendations %}
             <p class="rounded-lg p-3 text-sm bg-emerald-50">
-                ✅ Everything looks good — no urgent action needed right now.
+                {% icon "check-circle" "w-4 h-4 inline -mt-0.5" %} Everything looks good — no urgent action needed right now.
             </p>
             {% else %}
             <p class="text-sm text-gray-500">No recommendations yet.</p>
@@ -148,7 +160,43 @@
             <a href="{% url 'farm_records' %}" class="text-sm font-medium text-emerald-700 hover:underline">View all</a>
         </div>
         {% if recent_records %}
-        <div class="overflow-x-auto">
+        {% comment %}
+        Same table/card split as Farm Records (farm/templates/farm/farm_records.html)
+        -- below md there isn't width for 6 columns without horizontal scrolling,
+        so each row renders as a small card instead; the table takes over at md
+        and up.
+        {% endcomment %}
+        <div class="md:hidden space-y-3">
+            {% for log in recent_records %}
+            <div class="bg-white border border-gray-200 rounded-xl p-4">
+                <p class="font-semibold text-gray-900 mb-3">{{ log.date }}</p>
+                <dl class="grid grid-cols-2 gap-x-3 gap-y-2.5 text-sm">
+                    <div>
+                        <dt class="text-xs text-gray-500">Egg Count</dt>
+                        <dd class="font-medium text-gray-900">{{ log.egg_count }}</dd>
+                    </div>
+                    <div>
+                        <dt class="text-xs text-gray-500">Feed (kg)</dt>
+                        <dd class="font-medium text-gray-900">{{ log.feed_intake_kg }}</dd>
+                    </div>
+                    <div>
+                        <dt class="text-xs text-gray-500">Temp / Humidity</dt>
+                        <dd class="font-medium text-gray-900">{{ log.temperature_c }}°C / {{ log.humidity_pct }}%</dd>
+                    </div>
+                    <div>
+                        <dt class="text-xs text-gray-500">Flock Count</dt>
+                        <dd class="font-medium text-gray-900">{{ log.flock_size }}</dd>
+                    </div>
+                    <div>
+                        <dt class="text-xs text-gray-500">Avg. Age (wk)</dt>
+                        <dd class="font-medium text-gray-900">{{ log.flock_age_weeks }}</dd>
+                    </div>
+                </dl>
+            </div>
+            {% endfor %}
+        </div>
+
+        <div class="hidden md:block overflow-x-auto">
             <table class="w-full text-sm text-left">
                 <thead class="bg-emerald-700 text-white">
                     <tr>
@@ -184,10 +232,15 @@
 {% if trend_logs %}
 <script>
     const trendFutureStartIndex = {{ trend_future_start_index|default_if_none:"null" }};
+    const trendLabels = {{ trend_labels_json|safe }};
+    // Dot markers become visual noise once "All data" packs in months of daily
+    // points -- shrink them to 0 past ~60 points so the trend reads as a clean
+    // line instead of a dot-chain, while short ranges keep visible dots.
+    const trendPointRadius = trendLabels.length > 60 ? 0 : trendLabels.length > 30 ? 2 : 4;
     new Chart(document.getElementById("trendChart"), {
         type: "line",
         data: {
-            labels: {{ trend_labels_json|safe }},
+            labels: trendLabels,
             datasets: [
                 {
                     label: "Actual egg yield",
@@ -195,7 +248,8 @@
                     borderColor: "#047857",
                     backgroundColor: "#047857",
                     borderWidth: 2,
-                    pointRadius: 4,
+                    pointRadius: trendPointRadius,
+                    pointHoverRadius: 4,
                     tension: 0.3,
                     spanGaps: false,
                 },
@@ -205,7 +259,8 @@
                     borderColor: "#2a78d6",
                     backgroundColor: "#2a78d6",
                     borderWidth: 2,
-                    pointRadius: 4,
+                    pointRadius: trendPointRadius,
+                    pointHoverRadius: 4,
                     tension: 0.3,
                     spanGaps: false,
                     // The tail beyond trendFutureStartIndex is the Next 3-Day Forecast
@@ -221,8 +276,15 @@
             ],
         },
         options: {
-            plugins: { legend: { position: "bottom" } },
-            scales: { y: { beginAtZero: true } },
+            plugins: {
+                legend: { position: "bottom" },
+                tooltip: {
+                    callbacks: {
+                        label: (ctx) => `${ctx.dataset.label}: ${Math.round(ctx.parsed.y)}`,
+                    },
+                },
+            },
+            scales: { y: { beginAtZero: true, ticks: { precision: 0 } } },
         },
     });
 </script>

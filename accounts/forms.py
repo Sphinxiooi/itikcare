@@ -83,7 +83,7 @@ class StyledAuthenticationForm(AuthenticationForm):
         super().__init__(*args, **kwargs)
         self.fields["username"].label = "Username, email, or full name"
         self.fields["username"].widget.attrs.update({"class": INPUT_CLASSES})
-        self.fields["password"].widget.attrs.update({"class": INPUT_CLASSES})
+        self.fields["password"].widget.attrs.update({"class": INPUT_CLASSES + " pr-10"})
 
     def clean(self):
         identifier = self.cleaned_data.get("username")
@@ -174,6 +174,8 @@ class SignupForm(UserCreationForm):
         self.fields["address"] = barangay_choice_field()
         for field_name in ("username", "email", "password1", "password2", "address"):
             self.fields[field_name].widget.attrs.update({"class": INPUT_CLASSES})
+        for field_name in ("password1", "password2"):
+            self.fields[field_name].widget.attrs.update({"class": INPUT_CLASSES + " pr-10"})
         self.fields["email"].required = False
 
     def clean_address(self):
@@ -232,3 +234,40 @@ class AccountSettingsForm(forms.ModelForm):
     def clean_address(self):
         barangay = self.cleaned_data["address"]
         return expand_barangay_address(barangay) if barangay else ""
+
+
+class AccountDeletionForm(forms.Form):
+    """Confirms self-service account deletion (accounts/views.py's delete_account)
+    before it proceeds. Some accounts have no local password at all -- a Google-only
+    sign-in gets User.set_unusable_password() (see google_callback) -- so "confirm with
+    your password" isn't always possible. This form picks the strongest confirmation
+    the account actually supports: the current password when there is one, otherwise
+    typing the username, rather than offering both as if either always worked.
+
+    confirmation_mode is exposed for the template to label the single field correctly
+    ("Current password" vs "Type your username to confirm").
+    """
+
+    confirmation = forms.CharField(label="Confirm", widget=forms.PasswordInput)
+
+    def __init__(self, *args, user, **kwargs):
+        self.user = user
+        super().__init__(*args, **kwargs)
+        if user.has_usable_password():
+            self.confirmation_mode = "password"
+            self.fields["confirmation"].label = "Current password"
+        else:
+            self.confirmation_mode = "username"
+            self.fields["confirmation"].label = f'Type your username ("{user.username}") to confirm'
+            self.fields["confirmation"].widget = forms.TextInput()
+        self.fields["confirmation"].widget.attrs.update({"class": INPUT_CLASSES})
+
+    def clean_confirmation(self):
+        value = self.cleaned_data["confirmation"]
+        if self.confirmation_mode == "password":
+            if not self.user.check_password(value):
+                raise forms.ValidationError("Incorrect password.")
+        else:
+            if value != self.user.username:
+                raise forms.ValidationError("Type your username exactly to confirm.")
+        return value

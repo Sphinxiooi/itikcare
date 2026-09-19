@@ -1,18 +1,30 @@
-"""Live weather lookup used only to suggest a starting temperature_c/humidity_pct value
-on the daily log form (see views.log_daily_data) — never a substitute for the farmer's
-own reading (itikcare-spec.md section 7: temperature/humidity are always manual entry).
-The farmer still reviews, can overwrite, and must submit the form themselves.
+"""Weather lookups — always a best-effort *suggestion*, never a substitute for the
+farmer's own reading (itikcare-spec.md section 7: temperature/humidity are always
+manual entry). Every function here returns None on any failure/missing config rather
+than raising, so a caller can always safely treat None as "leave it to the farmer."
 
-Also provides a short-range forecast (fetch_forecast_weather) used to estimate
-temperature_c/humidity_pct for the next few days when forecasting.services recursively
-projects future egg yield — same "best effort, never a hard dependency" contract as
-fetch_current_weather.
+fetch_current_weather powers the dashboard's live-weather widget (dashboard.views.index)
+— informational only, not tied to any form field.
 
-geocode_address is a third, standalone concern: turning the free-text farm address a
-farmer types at signup (accounts.views.signup) into the latitude/longitude the two
-functions above need. It's kept in this module rather than in accounts/ because it's
-still just "talk to Open-Meteo," the same HTTP/timeout/logging pattern as the rest of
-this file, and it means accounts/ never has to know Open-Meteo is the provider.
+fetch_forecast_weather estimates temperature_c/humidity_pct for the next few days when
+forecasting.services recursively projects future egg yield.
+
+fetch_historical_weather suggests a starting temperature_c/humidity_pct for a
+*backdated* Log Daily Data entry (see farm.views.log_daily_data / weather_for_date) —
+adviser-directed addition so a farmer backfilling a missed past day doesn't have to
+remember that day's exact reading from memory. It tries Open-Meteo's Historical Weather
+(reanalysis) archive first, since it covers any past date, then falls back to the
+regular forecast endpoint's own start_date/end_date range — the archive lags ~2-5 days
+behind real time, so a date from earlier this week may not be in it yet, while the
+forecast endpoint always carries the last ~92 days. The client-side field is always
+still a normal editable input the farmer can overwrite before submitting; today's date
+is never looked up here (see farm.views.log_daily_data's own "today stays blank" rule).
+
+geocode_address is a standalone concern: turning the free-text farm address a farmer
+types at signup (accounts.views.signup) into the latitude/longitude the functions above
+need. It's kept in this module rather than in accounts/ because it's still just "talk
+to Open-Meteo," the same HTTP/timeout/logging pattern as the rest of this file, and it
+means accounts/ never has to know Open-Meteo is the provider.
 """
 
 import logging
@@ -26,6 +38,7 @@ from django.conf import settings
 logger = logging.getLogger(__name__)
 
 OPEN_METEO_URL = "https://api.open-meteo.com/v1/forecast"
+OPEN_METEO_ARCHIVE_URL = "https://archive-api.open-meteo.com/v1/archive"
 OPEN_METEO_GEOCODING_URL = "https://geocoding-api.open-meteo.com/v1/search"
 REQUEST_TIMEOUT_SECONDS = 5
 
@@ -147,6 +160,80 @@ def fetch_forecast_weather(latitude=None, longitude=None) -> dict:
         forecast[day] = {"temperature_c": temperature_c, "humidity_pct": humidity_pct}
 
     return forecast
+
+
+def fetch_historical_weather(target_date, latitude=None, longitude=None):
+    """Best-effort average temperature (°C) / relative humidity (%) for one *past*
+    calendar date, to suggest a starting value for a backdated Log Daily Data entry
+    (see farm.views.weather_for_date). Falls back to the global FARM_LATITUDE/
+    FARM_LONGITUDE settings when latitude/longitude aren't passed, same contract as
+    fetch_current_weather.
+
+    Returns None for target_date being today or in the future — there's nothing
+    "historical" to look up yet, and log_daily_data already leaves today's fields
+    blank on its own. Also returns None if coordinates aren't configured, or if
+    every fetch attempt below fails — same "None means leave the field blank for the
+    farmer" contract as the other two lookups in this module.
+
+    Tries OPEN_METEO_ARCHIVE_URL (Open-Meteo's Historical Weather / reanalysis
+    archive) first, since it covers any past date, but that data lags roughly 2-5
+    days behind real time — a date from earlier this week may not be in it yet, and
+    that shows up as an all-null hourly series rather than an error. When that
+    happens, falls back to OPEN_METEO_URL's own start_date/end_date range instead,
+    which always carries the last ~92 days including yesterday.
+    """
+    latitude = latitude or settings.FARM_LATITUDE
+    longitude = longitude or settings.FARM_LONGITUDE
+    if not latitude or not longitude or target_date >= date_cls.today():
+        return None
+
+    result = _fetch_daily_average(OPEN_METEO_ARCHIVE_URL, latitude, longitude, target_date)
+    if result is None:
+        result = _fetch_daily_average(OPEN_METEO_URL, latitude, longitude, target_date)
+    return result
+
+
+def _fetch_daily_average(url, latitude, longitude, target_date):
+    """Shared hourly-fetch-and-average helper behind fetch_historical_weather's two
+    fallback tiers: requests hourly temperature_2m/relative_humidity_2m for a single
+    calendar date from either Open-Meteo endpoint (both accept the same
+    start_date/end_date/timezone params) and averages them the same way
+    fetch_forecast_weather does per day. Returns None (never raises) on a request
+    failure, a malformed response, or an hourly series with no non-null readings at
+    all for that date (e.g. the archive endpoint hasn't caught up to target_date yet).
+    """
+    try:
+        response = requests.get(
+            url,
+            params={
+                "latitude": latitude,
+                "longitude": longitude,
+                "hourly": "temperature_2m,relative_humidity_2m",
+                "start_date": target_date.isoformat(),
+                "end_date": target_date.isoformat(),
+                "timezone": "auto",
+            },
+            timeout=REQUEST_TIMEOUT_SECONDS,
+        )
+        response.raise_for_status()
+        hourly = response.json()["hourly"]
+        temps = [float(t) for t in hourly["temperature_2m"] if t is not None]
+        humidities = [float(h) for h in hourly["relative_humidity_2m"] if h is not None]
+    except Exception:
+        logger.warning(
+            "Historical weather fetch failed for url=%s date=%s", url, target_date, exc_info=True,
+        )
+        return None
+
+    if not temps or not humidities:
+        return None
+
+    temperature_c = round(sum(temps) / len(temps), 1)
+    humidity_pct = round(sum(humidities) / len(humidities), 1)
+    # Same defensive clamp as fetch_current_weather/fetch_forecast_weather.
+    temperature_c = min(max(temperature_c, 0.0), 45.0)
+    humidity_pct = min(max(humidity_pct, 0.0), 100.0)
+    return {"temperature_c": temperature_c, "humidity_pct": humidity_pct}
 
 
 def geocode_address(address):

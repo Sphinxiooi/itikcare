@@ -1,5 +1,3 @@
-from datetime import date
-
 from django.shortcuts import render
 
 from farm.models import DailyLog
@@ -10,6 +8,7 @@ from farm.services import (
     current_flock_age_weeks,
     get_active_flock,
     get_effective_coordinates,
+    operational_today,
     resolve_trend_range,
 )
 from farm.weather import fetch_current_weather
@@ -34,6 +33,12 @@ PRIORITY_RANK = {
 # card. Everything milder (on-track/in-range/no-action confirmations) still exists and
 # is traceable on the full Forecast & Recommendations page, just not surfaced here.
 ACTIONABLE_PRIORITIES = {Recommendation.Priority.HIGH, Recommendation.Priority.MEDIUM_HIGH}
+
+
+def researchers(request):
+    """Public "About the Researchers" page, linked from the landing page footer."""
+
+    return render(request, "researchers.html")
 
 
 def index(request):
@@ -68,7 +73,7 @@ def index(request):
     # nowcast (see forecasting/services.py), so in practice this is today's forecast
     # or none — there's no genuinely future-dated Forecast row to prefer instead.
     latest_forecast = (
-        Forecast.objects.filter(flock=active_flock, forecast_date__gte=date.today())
+        Forecast.objects.filter(flock=active_flock, forecast_date__gte=operational_today())
         .order_by("forecast_date")
         .first()
         if flock_is_caged
@@ -77,7 +82,7 @@ def index(request):
     # Dashboard shows only the single most urgent recommendation (highest priority,
     # ties broken by feature importance -- matching the ordering convention on the
     # Forecast & Recommendations page), and only if it's actually at an actionable tier
-    # (ACTIONABLE_PRIORITIES) -- the 3 recommendation slots always fire (see
+    # (ACTIONABLE_PRIORITIES) -- the 4 recommendation slots always fire (see
     # recommendations/rules.py), including routine "on track"/"in range" confirmations
     # that aren't worth interrupting the farmer for here; those still show in full on the
     # Forecast & Recommendations page. has_calm_recommendations distinguishes "nothing
@@ -128,7 +133,7 @@ def index(request):
     # Distinct from today_log above: this is only set when the farmer has actually
     # logged *today's* data (today_log can be stale -- see note above), used for the
     # "Today's Egg Yield" card, which must stay blank until today's entry exists.
-    logged_today = today_log if today_log and today_log.date == date.today() else None
+    logged_today = today_log if today_log and today_log.date == operational_today() else None
     recent_records = recent_logs[:5]
 
     # Trend chart range: farmer-selectable via ?trend_range=, defaulting to 7 days.

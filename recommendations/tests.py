@@ -108,9 +108,10 @@ class ImportanceForTests(SimpleTestCase):
     def test_raw_feature_key_returns_its_own_importance(self):
         self.assertEqual(rules.importance_for("feed_intake_kg", {"feed_intake_kg": 0.3}), 0.3)
 
-    def test_environment_key_returns_the_higher_of_temp_and_humidity(self):
+    def test_temperature_and_humidity_keys_return_their_own_importance(self):
         importances = {"temperature_c": 0.1, "humidity_pct": 0.4}
-        self.assertEqual(rules.importance_for("environment", importances), 0.4)
+        self.assertEqual(rules.importance_for("temperature_c", importances), 0.1)
+        self.assertEqual(rules.importance_for("humidity_pct", importances), 0.4)
 
     def test_unknown_key_defaults_to_zero(self):
         self.assertEqual(rules.importance_for("flock_size", {}), 0.0)
@@ -127,19 +128,22 @@ class FeedRecommendationSlotTests(SimpleTestCase):
         # age 10wk (LOW tier), 40g/bird/day (< 70g underfed ceiling for LOW).
         rule = self._feed_rule(flock_age_weeks=10, feed_intake_kg=10.0, flock_size=250)
         self.assertEqual(rule.priority, Priority.HIGH)
-        self.assertIn("70-110 g/bird/day", rule.message)
-        self.assertIn("delays growth and laying maturity", rule.message)
+        self.assertEqual(rule.status, "Underfed")
+        self.assertIn("70–110 grams per bird every day", rule.action_text)
+        self.assertIn("lay eggs late", rule.action_text)
 
     def test_high_age_overfed_matches_af15(self):
         # age 85wk (HIGH tier), 200g/bird/day (>= 130g overfed floor for HIGH).
         rule = self._feed_rule(flock_age_weeks=85, feed_intake_kg=50.0, flock_size=250)
         self.assertEqual(rule.priority, Priority.MEDIUM)
-        self.assertIn("evaluating flock replacement", rule.message)
+        self.assertEqual(rule.status, "Overfed")
+        self.assertIn("replacing the flock", rule.action_text)
 
     def test_on_track_is_low_priority(self):
         rule = self._feed_rule()  # baseline: 168 g/bird/day at MEDIUM age -> on track
         self.assertEqual(rule.priority, Priority.LOW)
-        self.assertIn("Maintain current ration through peak production", rule.message)
+        self.assertEqual(rule.status, "On Track")
+        self.assertIn("Keep the same feed during peak egg-laying time", rule.action_text)
 
 
 class FlockAgeRecommendationSlotTests(SimpleTestCase):
@@ -152,54 +156,78 @@ class FlockAgeRecommendationSlotTests(SimpleTestCase):
     def test_high_tier_recommends_retirement(self):
         rule = self._age_rule(flock_age_weeks=85)
         self.assertEqual(rule.priority, Priority.HIGH)
-        self.assertIn("Retire or cull declining layers", rule.message)
+        self.assertEqual(rule.status, "High")
+        self.assertIn("Retire or cull the layers that are slowing down", rule.action_text)
 
     def test_medium_high_tier_recommends_raising_replacement(self):
         rule = self._age_rule(flock_age_weeks=60)
         self.assertEqual(rule.priority, Priority.MEDIUM_HIGH)
-        self.assertIn("Start raising a replacement cohort now", rule.message)
+        self.assertEqual(rule.status, "Medium-High")
+        self.assertIn("Start raising your replacement ducks now", rule.action_text)
 
     def test_low_tier_needs_no_action(self):
         rule = self._age_rule(flock_age_weeks=10)
         self.assertEqual(rule.priority, Priority.LOW)
-        self.assertIn("No retirement/replacement action relevant yet", rule.message)
+        self.assertEqual(rule.status, "Low")
+        self.assertIn("No need for retirement or replacement action yet", rule.action_text)
 
 
-class EnvironmentalRecommendationSlotTests(SimpleTestCase):
-    """The environment slot merges temperature+humidity via two asymmetric matrices
-    (2.2 temperature flag, 2.3 humidity flag) -- worse tier wins, both texts included.
-    """
+class TemperatureRecommendationSlotTests(SimpleTestCase):
+    """The temperature_c slot: temperature tier x humidity tier -> temperature flag (2.2/2.4)."""
 
-    def _env_rule(self, **overrides):
+    def _temp_rule(self, **overrides):
         fired = rules.evaluate_rules(_inputs(**overrides), {})
-        return next(f for f in fired if f.feature == "environment")
+        return next(f for f in fired if f.feature == "temperature_c")
 
     def test_matching_severe_heat_and_humidity_is_high(self):
-        rule = self._env_rule(temperature_c=34.0, humidity_pct=90.0)
+        rule = self._temp_rule(temperature_c=34.0, humidity_pct=90.0)
         self.assertEqual(rule.priority, Priority.HIGH)
-        self.assertIn("Severe heat stress risk", rule.message)
-        self.assertIn("Severe moisture stress", rule.message)
+        self.assertIn("very high risk of heat stress", rule.action_text)
 
-    def test_within_comfort_range_is_low_priority_confirmation(self):
-        rule = self._env_rule(temperature_c=27.0, humidity_pct=60.0)
+    def test_within_comfort_range_is_medium_priority_confirmation(self):
+        rule = self._temp_rule(temperature_c=27.0, humidity_pct=60.0)
         self.assertEqual(rule.priority, Priority.MEDIUM)
-        self.assertIn("Within acceptable comfort range", rule.message)
-        self.assertIn("Within acceptable range", rule.message)
+        self.assertIn("This is a comfortable temperature", rule.action_text)
 
-    def test_asymmetric_matrices_take_the_worse_of_the_two_flags(self):
+    def test_asymmetric_matrix_uses_both_readings(self):
         # temperature_c=20.0 -> MEDIUM_LOW tier; humidity_pct=90.0 -> HIGH tier.
-        # Temperature flag matrix[(MEDIUM_LOW, HIGH)] = MEDIUM_HIGH, but humidity flag
-        # matrix[(HIGH, MEDIUM_LOW)] = HIGH -- the two matrices disagree, and HIGH (the
-        # more severe of the two) must win, with both texts present in the message.
-        rule = self._env_rule(temperature_c=20.0, humidity_pct=90.0)
+        # Temperature flag matrix[(MEDIUM_LOW, HIGH)] = MEDIUM_HIGH -- driven by both
+        # readings even though only temperature_c is the triggered_by key here.
+        rule = self._temp_rule(temperature_c=20.0, humidity_pct=90.0)
+        self.assertEqual(rule.priority, Priority.MEDIUM_HIGH)
+        self.assertIn("heat stress is starting to rise", rule.action_text)
+
+
+class HumidityRecommendationSlotTests(SimpleTestCase):
+    """The humidity_pct slot: humidity tier x temperature tier -> humidity flag (2.3/2.5)."""
+
+    def _humidity_rule(self, **overrides):
+        fired = rules.evaluate_rules(_inputs(**overrides), {})
+        return next(f for f in fired if f.feature == "humidity_pct")
+
+    def test_matching_severe_heat_and_humidity_is_high(self):
+        rule = self._humidity_rule(temperature_c=34.0, humidity_pct=90.0)
         self.assertEqual(rule.priority, Priority.HIGH)
-        self.assertIn("Elevated heat stress", rule.message)
-        self.assertIn("Severe moisture stress", rule.message)
+        self.assertIn("too much moisture", rule.action_text)
+
+    def test_within_comfort_range_is_medium_priority_confirmation(self):
+        rule = self._humidity_rule(temperature_c=27.0, humidity_pct=60.0)
+        self.assertEqual(rule.priority, Priority.MEDIUM)
+        self.assertIn("This is an acceptable range", rule.action_text)
+
+    def test_asymmetric_matrix_uses_both_readings(self):
+        # humidity_pct=90.0 -> HIGH tier; temperature_c=20.0 -> MEDIUM_LOW tier.
+        # Humidity flag matrix[(HIGH, MEDIUM_LOW)] = HIGH -- worse than the temperature
+        # slot's own MEDIUM_HIGH result for the same reading pair (see the test above),
+        # proving the two matrices are independently asymmetric, not read from one table.
+        rule = self._humidity_rule(temperature_c=20.0, humidity_pct=90.0)
+        self.assertEqual(rule.priority, Priority.HIGH)
+        self.assertIn("too much moisture", rule.action_text)
 
 
 class EvaluateRulesOrderingTests(SimpleTestCase):
     def test_fired_slots_are_sorted_by_importance_descending(self):
-        # environment (max(temp, humidity) = 0.5) > feed_intake_kg (0.1) > flock_age_weeks (0.05).
+        # temperature_c (0.5) > humidity_pct (0.2) > feed_intake_kg (0.1) > flock_age_weeks (0.05).
         importances = {
             "temperature_c": 0.5,
             "humidity_pct": 0.2,
@@ -209,12 +237,16 @@ class EvaluateRulesOrderingTests(SimpleTestCase):
         }
         fired = rules.evaluate_rules(_inputs(), importances)
         self.assertEqual(
-            [f.feature for f in fired], ["environment", "feed_intake_kg", "flock_age_weeks"]
+            [f.feature for f in fired],
+            ["temperature_c", "humidity_pct", "feed_intake_kg", "flock_age_weeks"],
         )
 
-    def test_always_fires_exactly_three_slots(self):
+    def test_always_fires_exactly_four_slots(self):
         fired = rules.evaluate_rules(_inputs(), {})
-        self.assertEqual({f.feature for f in fired}, {"feed_intake_kg", "flock_age_weeks", "environment"})
+        self.assertEqual(
+            {f.feature for f in fired},
+            {"feed_intake_kg", "flock_age_weeks", "temperature_c", "humidity_pct"},
+        )
 
 
 class GenerateRecommendationsTests(TestCase):
@@ -253,25 +285,44 @@ class GenerateRecommendationsTests(TestCase):
         created = generate_recommendations(self.forecast)
         by_feature = {r.triggered_by: r for r in created}
 
-        self.assertEqual(set(by_feature), {"environment", "feed_intake_kg", "flock_age_weeks"})
-        # environment: temp HIGH tier + humidity MEDIUM tier -> worse (HIGH) wins.
-        self.assertEqual(by_feature["environment"].priority, Priority.HIGH)
+        self.assertEqual(
+            set(by_feature), {"temperature_c", "humidity_pct", "feed_intake_kg", "flock_age_weeks"}
+        )
+        # temperature: temp HIGH tier x humidity MEDIUM tier -> temperature flag matrix -> HIGH.
+        self.assertEqual(by_feature["temperature_c"].priority, Priority.HIGH)
+        # humidity: humidity MEDIUM tier x temp HIGH tier -> humidity flag matrix -> MEDIUM.
+        self.assertEqual(by_feature["humidity_pct"].priority, Priority.MEDIUM)
         # feed: MEDIUM_HIGH age tier, 80g/bird/day < 110g ceiling -> underfed -> HIGH.
         self.assertEqual(by_feature["feed_intake_kg"].priority, Priority.HIGH)
         # age: 60wk -> MEDIUM_HIGH tier.
         self.assertEqual(by_feature["flock_age_weeks"].priority, Priority.MEDIUM_HIGH)
 
     def test_output_order_matches_feature_importance_descending(self):
-        # environment = max(temp 0.40, humidity 0.10) = 0.40 > feed 0.30 > age 0.15.
+        # temperature_c (0.40) > feed (0.30) > age (0.15) > humidity_pct (0.10).
         created = generate_recommendations(self.forecast)
         self.assertEqual(
-            [r.triggered_by for r in created], ["environment", "feed_intake_kg", "flock_age_weeks"]
+            [r.triggered_by for r in created],
+            ["temperature_c", "feed_intake_kg", "flock_age_weeks", "humidity_pct"],
         )
+
+    def test_status_learn_more_and_reading_summary_are_populated(self):
+        created = generate_recommendations(self.forecast)
+        by_feature = {r.triggered_by: r for r in created}
+
+        feed_rec = by_feature["feed_intake_kg"]
+        self.assertEqual(feed_rec.status, "Underfed")
+        self.assertTrue(feed_rec.learn_more)
+        self.assertIn("g/bird/day", feed_rec.reading_summary)
+
+        temp_rec = by_feature["temperature_c"]
+        self.assertEqual(temp_rec.status, "High")
+        self.assertTrue(temp_rec.learn_more)
+        self.assertIn("°C", temp_rec.reading_summary)
 
     def test_regeneration_is_idempotent(self):
         generate_recommendations(self.forecast)
         generate_recommendations(self.forecast)
-        self.assertEqual(self.forecast.recommendations.count(), 3)
+        self.assertEqual(self.forecast.recommendations.count(), 4)
 
     def test_no_source_logs_yields_no_recommendations(self):
         self.forecast.source_logs.clear()

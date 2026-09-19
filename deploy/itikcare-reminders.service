@@ -1,0 +1,13 @@
+[Unit]
+Description=ItikCare daily-log reminder emails
+After=network.target postgresql.service
+
+[Service]
+# Adjust User/Group and paths for your VM -- same assumptions as itikcare.service
+# (repo at /home/itikcare/app, venv created inside it).
+Type=oneshot
+User=itikcare
+Group=itikcare
+WorkingDirectory=/home/itikcare/app
+EnvironmentFile=/home/itikcare/app/.env
+ExecStart=/home/itikcare/app/venv/bin/python manage.py send_daily_log_reminders

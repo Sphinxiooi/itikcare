@@ -1,6 +1,11 @@
 {% extends "base.html" %}
+{% load itik_icons %}
 
 {% block title %}Farm Records — ItikCare{% endblock %}
+
+{% block extra_head %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
+{% endblock %}
 
 {% block content %}
 <div class="bg-white border border-gray-200 rounded-xl p-6">
@@ -35,17 +40,140 @@
         </div>
     </div>
 
+    {% if records_charts_available %}
+    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+        <div class="bg-white border border-gray-200 rounded-xl p-4 transition duration-150 ease-out motion-safe:hover:scale-[1.02] hover:shadow-md">
+            <p class="text-xs font-medium text-gray-500 uppercase tracking-wide flex items-center gap-1">{% icon "egg" "w-3.5 h-3.5" %} Avg. Daily Egg Yield</p>
+            <div class="flex items-end justify-between mt-1">
+                <div>
+                    <p class="text-2xl font-bold text-gray-900">{{ avg_egg_yield|floatformat:0 }}</p>
+                    {% if egg_yield_delta_pct is not None %}
+                    <p class="text-xs font-medium {% if egg_yield_delta_pct > 0 %}text-emerald-700{% elif egg_yield_delta_pct < 0 %}text-red-600{% else %}text-gray-500{% endif %}">
+                        {% if egg_yield_delta_pct > 0 %}▲{% elif egg_yield_delta_pct < 0 %}▼{% endif %} {{ egg_yield_delta_pct }}% vs last month
+                    </p>
+                    {% endif %}
+                </div>
+                <canvas id="sparkEggYield" width="80" height="32"></canvas>
+            </div>
+        </div>
+
+        <div class="bg-white border border-gray-200 rounded-xl p-4 transition duration-150 ease-out motion-safe:hover:scale-[1.02] hover:shadow-md">
+            <p class="text-xs font-medium text-gray-500 uppercase tracking-wide flex items-center gap-1">{% icon "wheat" "w-3.5 h-3.5" %} Avg. Feed / Bird</p>
+            <div class="flex items-end justify-between mt-1">
+                <div>
+                    <p class="text-2xl font-bold text-gray-900">{{ avg_feed_per_bird }}<span class="text-sm font-medium text-gray-500"> g/day</span></p>
+                    {% if feed_per_bird_delta_pct is not None %}
+                    <p class="text-xs font-medium text-gray-500">
+                        {% if feed_per_bird_delta_pct > 0 %}▲{% elif feed_per_bird_delta_pct < 0 %}▼{% endif %} {{ feed_per_bird_delta_pct }}% vs last month
+                    </p>
+                    {% endif %}
+                </div>
+                <canvas id="sparkFeed" width="80" height="32"></canvas>
+            </div>
+        </div>
+
+        <div class="bg-white border border-gray-200 rounded-xl p-4 transition duration-150 ease-out motion-safe:hover:scale-[1.02] hover:shadow-md">
+            <p class="text-xs font-medium text-gray-500 uppercase tracking-wide flex items-center gap-1">{% icon "thermometer" "w-3.5 h-3.5" %} Avg. Temp / Humidity</p>
+            <div class="flex items-end justify-between mt-1">
+                <div>
+                    <p class="text-2xl font-bold text-gray-900">{{ avg_temperature }}°C</p>
+                    <p class="text-xs font-medium text-gray-500">{{ avg_humidity }}% humidity</p>
+                </div>
+                <canvas id="sparkTemp" width="80" height="32"></canvas>
+            </div>
+        </div>
+
+        <div class="bg-white border border-gray-200 rounded-xl p-4 transition duration-150 ease-out motion-safe:hover:scale-[1.02] hover:shadow-md">
+            <p class="text-xs font-medium text-gray-500 uppercase tracking-wide flex items-center gap-1">{% icon "flock" "w-3.5 h-3.5" %} Flock Size</p>
+            <p class="text-2xl font-bold text-gray-900 mt-1">{{ current_flock_size }}</p>
+            <p class="text-xs text-gray-400 mt-1">as of latest entry</p>
+        </div>
+    </div>
+
+    <div class="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-6">
+        <div class="bg-gray-50 border border-gray-200 rounded-xl p-4">
+            <h2 class="text-sm font-bold text-gray-900 mb-3">Egg Yield &amp; Feed per Bird</h2>
+            <canvas id="recordsMainChart" height="220"></canvas>
+        </div>
+        <div class="bg-gray-50 border border-gray-200 rounded-xl p-4">
+            <h2 class="text-sm font-bold text-gray-900 mb-3">Temperature &amp; Humidity</h2>
+            <canvas id="recordsEnvChart" height="220"></canvas>
+        </div>
+    </div>
+    {% endif %}
+
     {% if logs %}
-    <div class="overflow-x-auto">
+    {% comment %}
+    Below md, this table has 8 columns and no realistic width budget on a phone
+    screen (main content is viewport minus padding, no sidebar offset yet) --
+    rather than force horizontal scrolling, each row renders as its own card
+    with stacked label/value pairs instead. The table markup further down is
+    unchanged and takes over at md and up, where there's room for it.
+    {% endcomment %}
+    <div class="md:hidden space-y-3">
+        {% for log in logs %}
+        <div class="border border-gray-200 rounded-xl p-4">
+            <div class="flex justify-between items-start gap-3 mb-3">
+                <p class="font-semibold text-gray-900">{{ log.date }}</p>
+                {% if log.is_locked %}
+                <span class="text-gray-400 text-xs font-medium shrink-0" title="Used to train a forecasting model — no longer editable">Locked</span>
+                {% elif not log.flock.is_active %}
+                <span class="text-gray-400 text-xs font-medium shrink-0" title="This flock has been retired — its records are read-only">Read-only</span>
+                {% else %}
+                <a href="{% url 'farm_record_edit' log.pk %}" class="text-emerald-700 text-sm font-medium hover:underline shrink-0">Edit</a>
+                {% endif %}
+            </div>
+            <dl class="grid grid-cols-2 gap-x-3 gap-y-2.5 text-sm">
+                <div>
+                    <dt class="text-xs text-gray-500">Egg Count</dt>
+                    <dd class="font-medium text-gray-900">{{ log.egg_count }}</dd>
+                </div>
+                <div>
+                    <dt class="text-xs text-gray-500">Feed (kg)</dt>
+                    <dd class="font-medium text-gray-900">{{ log.feed_intake_kg }}</dd>
+                </div>
+                <div>
+                    <dt class="text-xs text-gray-500">Temp (°C)</dt>
+                    <dd class="font-medium text-gray-900">{{ log.temperature_c }}°C</dd>
+                </div>
+                <div>
+                    <dt class="text-xs text-gray-500">Humidity (%)</dt>
+                    <dd class="font-medium text-gray-900">{{ log.humidity_pct }}%</dd>
+                </div>
+                <div>
+                    <dt class="text-xs text-gray-500">Flock Count</dt>
+                    <dd class="font-medium text-gray-900">{{ log.flock_size }}</dd>
+                </div>
+                <div>
+                    <dt class="text-xs text-gray-500">Avg. Age (wk)</dt>
+                    <dd class="font-medium text-gray-900">{{ log.flock_age_weeks }}</dd>
+                </div>
+            </dl>
+            {% if log.edits.all %}
+            <details class="mt-3">
+                <summary class="text-gray-500 text-xs font-medium cursor-pointer hover:underline">History ({{ log.edits.all|length }})</summary>
+                <ul class="mt-2 text-xs text-gray-600 space-y-1 bg-gray-50 border border-gray-200 rounded-md p-2">
+                    {% for edit in log.edits.all %}
+                    <li>{{ edit.changed_at|date:"M j, Y g:i A" }} — {{ edit.changed_by }} changed {{ edit.field_name }} from "{{ edit.old_value }}" to "{{ edit.new_value }}"</li>
+                    {% endfor %}
+                </ul>
+            </details>
+            {% endif %}
+        </div>
+        {% endfor %}
+    </div>
+
+    <div class="hidden md:block overflow-x-auto">
         <table class="w-full text-sm text-left">
             <thead class="bg-emerald-700 text-white">
                 <tr>
                     <th class="py-2.5 px-3 rounded-l-md">Date</th>
-                    <th class="py-2.5 px-3">Egg Count</th>
-                    <th class="py-2.5 px-3">Feed (kg)</th>
-                    <th class="py-2.5 px-3">Temp / Humidity</th>
-                    <th class="py-2.5 px-3">Flock Count</th>
-                    <th class="py-2.5 px-3">Avg. Age (wk)</th>
+                    <th class="py-2.5 px-3 text-center">Egg Count</th>
+                    <th class="py-2.5 px-3 text-center">Feed (kg)</th>
+                    <th class="py-2.5 px-3 text-center">Temp (°C)</th>
+                    <th class="py-2.5 px-3 text-center">Humidity (%)</th>
+                    <th class="py-2.5 px-3 text-center">Flock Count</th>
+                    <th class="py-2.5 px-3 text-center">Avg. Age (wk)</th>
                     <th class="py-2.5 px-3 rounded-r-md"></th>
                 </tr>
             </thead>
@@ -53,11 +181,12 @@
                 {% for log in logs %}
                 <tr class="border-b border-gray-100 last:border-0">
                     <td class="py-2.5 px-3">{{ log.date }}</td>
-                    <td class="py-2.5 px-3">{{ log.egg_count }}</td>
-                    <td class="py-2.5 px-3">{{ log.feed_intake_kg }}</td>
-                    <td class="py-2.5 px-3">{{ log.temperature_c }}°C / {{ log.humidity_pct }}%</td>
-                    <td class="py-2.5 px-3">{{ log.flock_size }}</td>
-                    <td class="py-2.5 px-3">{{ log.flock_age_weeks }}</td>
+                    <td class="py-2.5 px-3 text-center">{{ log.egg_count }}</td>
+                    <td class="py-2.5 px-3 text-center">{{ log.feed_intake_kg }}</td>
+                    <td class="py-2.5 px-3 text-center">{{ log.temperature_c }}°C</td>
+                    <td class="py-2.5 px-3 text-center">{{ log.humidity_pct }}%</td>
+                    <td class="py-2.5 px-3 text-center">{{ log.flock_size }}</td>
+                    <td class="py-2.5 px-3 text-center">{{ log.flock_age_weeks }}</td>
                     <td class="py-2.5 px-3 text-right whitespace-nowrap">
                         {% if log.edits.all %}
                         <details class="inline-block text-left align-middle">
@@ -88,4 +217,128 @@
     </p>
     {% endif %}
 </div>
+
+{% if records_charts_available %}
+<script>
+(function () {
+    // Chart.js doesn't honor prefers-reduced-motion on its own -- disabling the
+    // entrance animation explicitly here mirrors the reduced-motion override
+    // already applied to modal transitions in static/src/input.css.
+    const prefersReducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    const chartAnimation = prefersReducedMotion ? false : { duration: 600 };
+    const labels = {{ records_chart_labels_json|safe }};
+    // Dot markers become visual noise once "All" months packs in a long history
+    // of daily points -- shrink them to 0 past ~60 points so the chart reads as
+    // a clean line instead of a dot-chain, while short ranges keep visible dots.
+    const mainPointRadius = labels.length > 60 ? 0 : labels.length > 30 ? 2 : 3;
+
+    function sparkline(canvasId, data, color) {
+        const el = document.getElementById(canvasId);
+        if (!el) return;
+        new Chart(el, {
+            type: "line",
+            data: { labels, datasets: [{ data, borderColor: color, borderWidth: 2, pointRadius: 0, tension: 0.3 }] },
+            options: {
+                animation: chartAnimation,
+                responsive: false,
+                plugins: { legend: { display: false }, tooltip: { enabled: false } },
+                scales: { x: { display: false }, y: { display: false } },
+            },
+        });
+    }
+
+    sparkline("sparkEggYield", {{ records_chart_egg_yield_json|safe }}, "#047857");
+    sparkline("sparkFeed", {{ records_chart_feed_per_bird_json|safe }}, "#d97706");
+    sparkline("sparkTemp", {{ records_chart_temperature_json|safe }}, "#ea580c");
+
+    new Chart(document.getElementById("recordsMainChart"), {
+        type: "line",
+        data: {
+            labels,
+            datasets: [
+                {
+                    label: "Egg yield",
+                    data: {{ records_chart_egg_yield_json|safe }},
+                    borderColor: "#047857",
+                    backgroundColor: "#047857",
+                    borderWidth: 2,
+                    pointRadius: mainPointRadius,
+                    pointHoverRadius: 4,
+                    tension: 0.3,
+                    yAxisID: "y",
+                },
+                {
+                    label: "Feed per bird (g/day)",
+                    data: {{ records_chart_feed_per_bird_json|safe }},
+                    borderColor: "#d97706",
+                    backgroundColor: "#d97706",
+                    borderWidth: 2,
+                    pointRadius: mainPointRadius,
+                    pointHoverRadius: 4,
+                    tension: 0.3,
+                    yAxisID: "y1",
+                },
+            ],
+        },
+        options: {
+            animation: chartAnimation,
+            plugins: { legend: { position: "bottom" } },
+            scales: {
+                y: { beginAtZero: true, position: "left", title: { display: true, text: "Egg yield" } },
+                y1: {
+                    beginAtZero: true,
+                    position: "right",
+                    title: { display: true, text: "g/bird/day" },
+                    grid: { drawOnChartArea: false },
+                },
+            },
+        },
+    });
+
+    new Chart(document.getElementById("recordsEnvChart"), {
+        type: "line",
+        data: {
+            labels,
+            datasets: [
+                {
+                    label: "Temperature (°C)",
+                    data: {{ records_chart_temperature_json|safe }},
+                    borderColor: "#ea580c",
+                    backgroundColor: "#ea580c",
+                    borderWidth: 2,
+                    pointRadius: mainPointRadius,
+                    pointHoverRadius: 4,
+                    tension: 0.3,
+                    yAxisID: "y",
+                },
+                {
+                    label: "Humidity (%)",
+                    data: {{ records_chart_humidity_json|safe }},
+                    borderColor: "#0284c7",
+                    backgroundColor: "#0284c7",
+                    borderWidth: 2,
+                    pointRadius: mainPointRadius,
+                    pointHoverRadius: 4,
+                    tension: 0.3,
+                    yAxisID: "y1",
+                },
+            ],
+        },
+        options: {
+            animation: chartAnimation,
+            plugins: { legend: { position: "bottom" } },
+            scales: {
+                y: { beginAtZero: true, position: "left", title: { display: true, text: "°C" } },
+                y1: {
+                    beginAtZero: true,
+                    position: "right",
+                    title: { display: true, text: "%" },
+                    grid: { drawOnChartArea: false },
+                },
+            },
+        },
+    });
+})();
+</script>
+{% endif %}
 {% endblock %}

@@ -2,6 +2,7 @@ from django import forms
 from django.utils import timezone
 
 from .models import DailyLog
+from .services import operational_today
 
 INPUT_CLASSES = (
     "w-full rounded-md border border-gray-300 px-3 py-2 text-sm "
@@ -47,19 +48,25 @@ class DailyLogForm(forms.ModelForm):
         # Caps the browser's native date picker at today (and, if we know which flock
         # this entry is for, at the flock's start date on the other end) so the
         # farmer can't even pick an out-of-range date — clean_date() below is the
-        # real (server-side) guard either way.
+        # real (server-side) guard either way. Uses operational_today(), not the plain
+        # calendar date: this farm's logging day rolls over at 8am, not midnight, so an
+        # early-morning entry (e.g. 3am) is still capped at yesterday's date.
         super().__init__(*args, **kwargs)
         self.active_flock = active_flock
-        self.fields["date"].widget.attrs["max"] = timezone.localdate().isoformat()
+        self.fields["date"].widget.attrs["max"] = operational_today().isoformat()
         if active_flock is not None:
             self.fields["date"].widget.attrs["min"] = active_flock.started_on.isoformat()
 
     def clean_date(self):
         """Keep the date within this flock's normal range: not in the future (a farmer
         can log today or backfill a missed past day, but not log ahead of time for a
-        day that hasn't happened yet), and not before this flock even started."""
+        day that hasn't happened yet), and not before this flock even started.
+
+        "Today" here is operational_today() (rolls over at 8am, not midnight) — see
+        farm.services.operational_today for why.
+        """
         entered_date = self.cleaned_data["date"]
-        if entered_date > timezone.localdate():
+        if entered_date > operational_today():
             raise forms.ValidationError("You can't log data for a future date.")
         if self.active_flock is not None and entered_date < self.active_flock.started_on:
             raise forms.ValidationError(
@@ -171,14 +178,15 @@ class DailyLogEditForm(forms.ModelForm):
         # flock's start date on the other end, so a date can't be edited outside this
         # flock's normal range — clean_date() below is the real (server-side) guard.
         super().__init__(*args, **kwargs)
-        self.fields["date"].widget.attrs["max"] = timezone.localdate().isoformat()
+        self.fields["date"].widget.attrs["max"] = operational_today().isoformat()
         self.fields["date"].widget.attrs["min"] = self.instance.flock.started_on.isoformat()
 
     def clean_date(self):
         """Same date-range rules as DailyLogForm — an edit can't move a record's date
-        ahead of today, or back before its flock even started."""
+        ahead of today (operational_today(), which rolls over at 8am, not midnight),
+        or back before its flock even started."""
         entered_date = self.cleaned_data["date"]
-        if entered_date > timezone.localdate():
+        if entered_date > operational_today():
             raise forms.ValidationError("You can't log data for a future date.")
         if entered_date < self.instance.flock.started_on:
             raise forms.ValidationError(

@@ -2,7 +2,6 @@ from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.core.validators import MaxValueValidator, MinValueValidator
 from django.db import models
-from django.utils import timezone
 
 # Fields a DailyLog edit is audited against, and how to render each value as text
 # for the DailyLogEdit.old_value/new_value CharFields. Shared by farm/views.py
@@ -146,7 +145,12 @@ class DailyLog(models.Model):
         guard the farmer path — this makes the same rules hold for full_clean() callers
         that bypass them entirely, like the Django admin and import_daily_logs."""
         super().clean()
-        if self.date and self.date > timezone.localdate():
+        # Local import to avoid a models<->services import cycle (farm.services already
+        # imports DailyLog/Flock from this module). operational_today() rolls the
+        # logging day over at 8am rather than midnight — see its docstring.
+        from .services import operational_today
+
+        if self.date and self.date > operational_today():
             raise ValidationError({"date": "You can't log data for a future date."})
         if self.date and self.flock_id and self.date < self.flock.started_on:
             raise ValidationError({
@@ -167,6 +171,33 @@ class DailyLog(models.Model):
             raise ValidationError(
                 {"flock": "This flock has been retired — you can't log new data for it."}
             )
+
+
+class DailyLogReminder(models.Model):
+    """Audit trail for the "log today's data" reminder email (farm/management/commands/
+    send_daily_log_reminders.py) -- one row per owner per day it was sent.
+
+    This is purely a dedup/audit record: the in-app reminder banner (dashboard/
+    templates/dashboard/index.html) is computed live from DailyLog/Flock state and
+    needs no row here at all. The unique constraint below is what makes the daily
+    command idempotent if it's ever run twice on the same day.
+    """
+
+    owner = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name="daily_log_reminders"
+    )
+    flock = models.ForeignKey(Flock, on_delete=models.PROTECT, related_name="daily_log_reminders")
+    reminder_date = models.DateField(help_text="The date this reminder was for (owner had no DailyLog for it yet).")
+    sent_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-reminder_date"]
+        constraints = [
+            models.UniqueConstraint(fields=["owner", "reminder_date"], name="unique_reminder_per_owner_per_day")
+        ]
+
+    def __str__(self):
+        return f"{self.owner} — reminded for {self.reminder_date}"
 
 
 class DailyLogEdit(models.Model):

@@ -1,4 +1,5 @@
 {% load static %}
+{% load itik_icons %}
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -25,18 +26,36 @@
             transform: rotate(90deg);
         }
 
+        /* Page-load entrance: header fades straight in, the hero copy and image
+           rise in just after with a short stagger so the load feels like one
+           smooth motion rather than a hard cut from blank to full page. */
+        @keyframes page-fade-in {
+            from { opacity: 0; }
+            to { opacity: 1; }
+        }
+        @keyframes rise-in {
+            from { opacity: 0; transform: translateY(16px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        header { animation: page-fade-in 400ms ease-out both; }
+        #hero-copy { animation: rise-in 500ms ease-out 80ms both; }
+        #hero-carousel { animation: rise-in 500ms ease-out 160ms both; }
+
         @media (prefers-reduced-motion: reduce) {
             html { scroll-behavior: auto; }
             .collapsible { transition: none; }
+            header, #hero-copy, #hero-carousel { animation: none; }
         }
     </style>
+    <link rel="icon" type="image/png" href="{% static 'images/favicon.png' %}">
+    <link rel="apple-touch-icon" href="{% static 'images/apple-touch-icon.png' %}">
 </head>
 <body class="bg-white text-gray-900">
 
     <header class="sticky top-0 z-10 bg-white border-b border-gray-200">
         <div class="max-w-6xl mx-auto flex items-center justify-between px-6 py-4">
             <div class="flex items-center gap-3">
-                <span class="flex items-center justify-center w-10 h-10 rounded-lg bg-emerald-700 text-lg">🦆</span>
+                <img src="{% static 'images/logo-mark.png' %}" alt="" class="w-10 h-10 rounded-lg">
                 <span class="leading-tight">
                     <span class="block text-xl font-bold text-emerald-700">ItikCare</span>
                     <span class="block text-xs font-semibold text-emerald-700 -mt-1">Egg Yield Forecasting</span>
@@ -53,7 +72,7 @@
         <!-- Hero -->
         <section class="bg-emerald-50">
             <div class="max-w-6xl mx-auto px-6 py-16 grid grid-cols-1 lg:grid-cols-2 gap-12 items-center">
-                <div>
+                <div id="hero-copy">
                     <h1 class="text-4xl sm:text-5xl font-extrabold leading-tight text-gray-900">
                         Predict Your Egg Yield with
                         <span class="text-emerald-700">Machine Learning</span>
@@ -68,7 +87,7 @@
 
                     <div class="mt-8 flex flex-wrap gap-8">
                         <div>
-                            <p class="text-3xl font-extrabold text-emerald-700">94%</p>
+                            <p class="text-3xl font-extrabold text-emerald-700">--%</p>
                             <p class="text-sm text-gray-500">Accuracy</p>
                         </div>
                         <div>
@@ -87,9 +106,20 @@
                     </a>
                 </div>
 
-                <img src="{% static 'images/hero-ducks.jpg' %}"
-                     alt="A flock of ducks foraging on grass"
-                     class="w-full aspect-[4/3] object-cover rounded-2xl shadow-lg">
+                <div id="hero-carousel" class="relative w-full aspect-[4/3] rounded-2xl shadow-lg overflow-hidden bg-emerald-100">
+                    <div id="hero-carousel-track" class="flex h-full transition-transform duration-500 ease-out"></div>
+
+                    <button type="button" id="hero-carousel-prev" aria-label="Previous photo" hidden
+                            class="absolute left-3 top-1/2 -translate-y-1/2 flex items-center justify-center w-9 h-9 rounded-full bg-white/80 text-emerald-800 hover:bg-white transition-colors duration-200">
+                        <span aria-hidden="true">←</span>
+                    </button>
+                    <button type="button" id="hero-carousel-next" aria-label="Next photo" hidden
+                            class="absolute right-3 top-1/2 -translate-y-1/2 flex items-center justify-center w-9 h-9 rounded-full bg-white/80 text-emerald-800 hover:bg-white transition-colors duration-200">
+                        <span aria-hidden="true">→</span>
+                    </button>
+
+                    <div id="hero-carousel-dots" hidden class="absolute bottom-3 left-1/2 -translate-x-1/2 flex gap-2"></div>
+                </div>
             </div>
         </section>
 
@@ -194,6 +224,109 @@
             </div>
         </section>
 
+        <!-- Starting duck farming tips -->
+        <section id="getting-started" class="bg-white">
+            <div class="max-w-6xl mx-auto px-6 py-16">
+                <div class="text-center max-w-2xl mx-auto mb-12">
+                    <h2 class="text-3xl font-extrabold text-gray-900">Starting Duck Farming? Start Here</h2>
+                    <p class="mt-3 text-gray-600">
+                        A few practical basics worth knowing before you bring your first ducks home.
+                    </p>
+                </div>
+
+                <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
+                    <div class="bg-emerald-50 rounded-2xl p-6">
+                        <span class="flex items-center justify-center w-10 h-10 rounded-lg bg-emerald-700 text-white">{% icon "droplet" "w-5 h-5" %}</span>
+                        <h3 class="mt-4 font-bold text-gray-900">Water Access is Non-Negotiable</h3>
+                        <p class="mt-2 text-sm text-gray-600">
+                            Ducks need constant access to water, not just for drinking — going
+                            without it measurably hurts their egg-laying performance.
+                        </p>
+                    </div>
+
+                    <div class="bg-emerald-50 rounded-2xl p-6">
+                        <span class="flex items-center justify-center w-10 h-10 rounded-lg bg-emerald-700 text-white">{% icon "home" "w-5 h-5" %}</span>
+                        <h3 class="mt-4 font-bold text-gray-900">Orient and Floor Your Duck House Right</h3>
+                        <p class="mt-2 text-sm text-gray-600">
+                            Build it running east–west to cut heat exposure, raise the floor on
+                            bamboo or slats so it drains and stays easy to clean, and cover it
+                            with rice hull — changed roughly every two weeks — to protect eggs
+                            from trampling and droppings.
+                        </p>
+                    </div>
+
+                    <div class="bg-emerald-50 rounded-2xl p-6">
+                        <span class="flex items-center justify-center w-10 h-10 rounded-lg bg-emerald-700 text-white">{% icon "wheat" "w-5 h-5" %}</span>
+                        <h3 class="mt-4 font-bold text-gray-900">Match Your Farming System to Your Land and Labor</h3>
+                        <div class="mt-3 flex flex-wrap gap-2" role="tablist" aria-label="Duck farming systems">
+                            <button type="button" role="tab" aria-selected="true" aria-controls="system-free-range" id="tab-free-range"
+                                    class="farming-system-tab px-3 py-1 rounded-full text-xs font-semibold bg-emerald-700 text-white transition-colors duration-200">
+                                Free-Range
+                            </button>
+                            <button type="button" role="tab" aria-selected="false" aria-controls="system-confined" id="tab-confined"
+                                    class="farming-system-tab px-3 py-1 rounded-full text-xs font-semibold bg-white text-emerald-700 border border-emerald-200 transition-colors duration-200">
+                                Confined
+                            </button>
+                            <button type="button" role="tab" aria-selected="false" aria-controls="system-semi-intensive" id="tab-semi-intensive"
+                                    class="farming-system-tab px-3 py-1 rounded-full text-xs font-semibold bg-white text-emerald-700 border border-emerald-200 transition-colors duration-200">
+                                Semi-Intensive
+                            </button>
+                        </div>
+                        <p id="system-free-range" role="tabpanel" aria-labelledby="tab-free-range" class="farming-system-panel mt-3 text-sm text-gray-600">
+                            Extensive — ducks forage on harvested rice fields. Lowest feed cost, but more labor to manage and protect the flock.
+                        </p>
+                        <p id="system-confined" role="tabpanel" aria-labelledby="tab-confined" class="farming-system-panel mt-3 text-sm text-gray-600" hidden>
+                            Intensive — ducks are housed and fed on a fixed schedule. Tighter control over feeding and egg collection, at higher setup cost.
+                        </p>
+                        <p id="system-semi-intensive" role="tabpanel" aria-labelledby="tab-semi-intensive" class="farming-system-panel mt-3 text-sm text-gray-600" hidden>
+                            A mix of housing and foraging time. The common middle ground most small itik farms actually run.
+                        </p>
+                    </div>
+
+                    <div class="bg-emerald-50 rounded-2xl p-6">
+                        <span class="flex items-center justify-center w-10 h-10 rounded-lg bg-emerald-700 text-white">{% icon "sparkle" "w-5 h-5" %}</span>
+                        <h3 class="mt-4 font-bold text-gray-900">Start with a Proven Egg-Laying Breed</h3>
+                        <p class="mt-2 text-sm text-gray-600">
+                            Itik Pinas is bred specifically for egg output — a well-managed flock
+                            can lay 200+ eggs per duck per year.
+                        </p>
+                    </div>
+
+                    <div class="bg-emerald-50 rounded-2xl p-6">
+                        <span class="flex items-center justify-center w-10 h-10 rounded-lg bg-emerald-700 text-white">{% icon "egg" "w-5 h-5" %}</span>
+                        <h3 class="mt-4 font-bold text-gray-900">Sort Eggs at Collection, Don't Just Gather Them</h3>
+                        <p class="mt-2 text-sm text-gray-600">
+                            Separate large eggs — suitable for incubation into ducklings — from
+                            small or cracked ones, which are better sold as table eggs or
+                            processed into <em>penoy</em>.
+                        </p>
+                    </div>
+
+                    <div class="bg-emerald-50 rounded-2xl p-6">
+                        <span class="flex items-center justify-center w-10 h-10 rounded-lg bg-emerald-700 text-white">{% icon "trending-up" "w-5 h-5" %}</span>
+                        <h3 class="mt-4 font-bold text-gray-900">Demand for Duck Eggs is Stable</h3>
+                        <p class="mt-2 text-sm text-gray-600">
+                            Duck eggs feed directly into <em>balut</em> and salted-egg production,
+                            everyday staples in the Philippines — which is why itik is the
+                            country's second-biggest poultry enterprise after chicken.
+                        </p>
+                    </div>
+                </div>
+
+                <p class="mt-8 text-center text-xs text-gray-400">
+                    Sources:
+                    <a href="https://businessdiary.com.ph/41030/duck-raising-itik-farming-guide/" class="underline hover:text-gray-600" target="_blank" rel="noopener noreferrer">Business Diary</a> ·
+                    <a href="https://agriculture.com.ph/2021/05/17/a-quick-guide-on-how-to-raise-native-ducks/" class="underline hover:text-gray-600" target="_blank" rel="noopener noreferrer">Agriculture Monthly</a> ·
+                    <a href="https://mb.com.ph/2020/10/19/itik-production-and-management-part-2-proper-feeds-and-housing-requirements" class="underline hover:text-gray-600" target="_blank" rel="noopener noreferrer">Manila Bulletin</a> ·
+                    <a href="https://www.juanmagsasaka.com/2023/03/from-ducklings-to-profit-step-by-step.html" class="underline hover:text-gray-600" target="_blank" rel="noopener noreferrer">Juan Magsasaka</a> ·
+                    <a href="https://cagayanvalley.da.gov.ph/wp-content/uploads/2018/02/duck.pdf" class="underline hover:text-gray-600" target="_blank" rel="noopener noreferrer">DA Duck Raising Guide</a> ·
+                    <a href="https://ati2.da.gov.ph/ati-3/content/itik" class="underline hover:text-gray-600" target="_blank" rel="noopener noreferrer">DA-ATI Itik Production Training</a> ·
+                    <a href="https://calabarzon.da.gov.ph/da-4a-showcases-riceduck-farm-system-diversification/" class="underline hover:text-gray-600" target="_blank" rel="noopener noreferrer">DA-4A Rice+Duck Farm System</a> ·
+                    <a href="https://cagayandeoro.da.gov.ph/?p=57015" class="underline hover:text-gray-600" target="_blank" rel="noopener noreferrer">DA-SAAD Itik Pinas Project</a>
+                </p>
+            </div>
+        </section>
+
         <!-- CTA -->
         <section class="bg-gradient-to-br from-emerald-700 to-emerald-900">
             <div class="max-w-3xl mx-auto px-6 py-16 text-center">
@@ -213,7 +346,7 @@
         <div class="max-w-6xl mx-auto px-6 py-12 grid grid-cols-1 sm:grid-cols-3 gap-10">
             <div>
                 <div class="flex items-center gap-3">
-                    <span class="flex items-center justify-center w-10 h-10 rounded-lg bg-emerald-700 text-lg">🦆</span>
+                    <img src="{% static 'images/logo-mark.png' %}" alt="" class="w-10 h-10 rounded-lg">
                     <span class="leading-tight">
                         <span class="block text-lg font-bold text-white">ItikCare</span>
                         <span class="block text-xs font-semibold text-emerald-400 -mt-1">Egg Yield Forecasting</span>
@@ -230,7 +363,11 @@
                 </ul>
             </div>
             <div>
-                <h3 class="text-sm font-semibold text-white mb-3">About the Researchers</h3>
+                <h3 class="text-sm font-semibold text-white mb-3">
+                    <a href="{% url 'researchers' %}" class="hover:text-emerald-400 transition-colors duration-200 hover:underline">
+                        About the Researchers <span aria-hidden="true">→</span>
+                    </a>
+                </h3>
                 <ul class="space-y-1 text-sm text-gray-300">
                     <li>Developed by: Labay, Mark Justine C.</li>
                     <li class="pl-[6.5em]">Peñaredondo, Jhanmae Angela S.</li>
@@ -246,6 +383,112 @@
     </footer>
 
     <script>
+        // Hero photo carousel. Add more slides here once you have more itik photos —
+        // drop the file in static/images/ and add a matching entry below.
+        const heroImages = [
+            { src: "{% static 'images/farm-01.jpg' %}", alt: "Ducks lining the edge of the farm's water channel" },
+            { src: "{% static 'images/farm-02.jpg' %}", alt: "Itik flock gathered along the pond bank under palm trees" },
+            { src: "{% static 'images/farm-03.jpg' %}", alt: "Ducks swimming near the coconut grove at the water's edge" },
+            { src: "{% static 'images/farm-04.jpg' %}", alt: "Ducks swimming in the farm's canal beside the concrete embankment" },
+            { src: "{% static 'images/farm-05.jpg' %}", alt: "Ducks foraging in shallow water beneath the trees" },
+            { src: "{% static 'images/farm-06.jpg' %}", alt: "Ducks swimming beside a tree trunk near the pond wall" },
+            { src: "{% static 'images/farm-07.jpg' %}", alt: "Ducks in the water channel beneath overhanging trees" },
+            { src: "{% static 'images/farm-08.jpg' %}", alt: "Covered shelter and open yard at the duck farm" },
+            { src: "{% static 'images/farm-09.jpg' %}", alt: "Ducks lined up along the embankment beside the pond" },
+            { src: "{% static 'images/farm-10.jpg' %}", alt: "Ducks swimming in a line along the water channel" },
+            { src: "{% static 'images/farm-11.jpg' %}", alt: "Ducks gathered on the sloped concrete bank" },
+            { src: "{% static 'images/farm-12.jpg' %}", alt: "Large flock of ducks swimming near the netted enclosure" },
+            { src: "{% static 'images/farm-13.jpg' %}", alt: "Ducks swimming along the tree-lined canal" },
+            { src: "{% static 'images/farm-14.jpg' %}", alt: "Duck pond beside the farm's covered shelter" },
+            { src: "{% static 'images/farm-15.jpg' %}", alt: "Ducks swimming in the channel, seen through the foliage" },
+        ];
+
+        const heroTrack = document.getElementById('hero-carousel-track');
+        const heroPrevBtn = document.getElementById('hero-carousel-prev');
+        const heroNextBtn = document.getElementById('hero-carousel-next');
+        const heroDots = document.getElementById('hero-carousel-dots');
+        const heroCarousel = document.getElementById('hero-carousel');
+
+        if (heroTrack && heroImages.length > 0) {
+            let heroIndex = 0;
+            let heroTimer = null;
+            const prefersReducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+            heroImages.forEach((image, i) => {
+                const slide = document.createElement('div');
+                slide.className = 'w-full h-full flex-shrink-0';
+                const img = document.createElement('img');
+                img.src = image.src;
+                img.alt = image.alt;
+                img.loading = i === 0 ? 'eager' : 'lazy';
+                img.className = 'w-full h-full object-cover';
+                slide.appendChild(img);
+                heroTrack.appendChild(slide);
+            });
+
+            const dotButtons = [];
+            if (heroImages.length > 1) {
+                heroPrevBtn.hidden = false;
+                heroNextBtn.hidden = false;
+                heroDots.hidden = false;
+
+                heroImages.forEach((image, i) => {
+                    const dot = document.createElement('button');
+                    dot.type = 'button';
+                    dot.setAttribute('aria-label', `Go to photo ${i + 1}`);
+                    dot.className = 'w-2.5 h-2.5 rounded-full transition-colors duration-200 ' +
+                        (i === 0 ? 'bg-white' : 'bg-white/50 hover:bg-white/75');
+                    dot.addEventListener('click', () => goToSlide(i, true));
+                    heroDots.appendChild(dot);
+                    dotButtons.push(dot);
+                });
+            }
+
+            function renderSlide() {
+                heroTrack.style.transform = `translateX(-${heroIndex * 100}%)`;
+                dotButtons.forEach((dot, i) => {
+                    dot.classList.toggle('bg-white', i === heroIndex);
+                    dot.classList.toggle('bg-white/50', i !== heroIndex);
+                });
+            }
+
+            function goToSlide(i, userInitiated) {
+                heroIndex = (i + heroImages.length) % heroImages.length;
+                renderSlide();
+                if (userInitiated) restartAutoplay();
+            }
+
+            function startAutoplay() {
+                if (prefersReducedMotion || heroImages.length <= 1) return;
+                heroTimer = setInterval(() => goToSlide(heroIndex + 1, false), 5000);
+            }
+
+            function stopAutoplay() {
+                if (heroTimer) {
+                    clearInterval(heroTimer);
+                    heroTimer = null;
+                }
+            }
+
+            function restartAutoplay() {
+                stopAutoplay();
+                startAutoplay();
+            }
+
+            if (heroPrevBtn) heroPrevBtn.addEventListener('click', () => goToSlide(heroIndex - 1, true));
+            if (heroNextBtn) heroNextBtn.addEventListener('click', () => goToSlide(heroIndex + 1, true));
+
+            if (heroCarousel) {
+                heroCarousel.addEventListener('mouseenter', stopAutoplay);
+                heroCarousel.addEventListener('mouseleave', startAutoplay);
+                heroCarousel.addEventListener('focusin', stopAutoplay);
+                heroCarousel.addEventListener('focusout', startAutoplay);
+            }
+
+            renderSlide();
+            startAutoplay();
+        }
+
         const learnMoreToggle = document.getElementById('learn-more-toggle');
         const systemDescription = document.getElementById('system-description');
 
@@ -257,6 +500,27 @@
                 learnMoreToggle.querySelector('.learn-more-label').textContent = isOpen ? 'Learn More' : 'Show Less';
             });
         }
+
+        const farmingSystemTabs = document.querySelectorAll('.farming-system-tab');
+        farmingSystemTabs.forEach((tab) => {
+            tab.addEventListener('click', () => {
+                farmingSystemTabs.forEach((otherTab) => {
+                    const isSelected = otherTab === tab;
+                    otherTab.setAttribute('aria-selected', String(isSelected));
+                    otherTab.classList.toggle('bg-emerald-700', isSelected);
+                    otherTab.classList.toggle('text-white', isSelected);
+                    otherTab.classList.toggle('bg-white', !isSelected);
+                    otherTab.classList.toggle('text-emerald-700', !isSelected);
+                    otherTab.classList.toggle('border', !isSelected);
+                    otherTab.classList.toggle('border-emerald-200', !isSelected);
+
+                    const panel = document.getElementById(otherTab.getAttribute('aria-controls'));
+                    if (panel) {
+                        panel.hidden = !isSelected;
+                    }
+                });
+            });
+        });
     </script>
 </body>
 </html>

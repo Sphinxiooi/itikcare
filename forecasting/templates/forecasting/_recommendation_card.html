@@ -1,0 +1,30 @@
+{% comment %}
+One recommendation card: a status chip (colored by priority tier) followed by the
+actionable message, an optional raw-reading caption for traceability, and a collapsible
+"Learn More" rationale. Copies the JS-free <details>/<summary> + Tailwind group/group-open:
+pattern from templates/account/_settings_panel.html's danger-zone disclosure.
+Expects `rec` (a Recommendation instance) in context.
+{% endcomment %}
+<div class="bg-white rounded-lg p-3 text-sm">
+    <p>
+        <span class="font-bold uppercase text-xs tracking-wide
+            {% if rec.priority == 'high' %}text-red-700
+            {% elif rec.priority == 'medium_high' %}text-orange-600
+            {% elif rec.priority == 'medium' %}text-amber-600
+            {% elif rec.priority == 'medium_low' %}text-sky-600
+            {% else %}text-emerald-700{% endif %}">{{ rec.status }}</span>
+        <span class="text-gray-800"> — {{ rec.message }}</span>
+    </p>
+    {% if rec.reading_summary %}
+    <p class="text-xs text-gray-400 mt-1">Reading: {{ rec.reading_summary }}</p>
+    {% endif %}
+    {% if rec.learn_more %}
+    <details class="group mt-2">
+        <summary class="flex items-center gap-1 text-xs font-medium text-emerald-700 cursor-pointer select-none list-none [&::-webkit-details-marker]:hidden">
+            Learn More
+            <svg class="w-3 h-3 transition-transform duration-200 group-open:rotate-180" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="m19.5 8.25-7.5 7.5-7.5-7.5"/></svg>
+        </summary>
+        <p class="text-xs text-gray-600 mt-1 pt-2 border-t border-gray-100">{{ rec.learn_more }}</p>
+    </details>
+    {% endif %}
+</div>

@@ -17,18 +17,20 @@ or the header avatar's modal).
             <h1 class="text-2xl font-bold text-gray-900">Personal Information</h1>
             <p class="text-sm text-gray-500 mb-6">Your name, contact details, and farm location.</p>
         </div>
-        {% comment %}
-        Hidden (not just visually swapped) whenever the form has errors, so a failed
-        save reopens straight into the edit form instead of behind another click.
-        See templates/base.html's delegated click listener for the show/hide toggle —
-        this partial is also fetched into the header avatar's modal via innerHTML,
-        which never executes a <script> tag placed here.
-        {% endcomment %}
-        <button type="button" id="account-edit-toggle"
-                class="{% if account_form.errors %}hidden{% endif %} shrink-0 inline-flex items-center gap-1.5 text-sm font-medium text-emerald-700 hover:text-emerald-800">
-            <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="m16.862 4.487 1.687-1.688a1.875 1.875 0 1 1 2.652 2.652L10.582 16.07a4.5 4.5 0 0 1-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 0 1 1.13-1.897l8.932-8.931Zm0 0L19.5 7.125"/></svg>
-            Edit
-        </button>
+        <div class="shrink-0 flex items-center gap-4">
+            {% comment %}
+            Hidden (not just visually swapped) whenever the form has errors, so a failed
+            save reopens straight into the edit form instead of behind another click.
+            See templates/base.html's delegated click listener for the show/hide toggle —
+            this partial is also fetched into the header avatar's modal via innerHTML,
+            which never executes a <script> tag placed here.
+            {% endcomment %}
+            <button type="button" id="account-edit-toggle"
+                    class="{% if account_form.errors %}hidden{% endif %} inline-flex items-center gap-1.5 text-sm font-medium text-emerald-700 hover:text-emerald-800">
+                <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="m16.862 4.487 1.687-1.688a1.875 1.875 0 1 1 2.652 2.652L10.582 16.07a4.5 4.5 0 0 1-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 0 1 1.13-1.897l8.932-8.931Zm0 0L19.5 7.125"/></svg>
+                Edit
+            </button>
+        </div>
     </div>
 
     <div id="account-view" class="{% if account_form.errors %}hidden{% endif %} space-y-5">
@@ -132,6 +134,53 @@ or the header avatar's modal).
             </button>
         </div>
     </form>
+
+    {% comment %}
+    Danger Zone: nested inside the Personal Information card itself (not a sibling
+    card) as a native <details> disclosure, not a JS-driven dialog — this partial is
+    fetched via innerHTML into the header avatar's popup (templates/base.html) and
+    also swapped wholesale via outerHTML after an AJAX personal-info save, and
+    neither path ever executes a <script> tag placed here (per-spec for inserted
+    script elements). A plain <details>/<summary> needs no JS to expand/collapse, so
+    it works correctly in both the compact popup and the full /account/settings/
+    page without any extra wiring, and survives the outerHTML swap since it's just
+    re-rendered markup.
+
+    The actual delete confirmation (password or username input) is NOT inline here —
+    it's the #delete-account-modal dialog defined once in base.html, outside any
+    region this partial can be injected into or swap away, and opened via a
+    delegated click listener there (same reasoning as base.html's
+    #account-edit-toggle handling: a listener bound directly to this button would go
+    stale the moment this partial gets replaced). The button below just triggers it.
+    {% endcomment %}
+    {% if user.is_foundation_farmer %}
+    <div class="mt-6 border-2 border-red-200 rounded-lg p-4">
+        <p class="text-sm text-gray-600">
+            This account can't be deleted. It's the foundation farmer account — its historical
+            daily logs seed the starter forecasting model every new farmer gets at signup, so
+            removing it would break onboarding for everyone else.
+        </p>
+    </div>
+    {% else %}
+    <details class="group mt-6 border-2 border-red-200 rounded-lg">
+        <summary class="flex items-center justify-between gap-4 p-4 cursor-pointer select-none list-none [&::-webkit-details-marker]:hidden">
+            <span class="text-sm font-bold text-red-700">Delete your account</span>
+            <svg class="w-5 h-5 text-red-700 shrink-0 transition-transform duration-200 group-open:rotate-180" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="m19.5 8.25-7.5 7.5-7.5-7.5"/></svg>
+        </summary>
+        <div class="px-4 pb-4 pt-1 border-t border-red-100 space-y-3">
+            <p class="text-sm text-gray-600 pt-3">
+                Deleting your account deactivates it and clears your name, email, photo, and
+                address. Your flock, daily logs, forecasts, and recommendations are kept on
+                record. This isn't reversible from here — you'd need to ask an admin to restore
+                access.
+            </p>
+            <button type="button" id="delete-account-open"
+                    class="font-semibold text-white rounded-lg px-6 py-2.5 bg-red-700 hover:bg-red-800 transition-colors">
+                Delete my account
+            </button>
+        </div>
+    </details>
+    {% endif %}
 </div>
 
 {% include "farm/_flock_profile_panel.html" %}
