@@ -288,7 +288,7 @@ class GenerateForecastTests(TestCase):
     def test_generates_next_day_forecasts_using_weather_when_todays_log(self):
         # operational_today(), not date.today(): generate_forecast only fetches live
         # weather when the log's date matches the farm's current logging day, which
-        # rolls over at 8am rather than midnight (farm.services.operational_today).
+        # rolls over at 6am rather than midnight (farm.services.operational_today).
         today = operational_today()
         today_log = DailyLog.objects.create(
             flock=self.flock, date=today, caging_period=1,

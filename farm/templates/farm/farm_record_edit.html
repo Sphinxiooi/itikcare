@@ -7,7 +7,7 @@
     <h1 class="text-2xl font-bold text-gray-900">Edit Record — {{ daily_log.date }}</h1>
     <p class="text-sm text-gray-500 mb-6">Changes are recorded in the audit trail (old value, new value, who, when).</p>
 
-    <form method="post" class="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-4">
+    <form method="post" class="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-4" data-loader-text="Saving changes…">
         {% csrf_token %}
         {% for field in form %}
         <div>

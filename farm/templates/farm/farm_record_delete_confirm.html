@@ -36,7 +36,7 @@
         </div>
     </dl>
 
-    <form method="post" class="flex flex-wrap gap-3">
+    <form method="post" class="flex flex-wrap gap-3" data-loader-text="Deleting record…">
         {% csrf_token %}
         <button type="submit" class="bg-red-700 text-white font-semibold rounded-lg px-8 py-2.5 hover:bg-red-800">
             Delete Record

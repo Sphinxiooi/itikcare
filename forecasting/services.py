@@ -153,7 +153,7 @@ def generate_forecast(daily_log: DailyLog, model_path=None) -> Forecast:
     distinct per-day numbers, unlike predicted_tri_day_yield's 3-day sum above. Weather
     for those future days is only fetched when daily_log.date is today — operationally,
     not just by the calendar (see farm.services.operational_today: this farm's logging
-    day rolls over at 8am, not midnight) — since Open-Meteo's forecast is anchored to
+    day rolls over at 6am, not midnight) — since Open-Meteo's forecast is anchored to
     real "now" and can't meaningfully inform a backdated log's future days; otherwise
     the recursion falls back to daily_log's own carried-forward temperature_c/humidity_pct.
     """

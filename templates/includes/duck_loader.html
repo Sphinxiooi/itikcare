@@ -1,0 +1,9 @@
+{% load static %}
+{% comment %}
+Minimal logo page-transition loader. Include once inside <head> on any page that
+should show it (see static/js/duck-loader.js for how it triggers and how to opt an
+element out or customise the message). data-logo hands the JS the resolved logo URL.
+Bump ?v= when either file changes.
+{% endcomment %}
+<link rel="stylesheet" href="{% static 'css/duck-loader.css' %}?v=5">
+<script src="{% static 'js/duck-loader.js' %}?v=5" data-logo="{% static 'images/logo-mark.png' %}" defer></script>

@@ -84,7 +84,7 @@ class DashboardDailyLogReminderBannerTests(TestCase):
 
     def test_banner_hidden_once_logged_today(self):
         # operational_today(), not date.today(): the dashboard's logged_today check
-        # compares against the farm's current logging day, which rolls over at 8am
+        # compares against the farm's current logging day, which rolls over at 6am
         # rather than midnight (farm.services.operational_today).
         flock = Flock.objects.create(owner=self.user, generation_number=1, started_on=date(2024, 1, 1))
         DailyLog.objects.create(
@@ -124,7 +124,7 @@ class DashboardFlockAgeTests(TestCase):
             temperature_c="28.0", humidity_pct="75.0", recorded_by=self.user,
         )
         mock_timezone.localdate.return_value = date(2024, 2, 12)  # exactly 6 weeks (42 days) later
-        mock_timezone.localtime.return_value = datetime(2024, 2, 12, 12, 0)  # same day, past the 8am rollover
+        mock_timezone.localtime.return_value = datetime(2024, 2, 12, 12, 0)  # same day, past the 6am rollover
         response = self.client.get("/")
         self.assertEqual(response.context["current_age_weeks"], 100)
         self.assertContains(response, "100")

@@ -147,7 +147,7 @@ class DailyLog(models.Model):
         super().clean()
         # Local import to avoid a models<->services import cycle (farm.services already
         # imports DailyLog/Flock from this module). operational_today() rolls the
-        # logging day over at 8am rather than midnight — see its docstring.
+        # logging day over at 6am rather than midnight — see its docstring.
         from .services import operational_today
 
         if self.date and self.date > operational_today():

@@ -40,7 +40,7 @@
         <button type="submit" name="edit" value="1" class="border border-gray-300 text-gray-700 font-semibold rounded-lg px-8 py-2.5 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed">
             Edit
         </button>
-        <button type="submit" name="confirmed" value="1" class="bg-emerald-700 text-white font-semibold rounded-lg px-8 py-2.5 hover:bg-emerald-800 disabled:opacity-50 disabled:cursor-not-allowed">
+        <button type="submit" name="confirmed" value="1" data-loader-text="Saving your log and updating the forecast…" class="bg-emerald-700 text-white font-semibold rounded-lg px-8 py-2.5 hover:bg-emerald-800 disabled:opacity-50 disabled:cursor-not-allowed">
             Confirm &amp; Save
         </button>
     </form>
@@ -59,9 +59,16 @@
             {% endif %}
         </div>
         {% endfor %}
-        <p id="weather-autofill-note" class="hidden sm:col-span-2 text-xs text-gray-500 -mt-2">
-            Temperature/Humidity auto-filled from historical weather for this date — adjust if you have your own reading.
-        </p>
+        <div id="weather-suggestion" class="hidden sm:col-span-2 rounded-md border border-sky-200 bg-sky-50 p-3 -mt-2 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+            <p class="text-sm text-sky-800">
+                Historical weather for this date:
+                <strong id="weather-suggestion-values"></strong>
+                <span class="block sm:inline text-xs text-sky-700">Not filled in yet — accept it, or type your own reading.</span>
+            </p>
+            <button type="button" id="weather-suggestion-accept" class="shrink-0 bg-sky-700 text-white text-sm font-semibold rounded-lg px-4 py-1.5 hover:bg-sky-800 disabled:opacity-60 disabled:cursor-default">
+                Use these values
+            </button>
+        </div>
         <div class="sm:col-span-2 mt-2">
             <button type="submit" class="w-full sm:w-auto bg-emerald-700 text-white font-semibold rounded-lg px-8 py-2.5 hover:bg-emerald-800 disabled:opacity-50 disabled:cursor-not-allowed">
                 Review &amp; Save
@@ -73,15 +80,57 @@
             var dateInput = document.getElementById("id_date");
             var temperatureInput = document.getElementById("id_temperature_c");
             var humidityInput = document.getElementById("id_humidity_pct");
-            var note = document.getElementById("weather-autofill-note");
-            if (!dateInput || !temperatureInput || !humidityInput) {
+            var panel = document.getElementById("weather-suggestion");
+            var valuesLabel = document.getElementById("weather-suggestion-values");
+            var acceptButton = document.getElementById("weather-suggestion-accept");
+            if (!dateInput || !temperatureInput || !humidityInput || !panel || !valuesLabel || !acceptButton) {
                 return;
             }
 
-            dateInput.addEventListener("change", function () {
-                if (note) {
-                    note.classList.add("hidden");
+            // The suggestion currently on offer; null when there is none.
+            var suggestion = null;
+
+            function describe(weather) {
+                var parts = [];
+                if (weather.temperature_c !== undefined) {
+                    parts.push(weather.temperature_c + " °C");
                 }
+                if (weather.humidity_pct !== undefined) {
+                    parts.push(weather.humidity_pct + " % humidity");
+                }
+                return parts.join(" · ");
+            }
+
+            acceptButton.addEventListener("click", function () {
+                if (!suggestion) {
+                    return;
+                }
+                // Explicit acceptance is the only thing that writes the API values into
+                // the form, so it replaces whatever is in the fields at that moment.
+                if (suggestion.temperature_c !== undefined) {
+                    temperatureInput.value = suggestion.temperature_c;
+                }
+                if (suggestion.humidity_pct !== undefined) {
+                    humidityInput.value = suggestion.humidity_pct;
+                }
+                acceptButton.textContent = "Applied ✓";
+                acceptButton.disabled = true;
+            });
+
+            // Editing a field after accepting means it no longer matches the suggestion,
+            // so offer the button again.
+            [temperatureInput, humidityInput].forEach(function (input) {
+                input.addEventListener("input", function () {
+                    if (suggestion && acceptButton.disabled) {
+                        acceptButton.textContent = "Use these values";
+                        acceptButton.disabled = false;
+                    }
+                });
+            });
+
+            dateInput.addEventListener("change", function () {
+                suggestion = null;
+                panel.classList.add("hidden");
                 // Only a genuinely past date has historical weather to suggest --
                 // matches farm.views.weather_for_date's own "today stays blank" rule.
                 // dateInput.max is set to the server's own today (DailyLogForm.__init__),
@@ -100,19 +149,17 @@
                         if (!weather) {
                             return;
                         }
-                        // Never overwrites a value the farmer already typed in.
-                        var filledSomething = false;
-                        if (!temperatureInput.value && weather.temperature_c !== undefined) {
-                            temperatureInput.value = weather.temperature_c;
-                            filledSomething = true;
+                        // Offered, never applied automatically: the fields stay untouched
+                        // until the farmer presses "Use these values".
+                        var text = describe(weather);
+                        if (!text) {
+                            return;
                         }
-                        if (!humidityInput.value && weather.humidity_pct !== undefined) {
-                            humidityInput.value = weather.humidity_pct;
-                            filledSomething = true;
-                        }
-                        if (filledSomething && note) {
-                            note.classList.remove("hidden");
-                        }
+                        suggestion = weather;
+                        valuesLabel.textContent = text;
+                        acceptButton.textContent = "Use these values";
+                        acceptButton.disabled = false;
+                        panel.classList.remove("hidden");
                     })
                     .catch(function () {
                         // Best-effort suggestion, same "never a hard dependency" contract

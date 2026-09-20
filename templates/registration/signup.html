@@ -7,6 +7,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Sign up — ItikCare</title>
     <link rel="stylesheet" href="{% static 'dist/output.css' %}">
+    {% include 'includes/duck_loader.html' %}
     <link rel="icon" type="image/png" href="{% static 'images/favicon.png' %}">
     <link rel="apple-touch-icon" href="{% static 'images/apple-touch-icon.png' %}">
 </head>
@@ -40,7 +41,7 @@
             </div>
             {% endif %}
 
-            <form method="post" class="space-y-4" id="signup-form">
+            <form method="post" class="space-y-4" id="signup-form" data-loader-text="Creating your account…">
                 {% csrf_token %}
                 {% if form.non_field_errors %}
                 <p class="text-sm text-red-600">{{ form.non_field_errors.0 }}</p>
@@ -228,6 +229,10 @@
             document.getElementById("signup-confirm-accept").addEventListener("click", function () {
                 confirmed = true;
                 modal.close();
+                // form.submit() skips the "submit" event, so raise the duck loader by hand.
+                if (window.ItikDuckLoader) {
+                    window.ItikDuckLoader.show(form.dataset.loaderText);
+                }
                 form.submit();
             });
             document.getElementById("signup-confirm-cancel").addEventListener("click", function () {

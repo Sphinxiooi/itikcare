@@ -7,6 +7,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{% block title %}ItikCare{% endblock %}</title>
     <link rel="stylesheet" href="{% static 'dist/output.css' %}?v={% now 'U' %}">
+    {% include 'includes/duck_loader.html' %}
     <style>
         /* Subtle page-load entrance so navigating between pages doesn't feel like
            a hard cut -- header/sidebar stay put (they're fixed chrome shared
@@ -125,7 +126,7 @@
                 Your flock, daily logs, forecasts, and recommendations stay on record. This isn't
                 reversible from here — you'd need to ask an admin to restore access.
             </p>
-            <form method="post" action="{% url 'delete_account' %}">
+            <form method="post" action="{% url 'delete_account' %}" data-loader-text="Deleting your account…">
                 {% csrf_token %}
                 <label for="delete-confirm-input" class="block text-sm font-medium text-gray-700 mb-1">
                     {% if user.has_usable_password %}Current password{% else %}Type your username ("{{ user.username }}") to confirm{% endif %}
@@ -193,7 +194,8 @@
                       data-confirm="You'll need to log in again to get back to your dashboard."
                       data-confirm-title="Log out of ItikCare?"
                       data-confirm-label="Log out"
-                      data-confirm-danger="true">
+                      data-confirm-danger="true"
+                      data-loader-text="Signing you out…">
                     {% csrf_token %}
                     <button type="submit"
                             class="w-full flex items-center gap-3 px-4 py-2.5 rounded-full text-sm font-medium text-gray-700 hover:bg-red-50 hover:text-red-700 transition duration-150 ease-out motion-safe:hover:scale-[1.03]">
@@ -306,6 +308,10 @@
                 avatarLink.addEventListener("click", function (event) {
                     event.preventDefault();
                     var separator = avatarLink.href.indexOf("?") === -1 ? "?" : "&";
+                    // Fetch-based, so no page navigation for the duck loader to catch.
+                    if (window.ItikDuckLoader) {
+                        window.ItikDuckLoader.show("Loading your profile…");
+                    }
                     fetch(avatarLink.href + separator + "partial=1", {
                         headers: { "X-Requested-With": "XMLHttpRequest" },
                     })
@@ -317,6 +323,9 @@
                         })
                         .then(function (html) {
                             modalContent.innerHTML = html;
+                            if (window.ItikDuckLoader) {
+                                window.ItikDuckLoader.hide();
+                            }
                             openModal();
                         })
                         .catch(function () {
@@ -412,6 +421,11 @@
                     confirmCancelBtn.disabled = true;
                     var formToSubmit = pendingForm;
                     closeConfirmModal();
+                    // .submit() skips the "submit" event the duck loader listens for,
+                    // so raise it by hand (e.g. "Signing you out…" on logout).
+                    if (window.ItikDuckLoader) {
+                        window.ItikDuckLoader.show(formToSubmit.dataset.loaderText);
+                    }
                     // .submit() bypasses the "submit" event entirely, so this does not
                     // re-trigger the listener above and loop.
                     formToSubmit.submit();
@@ -561,6 +575,9 @@
                     }
                     submitBtn.disabled = true;
                 }
+                if (window.ItikDuckLoader) {
+                    window.ItikDuckLoader.show("Saving changes…");
+                }
                 fetch(form.action, {
                     method: "POST",
                     body: new FormData(form),
@@ -574,6 +591,9 @@
                     })
                     .then(function (html) {
                         container.outerHTML = html;
+                        if (window.ItikDuckLoader) {
+                            window.ItikDuckLoader.hide();
+                        }
                         var banner = document.getElementById("account-saved-banner");
                         if (!banner) {
                             return;

@@ -32,9 +32,9 @@ class Command(BaseCommand):
 
     def handle(self, *args, **options):
         # operational_today(), not the plain calendar date: this farm's logging day
-        # rolls over at 8am, not midnight (see farm.services.operational_today). This
-        # command only ever runs post-8am via the timer, so this is purely defensive —
-        # it protects a future manual re-run before 8am from reminding a farmer about
+        # rolls over at 6am, not midnight (see farm.services.operational_today). This
+        # command only ever runs post-6am via the timer, so this is purely defensive —
+        # it protects a future manual re-run before 6am from reminding a farmer about
         # a day that, operationally, hasn't started yet.
         today = operational_today()
 

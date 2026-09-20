@@ -66,10 +66,10 @@ def get_effective_coordinates(owner):
     return None, None
 
 
-# Duck egg collection that finishes in the early morning (e.g. 2-7am) still belongs to
+# Duck egg collection that finishes in the early morning (e.g. 2-5am) still belongs to
 # the previous day's collection cycle, not a fresh one -- so the farm's logging day
 # rolls over at this local hour instead of at midnight.
-FARM_DAY_START_HOUR = 8
+FARM_DAY_START_HOUR = 6
 
 
 def operational_today(now=None):
@@ -85,7 +85,7 @@ def operational_today(now=None):
     TIME_ZONE comment (that bug used the server's OS clock instead of Asia/Manila).
 
     now: override for tests, so a specific instant can be pinned instead of the real
-    clock (e.g. to exercise the 8am boundary itself either side).
+    clock (e.g. to exercise the 6am boundary itself either side).
     """
     now = now or timezone.localtime()
     if now.hour < FARM_DAY_START_HOUR:
@@ -103,7 +103,7 @@ def current_flock_age_weeks(daily_log):
     Mirrors the prefill math in views.log_daily_data. Returns None if daily_log is None.
 
     Uses timezone.localdate() rather than operational_today(): a rough weekly bucket
-    like this doesn't need the 8am cutoff, just the naive-date fix.
+    like this doesn't need the 6am cutoff, just the naive-date fix.
     """
     if daily_log is None:
         return None
