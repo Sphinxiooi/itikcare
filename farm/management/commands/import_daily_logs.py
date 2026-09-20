@@ -1,4 +1,4 @@
-"""One-time historical backfill: import ItikCare_Cleaned_Dataset.csv into Flock/DailyLog.
+"""One-time historical backfill: import ItikCareDataSet.csv into Flock/DailyLog.
 
 Run as:
     python manage.py import_daily_logs --recorded-by <username> [csv_path] [--dry-run]
@@ -45,8 +45,8 @@ class Command(BaseCommand):
         parser.add_argument(
             "csv_path",
             nargs="?",
-            default=str(settings.BASE_DIR / "ItikCare_Cleaned_Dataset.csv"),
-            help="Path to the historical CSV. Defaults to the project root's ItikCare_Cleaned_Dataset.csv.",
+            default=str(settings.BASE_DIR / "ItikCareDataSet.csv"),
+            help="Path to the historical CSV. Defaults to the project root's ItikCareDataSet.csv.",
         )
         parser.add_argument(
             "--recorded-by",

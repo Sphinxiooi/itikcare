@@ -146,7 +146,7 @@ Known variable relationships to keep in mind when building/validating the model:
 
 ## 10. Known data patterns — read before touching the training data
 
-The farm operates a **semi-intensive setup**: ducks are let out to free-range roughly every 3 months, then caged again for a period of close monitoring. Daily logs only exist for the caged periods — this is why the historical dataset (`ItikCare_Cleaned_Dataset.csv`) has several multi-week/multi-month gaps in the date sequence, marked by the `Caging_Period` column. These gaps are **expected and correct, not missing/corrupted data.**
+The farm operates a **semi-intensive setup**: ducks are let out to free-range roughly every 3 months, then caged again for a period of close monitoring. Daily logs only exist for the caged periods — this is why the historical dataset (`ItikCareDataSet.csv`) has several multi-week/multi-month gaps in the date sequence, marked by the `Caging_Period` column. These gaps are **expected and correct, not missing/corrupted data.**
 
 Implication for the model: treat each caged period as its own contiguous segment. Do not build lag/rolling features (e.g. "yesterday's yield," 7-day rolling average) that span across a gap — the days on either side aren't operationally connected.
 

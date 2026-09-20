@@ -46,7 +46,7 @@ Five entities: **User, Flock, DailyLog, Forecast, Recommendation**. See `itikcar
 
 ## Historical data has known, intentional gaps
 
-`ItikCare_Cleaned_Dataset.csv` is real farm data, not a clean simulated dataset — it has multi-week/multi-month gaps (semi-intensive husbandry: ducks are caged for logging only part of the year) and at least one flock-generation reset (old flock retired, new younger flock brought in, seen as a sudden drop in flock age). These are real and expected, not data errors. The `Caging_Period` and `Flock_Generation` columns already mark these boundaries for you — use them to avoid building lag/rolling features that span across a gap, but don't feed them into the model as raw predictive features (they'd let the model memorize specific time periods instead of learning general patterns). See `itikcare-spec.md` section 10 before writing any data preprocessing, feature engineering, or train/test split logic.
+`ItikCareDataSet.csv` is real farm data, not a clean simulated dataset — it has multi-week/multi-month gaps (semi-intensive husbandry: ducks are caged for logging only part of the year) and at least one flock-generation reset (old flock retired, new younger flock brought in, seen as a sudden drop in flock age). These are real and expected, not data errors. The `Caging_Period` and `Flock_Generation` columns already mark these boundaries for you — use them to avoid building lag/rolling features that span across a gap, but don't feed them into the model as raw predictive features (they'd let the model memorize specific time periods instead of learning general patterns). See `itikcare-spec.md` section 10 before writing any data preprocessing, feature engineering, or train/test split logic.
 
 ## Workflow expectations
 
