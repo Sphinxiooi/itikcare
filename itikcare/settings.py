@@ -58,10 +58,12 @@ CSRF_TRUSTED_ORIGINS = [
 DJANGO_BEHIND_PROXY = os.environ.get('DJANGO_BEHIND_PROXY', 'False') == 'True'
 if DJANGO_BEHIND_PROXY:
     SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
-    # Also trust the proxy's X-Forwarded-Host so request.get_host() (and anything built
-    # from it, like the Google OAuth redirect_uri) reflects the public hostname the
-    # farmer's browser actually used, not the proxy's local target (e.g. localhost:8000).
-    USE_X_FORWARDED_HOST = True
+    # NOT setting USE_X_FORWARDED_HOST: both proxy paths (nginx's proxy_set_header Host
+    # $host in deploy/nginx.conf.example, and Railway's edge) already forward the
+    # original public Host header unchanged, so request.get_host() reads it correctly
+    # without this. Turning it on made Django trust X-Forwarded-Host instead -- on
+    # Railway that header's value failed ALLOWED_HOSTS validation and took the whole
+    # site down with "Invalid HTTP_HOST header" on every request (2026-09-22).
     # django-ratelimit's key="ip" reads REMOTE_ADDR, which behind a proxy is the proxy's
     # own address -- every farmer would share one rate-limit bucket (e.g. 5 signups/day
     # for the whole world). Read the real client address from X-Forwarded-For instead.
