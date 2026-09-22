@@ -27,6 +27,7 @@ from .models import DailyLog, DailyLogEdit, DailyLogReminder, Flock
 from .services import (
     FARM_DAY_START_HOUR,
     RECORDS_CHART_MIN_LOGS,
+    TREND_RANGE_OPTIONS,
     assign_caging_periods,
     build_next_day_forecasts,
     build_records_chart_data,
@@ -35,6 +36,7 @@ from .services import (
     get_effective_coordinates,
     operational_today,
     resolve_trend_range,
+    trend_range_choices_for,
 )
 from .weather import fetch_current_weather, fetch_historical_weather, geocode_address
 
@@ -388,6 +390,94 @@ class LogDailyDataConfirmationTests(TestCase):
     def test_egg_count_equal_to_flock_size_is_not_flagged(self):
         response = self._unconfirmed_post(date="2024-01-10", egg_count=400, flock_size=400)
         self.assertEqual(response.context["anomaly_warnings"], [])
+
+
+class LogDailyDataConcurrentSubmissionTests(TestCase):
+    """A second, near-simultaneous submission for the same date (a double-tap on a
+    slow connection, or the same form open in two tabs) can pass the pre-save
+    .exists() duplicate-date check before either request has committed. The view
+    wraps its actual save in a savepoint and catches the resulting IntegrityError
+    from DailyLog's UniqueConstraint, so this must degrade to the same friendly
+    "already exists" form error as the ordinary pre-check -- never an uncaught 500."""
+
+    def setUp(self):
+        self.user = User.objects.create_user(username="farmer1", password="pw12345")
+        self.client = Client()
+        self.client.login(username="farmer1", password="pw12345")
+        self.flock = Flock.objects.create(owner=self.user, generation_number=1, started_on=date(2024, 1, 1))
+
+    def _race_past_the_precheck(self, target_date):
+        """Makes the view's .exists() pre-check report "no collision" regardless of
+        what's actually in the DB, standing in for the real race: a second request
+        commits its own row in the gap between this request's check and its save."""
+        real_filter = DailyLog.objects.filter
+
+        def patched_filter(*args, **kwargs):
+            if kwargs.get("date") == target_date:
+                return DailyLog.objects.none()
+            return real_filter(*args, **kwargs)
+
+        return patch.object(DailyLog.objects, "filter", side_effect=patched_filter)
+
+    def test_double_submit_on_create_shows_friendly_error_not_a_500(self):
+        target_date = date(2024, 6, 1)
+        DailyLog.objects.create(
+            flock=self.flock, date=target_date, flock_size=240, caging_period=1,
+            flock_age_weeks=25, egg_count=150, feed_intake_kg="40.0",
+            temperature_c="28.0", humidity_pct="75.0", recorded_by=self.user,
+        )
+        post_data = {**VALID_LOG_POST, "date": target_date.isoformat(), "confirmed": "1"}
+
+        with self._race_past_the_precheck(target_date):
+            response = self.client.post("/log-daily-data/", post_data)
+
+        self.assertEqual(response.status_code, 200)  # re-rendered form, not a 500
+        self.assertIn("already exists", str(response.context["form"].errors["date"]))
+        self.assertEqual(DailyLog.objects.filter(flock=self.flock, date=target_date).count(), 1)
+
+
+class FarmRecordEditConcurrentSubmissionTests(TestCase):
+    """Same race as above, for farm_record_edit's move-a-record-onto-an-already-taken
+    date case -- and confirms the fix's bonus: no orphaned DailyLogEdit audit row for
+    a "change" that was actually rejected."""
+
+    def setUp(self):
+        self.user = User.objects.create_user(username="farmer1", password="pw12345")
+        self.client = Client()
+        self.client.login(username="farmer1", password="pw12345")
+        self.flock = Flock.objects.create(owner=self.user, generation_number=1, started_on=date(2024, 1, 1))
+        self.editable_log = DailyLog.objects.create(
+            flock=self.flock, date=date(2024, 1, 5), flock_size=240, caging_period=1,
+            flock_age_weeks=25, egg_count=150, feed_intake_kg="40.0",
+            temperature_c="28.0", humidity_pct="75.0", recorded_by=self.user,
+        )
+
+    def test_double_submit_on_edit_shows_friendly_error_and_leaves_no_audit_row(self):
+        colliding_date = date(2024, 1, 6)
+        DailyLog.objects.create(
+            flock=self.flock, date=colliding_date, flock_size=240, caging_period=1,
+            flock_age_weeks=25, egg_count=150, feed_intake_kg="40.0",
+            temperature_c="28.0", humidity_pct="75.0", recorded_by=self.user,
+        )
+        post_data = {
+            "date": colliding_date.isoformat(), "flock_size": 240, "flock_age_weeks": 25,
+            "egg_count": 999, "feed_intake_kg": "40.0", "temperature_c": "28.0", "humidity_pct": "75.0",
+        }
+        real_filter = DailyLog.objects.filter
+
+        def patched_filter(*args, **kwargs):
+            if kwargs.get("date") == colliding_date:
+                return DailyLog.objects.none()
+            return real_filter(*args, **kwargs)
+
+        with patch.object(DailyLog.objects, "filter", side_effect=patched_filter):
+            response = self.client.post(f"/farm-records/{self.editable_log.pk}/edit/", post_data)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("already exists", str(response.context["form"].errors["date"]))
+        self.editable_log.refresh_from_db()
+        self.assertEqual(self.editable_log.date, date(2024, 1, 5))  # unchanged
+        self.assertFalse(DailyLogEdit.objects.filter(daily_log=self.editable_log).exists())
 
 
 class WeatherForDateViewTests(TestCase):
@@ -1403,6 +1493,59 @@ class TrendChartHelpersTests(TestCase):
         self.assertEqual(resolve_trend_range("all"), "all")
         self.assertEqual(resolve_trend_range("bogus"), "7")
         self.assertEqual(resolve_trend_range(None), "7")
+
+    def test_trend_range_choices_for_no_flock_is_just_the_three_defaults(self):
+        self.assertEqual(trend_range_choices_for(None), TREND_RANGE_OPTIONS)
+
+    def test_trend_range_choices_for_appends_real_months_newest_first(self):
+        DailyLog.objects.create(
+            flock=self.flock, date=date(2024, 1, 15), flock_size=240, caging_period=1,
+            flock_age_weeks=25, egg_count=150, feed_intake_kg="40.0",
+            temperature_c="28.0", humidity_pct="75.0", recorded_by=self.user,
+        )
+        DailyLog.objects.create(
+            flock=self.flock, date=date(2024, 3, 2), flock_size=240, caging_period=1,
+            flock_age_weeks=25, egg_count=155, feed_intake_kg="40.0",
+            temperature_c="28.0", humidity_pct="75.0", recorded_by=self.user,
+        )
+        choices = trend_range_choices_for(self.flock)
+        self.assertEqual(
+            choices,
+            TREND_RANGE_OPTIONS + (("2024-03", "March 2024"), ("2024-01", "January 2024")),
+        )
+
+    def test_resolve_trend_range_accepts_a_month_only_when_offered_in_choices(self):
+        choices = TREND_RANGE_OPTIONS + (("2024-03", "March 2024"),)
+        self.assertEqual(resolve_trend_range("2024-03", choices), "2024-03")
+        # Same value isn't valid against the plain defaults (no month options attached).
+        self.assertEqual(resolve_trend_range("2024-03"), "7")
+
+    def test_build_trend_chart_data_month_view_filters_to_that_month_only(self):
+        DailyLog.objects.create(
+            flock=self.flock, date=date(2024, 1, 31), flock_size=240, caging_period=1,
+            flock_age_weeks=25, egg_count=150, feed_intake_kg="40.0",
+            temperature_c="28.0", humidity_pct="75.0", recorded_by=self.user,
+        )
+        DailyLog.objects.create(
+            flock=self.flock, date=date(2024, 2, 1), flock_size=240, caging_period=1,
+            flock_age_weeks=25, egg_count=160, feed_intake_kg="40.0",
+            temperature_c="28.0", humidity_pct="75.0", recorded_by=self.user,
+        )
+        data = build_trend_chart_data(self.flock, True, "2024-02", [])
+        self.assertEqual(json.loads(data["trend_labels_json"]), ["Feb 1"])
+        self.assertEqual(json.loads(data["trend_actual_json"]), [160.0])
+
+    def test_build_trend_chart_data_month_view_never_appends_future_forecast_tail(self):
+        DailyLog.objects.create(
+            flock=self.flock, date=date(2024, 1, 15), flock_size=240, caging_period=1,
+            flock_age_weeks=25, egg_count=150, feed_intake_kg="40.0",
+            temperature_c="28.0", humidity_pct="75.0", recorded_by=self.user,
+        )
+        next_day_forecasts = [{"date": date(2024, 6, 1), "value": 170.0, "is_tomorrow": True}]
+        data = build_trend_chart_data(self.flock, True, "2024-01", next_day_forecasts)
+        self.assertIsNone(data["trend_future_start_index"])
+        self.assertFalse(data["trend_has_future_forecast"])
+        self.assertEqual(json.loads(data["trend_labels_json"]), ["Jan 15"])
 
     def test_build_next_day_forecasts_returns_empty_list_for_no_forecast(self):
         self.assertEqual(build_next_day_forecasts(None), [])

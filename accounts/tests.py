@@ -386,6 +386,43 @@ class GoogleSignInTests(TestCase):
 
         self.assertRedirects(response, reverse("dashboard"))
 
+    @patch("accounts.google_oauth.requests.get")
+    @patch("accounts.google_oauth.requests.post")
+    def test_deactivated_account_cannot_sign_in_via_google_sub_match(self, mock_post, mock_get):
+        """A deactivated account (the normal /admin/ "Active" checkbox, not the
+        self-service delete_account flow) must not be able to sign back in just
+        because it still has a google_sub on file — see google_callback's docstring."""
+        deactivated = User.objects.create_user(
+            username="banned", email="banned@example.com", google_sub="google-sub-789",
+        )
+        deactivated.is_active = False
+        deactivated.save(update_fields=["is_active"])
+        self._mock_google_response(mock_post, mock_get, "google-sub-789", "banned@example.com", True)
+        state = self._start_login()
+
+        response = self.client.get(reverse("google_callback"), {"code": "auth-code", "state": state})
+
+        self.assertRedirects(response, reverse("login"))
+        self.assertFalse(get_user(self.client).is_authenticated)
+
+    @patch("accounts.google_oauth.requests.get")
+    @patch("accounts.google_oauth.requests.post")
+    def test_deactivated_account_cannot_sign_in_via_email_match(self, mock_post, mock_get):
+        """Same as above, but for the email-linking path (no google_sub on file yet) —
+        a deactivated account must not be linkable or signed into either."""
+        deactivated = User.objects.create_user(username="banned2", email="banned2@example.com")
+        deactivated.is_active = False
+        deactivated.save(update_fields=["is_active"])
+        self._mock_google_response(mock_post, mock_get, "google-sub-999", "banned2@example.com", True)
+        state = self._start_login()
+
+        response = self.client.get(reverse("google_callback"), {"code": "auth-code", "state": state})
+
+        self.assertRedirects(response, reverse("login"))
+        self.assertFalse(get_user(self.client).is_authenticated)
+        deactivated.refresh_from_db()
+        self.assertIsNone(deactivated.google_sub)
+
 
 class AccountSettingsTests(TestCase):
     """Covers accounts/views.py's account_settings — the personal-data box reachable

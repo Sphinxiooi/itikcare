@@ -3,6 +3,7 @@ from datetime import date
 
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
+from django.db import IntegrityError, transaction
 from django.db.models import Max
 from django.http import JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
@@ -112,53 +113,67 @@ def log_daily_data(request):
                 daily_log.caging_period = assign_caging_periods(active_flock, request.user, [new_date])[0]
                 is_new_period = not is_first_entry and daily_log.caging_period != previous_log.caging_period
                 daily_log.recorded_by = request.user
-                daily_log.save()
-                if (
-                    active_flock.pending_flock_size is not None
-                    or active_flock.pending_flock_age_weeks is not None
-                    or active_flock.pending_feed_intake_kg is not None
-                ):
-                    # Consumed only now that it's actually backed a real DailyLog, so an
-                    # abandoned form (farmer navigates away without logging) doesn't
-                    # silently lose the values they confirmed at resume/registration time.
-                    active_flock.pending_flock_size = None
-                    active_flock.pending_flock_age_weeks = None
-                    active_flock.pending_feed_intake_kg = None
-                    active_flock.save(
-                        update_fields=["pending_flock_size", "pending_flock_age_weeks", "pending_feed_intake_kg"]
-                    )
-                messages.success(request, "Daily data saved.")
-                if new_date == operational_today():
-                    try:
-                        generate_forecast(daily_log)
-                    except ModelNotTrainedError:
-                        messages.warning(
-                            request,
-                            "No trained forecasting model exists yet, so no forecast was "
-                            "generated for this entry. Ask an admin to run the training command.",
-                        )
-                    except Exception:
-                        logger.exception("Forecast generation failed for DailyLog id=%s", daily_log.pk)
-                        messages.warning(
-                            request,
-                            "Your data was saved, but the forecast could not be generated this time.",
-                        )
+                try:
+                    # The .exists() check above is a plain read with nothing locked in
+                    # between it and this save — a second, near-simultaneous submission
+                    # for the same date (a double-tap on a slow connection, or the same
+                    # form open in two tabs) can pass that same check before either has
+                    # committed. DailyLog.Meta's UniqueConstraint is the real guard; a
+                    # savepoint here (transaction.atomic, nested — see Django's docs on
+                    # atomic blocks) means only this insert is rolled back on a
+                    # collision, so the request can still render a normal response
+                    # instead of leaving the outer request transaction unusable.
+                    with transaction.atomic():
+                        daily_log.save()
+                except IntegrityError:
+                    form.add_error("date", "A record for this date already exists — edit it from Farm Records instead.")
                 else:
-                    # Backfilling a missed past day: still saved as ordinary history (see
-                    # the log_daily_data docstring), just never gets its own forecast.
-                    messages.info(
-                        request,
-                        "This entry backfills a past date, so it won't generate its own "
-                        "forecast — it's still saved as history and will feed into future "
-                        "predictions.",
-                    )
-                if is_new_period:
-                    # The previous caging period just closed with this entry's gap — a
-                    # complete new segment of training data now exists (itikcare-spec.md
-                    # section 5's "rolling retraining as new data comes in").
-                    trigger_retrain("caging_period_closed", active_flock.owner_id)
-                    messages.info(request, "New caging period detected — model retraining triggered.")
-                return redirect("dashboard")
+                    if (
+                        active_flock.pending_flock_size is not None
+                        or active_flock.pending_flock_age_weeks is not None
+                        or active_flock.pending_feed_intake_kg is not None
+                    ):
+                        # Consumed only now that it's actually backed a real DailyLog, so an
+                        # abandoned form (farmer navigates away without logging) doesn't
+                        # silently lose the values they confirmed at resume/registration time.
+                        active_flock.pending_flock_size = None
+                        active_flock.pending_flock_age_weeks = None
+                        active_flock.pending_feed_intake_kg = None
+                        active_flock.save(
+                            update_fields=["pending_flock_size", "pending_flock_age_weeks", "pending_feed_intake_kg"]
+                        )
+                    messages.success(request, "Daily data saved.")
+                    if new_date == operational_today():
+                        try:
+                            generate_forecast(daily_log)
+                        except ModelNotTrainedError:
+                            messages.warning(
+                                request,
+                                "No trained forecasting model exists yet, so no forecast was "
+                                "generated for this entry. Ask an admin to run the training command.",
+                            )
+                        except Exception:
+                            logger.exception("Forecast generation failed for DailyLog id=%s", daily_log.pk)
+                            messages.warning(
+                                request,
+                                "Your data was saved, but the forecast could not be generated this time.",
+                            )
+                    else:
+                        # Backfilling a missed past day: still saved as ordinary history (see
+                        # the log_daily_data docstring), just never gets its own forecast.
+                        messages.info(
+                            request,
+                            "This entry backfills a past date, so it won't generate its own "
+                            "forecast — it's still saved as history and will feed into future "
+                            "predictions.",
+                        )
+                    if is_new_period:
+                        # The previous caging period just closed with this entry's gap — a
+                        # complete new segment of training data now exists (itikcare-spec.md
+                        # section 5's "rolling retraining as new data comes in").
+                        trigger_retrain("caging_period_closed", active_flock.owner_id)
+                        messages.info(request, "New caging period detected — model retraining triggered.")
+                    return redirect("dashboard")
     else:
         initial = {}
         if previous_log is not None:
@@ -333,21 +348,32 @@ def farm_record_edit(request, pk):
                 if old_value != new_value:
                     changes.append((field_name, old_value, new_value))
 
-            updated_log = form.save()
-            if updated_log.date != old_values["date"]:
-                # The date moved — its caging_period (assigned from the gap to the
-                # previous log when this row was first created) may no longer fit.
-                recompute_caging_period(updated_log)
-            for field_name, old_value, new_value in changes:
-                DailyLogEdit.objects.create(
-                    daily_log=updated_log,
-                    field_name=field_name,
-                    old_value=str(old_value),
-                    new_value=str(new_value),
-                    changed_by=request.user,
-                )
-            messages.success(request, f"Record updated ({len(changes)} field(s) changed)." if changes else "No changes made.")
-            return redirect("farm_records")
+            try:
+                # Same race as log_daily_data's own create path: the .exists() check
+                # above is a plain read, so a second, near-simultaneous edit/create for
+                # the same date can still slip past it before either has committed.
+                # One savepoint around the save + its audit rows also means a farmer
+                # never ends up with a DailyLogEdit trail for an update that didn't
+                # actually take (see this view's docstring on the audit trail).
+                with transaction.atomic():
+                    updated_log = form.save()
+                    if updated_log.date != old_values["date"]:
+                        # The date moved — its caging_period (assigned from the gap to the
+                        # previous log when this row was first created) may no longer fit.
+                        recompute_caging_period(updated_log)
+                    for field_name, old_value, new_value in changes:
+                        DailyLogEdit.objects.create(
+                            daily_log=updated_log,
+                            field_name=field_name,
+                            old_value=str(old_value),
+                            new_value=str(new_value),
+                            changed_by=request.user,
+                        )
+            except IntegrityError:
+                form.add_error("date", "Another record already exists for this date — edit that one instead.")
+            else:
+                messages.success(request, f"Record updated ({len(changes)} field(s) changed)." if changes else "No changes made.")
+                return redirect("farm_records")
     else:
         form = DailyLogEditForm(instance=daily_log)
 

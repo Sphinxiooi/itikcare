@@ -9,12 +9,11 @@ labels can shift, so if one doesn't match, trust the intent.
 Rehearsed against a scratch local PostgreSQL with the same variables as below
 (`DJANGO_DEBUG=False`, `DJANGO_BEHIND_PROXY=True`, `DJANGO_SHARED_CACHE=True`, a separate
 `DJANGO_DATA_DIR`): `migrate`, `createcachetable`, `collectstatic`, `loaddata` of the
-export (632 objects, sequences correct), `train_forecast_model --strict` for both farmers,
-and every main page returning 200 for Mario and Rodel with the built CSS served.
-
-Mario's retrained model matched the existing local one metric for metric (daily MAE 13.58 /
-RMSE 17.73 / R² 0.956; tri-day MAE 46.03 / RMSE 58.63 / R² 0.946), so a Railway retrain
-reproduces today's forecasts.
+export, `train_forecast_model --strict` for both farmers, and every main page returning
+200 for Mario and Rodel with the built CSS served. Re-verified 2026-09-22 against the
+current `ItikCareDataSet.csv` (725 exported objects, see section 4) with a fresh dry run:
+untuned and tuned both clear every threshold for Mario (see section 5) and the full test
+suite passes (304 tests).
 
 **Not** testable on Windows: gunicorn itself (Linux-only), Railway's proxy, volume and
 cron behaviour. Those are covered by the checklist at the bottom.
@@ -90,7 +89,7 @@ $env:DB_NAME="<PGDATABASE>"; $env:DB_USER="<PGUSER>"; $env:DB_PASSWORD="<PGPASSW
 $env:DB_HOST="<RAILWAY_TCP_PROXY_DOMAIN>"; $env:DB_PORT="<RAILWAY_TCP_PROXY_PORT>"
 $env:DB_SSLMODE="prefer"
 python manage.py showmigrations farm | Select-Object -Last 3   # confirms you hit Railway, all [X]
-python manage.py loaddata deploy/farm_data.json               # "Installed 632 object(s)"
+python manage.py loaddata deploy/farm_data.json               # "Installed 725 object(s)" (regenerate the export first if the local data changed since)
 ```
 
 Run `loaddata` **once** (a second run just overwrites the same rows, harmless, but there's
@@ -112,17 +111,23 @@ python manage.py train_forecast_model --owner-id 3 --strict
 ```
 
 Use `--strict` **without** `--tune`. It saves a model only if every acceptance threshold
-passes, and reproduces the currently deployed model exactly (~20 s each).
+passes (~20 s each). Dry run against the current `ItikCareDataSet.csv` (2026-09-22, 666
+rows for Mario after `sync_dataset`, section 4): daily MAE 4.99%/RMSE 6.23%/R² 0.946,
+tri-day MAE 6.79%/RMSE 8.33%/R² 0.903 — comfortable margin on all four thresholds.
 
-> **Automatic retrains fall back to untuned.** With `--tune`, Mario's *tri-day* model
-> currently misses two thresholds (MAE 8.60% > 8%, RMSE 10.31% > 10%). The app's
-> automatic retrain (`forecasting/services.py::trigger_retrain`) therefore runs
+> **Automatic retrains fall back to untuned only if needed.** The app's automatic retrain
+> (`forecasting/services.py::trigger_retrain`) always runs
 > `--tune --fallback-untuned --strict`: if the tuned models miss any threshold, they are
 > discarded and the fixed-hyperparameter models are trained and scored on the same
-> held-out rows instead. A tuned model that passes everything is still preferred. If
-> neither passes, `--strict` leaves the previous model in place. Verified on Mario's real
-> data (dry run): tuned fails, fallback passes with the same metrics as above. The metrics
-> JSON records `"tuned"` and `"fell_back_from_tuned"` for each run.
+> held-out rows instead; a tuned model that passes everything is still preferred, and if
+> neither passes, `--strict` leaves the previous model in place. This safety net was
+> added because on an earlier, smaller cut of the dataset (575 rows) the tuned tri-day
+> model missed two thresholds. Re-verified 2026-09-22 on the current 666-row dataset:
+> **the tuned search now passes every threshold on both models** (daily MAE 5.23%/R²
+> 0.941, tri-day MAE 6.18%/R² 0.919), so the fallback isn't currently triggered — it
+> stays in place as a guard against a future retrain (e.g. a much smaller new farmer's
+> dataset) landing on an overfit tuned model. The metrics JSON records `"tuned"` and
+> `"fell_back_from_tuned"` for each run either way.
 
 No `railway ssh`? Temporarily set the web service's start command to
 `sh -c 'python manage.py train_forecast_model --owner-id 2 --strict && python manage.py train_forecast_model --owner-id 3 --strict'`

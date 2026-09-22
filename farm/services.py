@@ -6,6 +6,7 @@ requesting farmer now that more than one farm's data lives in the same tables.
 """
 
 import json
+import re
 import statistics
 from datetime import timedelta
 
@@ -16,8 +17,27 @@ from .models import DailyLog, Flock
 
 # Trend-chart range choices shared by the dashboard and the Forecast & Recommendations
 # page (see build_trend_chart_data below) -- kept as one definition so the two pages'
-# dropdowns can never drift out of sync with each other.
+# dropdowns can never drift out of sync with each other. trend_range_choices_for appends
+# one option per real calendar month on top of these three.
 TREND_RANGE_OPTIONS = (("7", "Last 7 days"), ("30", "Last 1 month"), ("all", "All data"))
+
+# A specific-month trend_range value looks like "2026-09" -- distinguishes it from the
+# day-count ("7"/"30") and "all" options above wherever the two need different handling
+# (build_trend_chart_data's query, and skipping the future-forecast tail for a past month).
+MONTH_TREND_RANGE_RE = re.compile(r"^\d{4}-\d{2}$")
+
+
+def trend_range_choices_for(flock):
+    """TREND_RANGE_OPTIONS plus one option per real calendar month of DailyLog data for
+    `flock`, newest month first -- lets the trend chart be pinned to one specific month,
+    same convention as farm_records' month dropdown (farm/views.py::farm_records). `flock`
+    may be None (no active flock yet), in which case no month options exist.
+    """
+    if flock is None:
+        return TREND_RANGE_OPTIONS
+    month_values = DailyLog.objects.filter(flock=flock).dates("date", "month", order="DESC")
+    month_options = tuple((d.strftime("%Y-%m"), d.strftime("%B %Y")) for d in month_values)
+    return TREND_RANGE_OPTIONS + month_options
 
 # A live entry more than this many days after the flock's previous log is treated as
 # the start of a new caging period (i.e. the flock was free-ranged in between and has
@@ -226,9 +246,11 @@ def detect_daily_log_anomalies(active_flock, cleaned_data):
     return warnings
 
 
-def resolve_trend_range(raw_value):
-    """Validate a ?trend_range= GET param against TREND_RANGE_OPTIONS, defaulting to "7"."""
-    return raw_value if raw_value in dict(TREND_RANGE_OPTIONS) else "7"
+def resolve_trend_range(raw_value, choices=TREND_RANGE_OPTIONS):
+    """Validate a ?trend_range= GET param against `choices` (TREND_RANGE_OPTIONS by
+    default, or TREND_RANGE_OPTIONS plus a flock's own month options -- see
+    trend_range_choices_for), defaulting to "7"."""
+    return raw_value if raw_value in dict(choices) else "7"
 
 
 def build_next_day_forecasts(latest_forecast):
@@ -262,25 +284,39 @@ def build_trend_chart_data(active_flock, flock_is_caged, trend_range, next_day_f
     dashed forward-looking tail (see build_next_day_forecasts).
 
     trend_range must already be validated (see resolve_trend_range). "all" has no calendar
-    cutoff -- every logged day for the flock. The other two are calendar-day cutoffs, not a
+    cutoff -- every logged day for the flock. "7"/"30" are calendar-day cutoffs, not a
     count of rows -- with the historical logging gaps documented in itikcare-spec.md
     section 10, slicing to the last N *rows* instead could silently span far more than N
-    calendar days, making the label and the chart's actual date range misleading.
+    calendar days, making the label and the chart's actual date range misleading. A
+    "YYYY-MM" value (see trend_range_choices_for/MONTH_TREND_RANGE_RE) instead pins the
+    chart to one specific calendar month, same convention as farm_records' month filter.
 
     Every Forecast is a same-day nowcast, so there is no genuinely future-dated Forecast row
     to pull "predicted" from beyond the logged range -- that's what next_day_forecasts
     supplies instead. trend_actual stays None for those extension points -- no DailyLog
     exists yet for a day that hasn't happened -- and the returned trend_future_start_index
     tells the caller's template where to start dashing the predicted line, so a forecast is
-    never visually mistaken for a nowcast tied to a real log.
+    never visually mistaken for a nowcast tied to a real log. A specific past month is never
+    extended with this tail (see is_month_view below) -- next_day_forecasts is always
+    relative to *today*, so appending it to e.g. April's chart would jump straight from a
+    logged month to several months in the future with nothing in between.
     """
     # Local import: forecasting.models only imports farm.models (not farm.services), so this
     # has no cycle, but keeping it local avoids forcing every farm.services import to also
     # resolve the forecasting app's models.
     from forecasting.models import Forecast
 
+    is_month_view = bool(MONTH_TREND_RANGE_RE.match(trend_range))
+
     if trend_range == "all":
         trend_logs = list(DailyLog.objects.filter(flock=active_flock).order_by("-date")) if flock_is_caged else []
+    elif is_month_view:
+        year, month = (int(part) for part in trend_range.split("-"))
+        trend_logs = (
+            list(DailyLog.objects.filter(flock=active_flock, date__year=year, date__month=month).order_by("-date"))
+            if flock_is_caged
+            else []
+        )
     else:
         trend_cutoff = timezone.localdate() - timedelta(days=int(trend_range) - 1)
         trend_logs = (
@@ -307,7 +343,7 @@ def build_trend_chart_data(active_flock, flock_is_caged, trend_range, next_day_f
     trend_predicted = [predicted_by_date.get(d) for d in trend_dates]
 
     trend_future_start_index = None
-    for day in next_day_forecasts:
+    for day in [] if is_month_view else next_day_forecasts:
         if day["value"] is None:
             continue
         if trend_future_start_index is None:

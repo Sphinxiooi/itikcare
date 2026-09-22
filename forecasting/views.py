@@ -2,12 +2,12 @@ from django.contrib.auth.decorators import login_required
 from django.shortcuts import render
 
 from farm.services import (
-    TREND_RANGE_OPTIONS,
     build_next_day_forecasts,
     build_trend_chart_data,
     get_active_flock,
     operational_today,
     resolve_trend_range,
+    trend_range_choices_for,
 )
 
 from recommendations import rules as recommendation_rules
@@ -92,7 +92,8 @@ def forecast_recommendations(request):
     # that query almost never returned more than 1 distinct future day -- next_day_forecasts
     # is the correct source for a genuine 3-day-ahead view.
     next_day_forecasts = build_next_day_forecasts(latest_forecast)
-    trend_range = resolve_trend_range(request.GET.get("trend_range", "7"))
+    trend_range_choices = trend_range_choices_for(active_flock)
+    trend_range = resolve_trend_range(request.GET.get("trend_range", "7"), trend_range_choices)
     trend_data = build_trend_chart_data(active_flock, flock_is_caged, trend_range, next_day_forecasts)
 
     feature_importances = []
@@ -159,8 +160,8 @@ def forecast_recommendations(request):
         "feature_importances": feature_importances,
         "grouped_recommendations": grouped_recommendations,
         "trend_range": trend_range,
-        "trend_range_label": dict(TREND_RANGE_OPTIONS)[trend_range],
-        "trend_range_choices": TREND_RANGE_OPTIONS,
+        "trend_range_label": dict(trend_range_choices)[trend_range],
+        "trend_range_choices": trend_range_choices,
         **trend_data,
     }
     return render(request, "forecasting/forecast_recommendations.html", context)

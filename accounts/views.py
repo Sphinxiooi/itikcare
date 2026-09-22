@@ -470,6 +470,17 @@ def google_callback(request):
     3. No match at all -> create a brand-new account, same "farmer role, no local
        password, synchronous bootstrap train" shape `signup` uses for a fresh signup.
 
+    Both lookups above are checked for is_active before anything else -- a deactivated
+    account (accounts.views.delete_account, or a plain admin-side ban from /admin/)
+    must never be able to sign back in this way. Unlike a plain password login (whose
+    ModelBackend.authenticate() already rejects is_active=False via
+    user_can_authenticate()), this view resolves the user itself and calls login()
+    directly, so that check doesn't happen for free here -- it has to be explicit.
+    delete_account additionally clears google_sub and blanks the email for its own
+    deactivation path, but an admin flipping the "Active" checkbox in /admin/ (the
+    normal way to suspend an account) does neither, so this can't rely on a match
+    simply "not existing any more" -- it has to check found-but-inactive explicitly.
+
     Rate-limited (10/h/IP) as defense in depth on top of Google's own consent screen,
     which is the primary abuse barrier here — see `signup`'s docstring for why the new-
     account path this can also take needs a cap at all (it runs a real training job).
@@ -493,13 +504,25 @@ def google_callback(request):
         messages.error(request, "Google sign-in didn't complete — please try again.")
         return redirect("login")
 
+    # Not filtered by is_active here -- a match still has to be inspected (and blocked
+    # below) rather than silently treated as "no match", which would otherwise fall
+    # through to create a brand-new account with the same (unique) google_sub and crash.
     user = User.objects.filter(google_sub=account["sub"]).first()
 
     if user is None and account["email_verified"] and account["email"]:
         user = User.objects.filter(email__iexact=account["email"]).first()
-        if user is not None:
+        if user is not None and user.is_active:
             user.google_sub = account["sub"]
             user.save(update_fields=["google_sub"])
+
+    if user is not None and not user.is_active:
+        logger.warning("Google sign-in blocked for deactivated user id=%s", user.id)
+        messages.error(
+            request,
+            "This account has been deactivated. Contact an admin if you believe "
+            "this is a mistake.",
+        )
+        return redirect("login")
 
     is_new_user = user is None
     if is_new_user:

@@ -2,7 +2,6 @@ from django.shortcuts import render
 
 from farm.models import DailyLog
 from farm.services import (
-    TREND_RANGE_OPTIONS,
     build_next_day_forecasts,
     build_trend_chart_data,
     current_flock_age_weeks,
@@ -10,6 +9,7 @@ from farm.services import (
     get_effective_coordinates,
     operational_today,
     resolve_trend_range,
+    trend_range_choices_for,
 )
 from farm.weather import fetch_current_weather
 from forecasting.models import Forecast
@@ -140,7 +140,8 @@ def index(request):
     # Kept independent of recent_logs (which is capped at 10 for the status cards and
     # records table above) so widening the trend view doesn't affect those. Shared with
     # the Forecast & Recommendations page's own trend chart -- see farm.services.
-    trend_range = resolve_trend_range(request.GET.get("trend_range", "7"))
+    trend_range_choices = trend_range_choices_for(active_flock)
+    trend_range = resolve_trend_range(request.GET.get("trend_range", "7"), trend_range_choices)
     trend_data = build_trend_chart_data(active_flock, flock_is_caged, trend_range, next_day_forecasts)
 
     context = {
@@ -168,8 +169,8 @@ def index(request):
         "recent_logs": recent_logs,
         "recent_records": recent_records,
         "trend_range": trend_range,
-        "trend_range_label": dict(TREND_RANGE_OPTIONS)[trend_range],
-        "trend_range_choices": TREND_RANGE_OPTIONS,
+        "trend_range_label": dict(trend_range_choices)[trend_range],
+        "trend_range_choices": trend_range_choices,
         **trend_data,
     }
     return render(request, "dashboard/index.html", context)
