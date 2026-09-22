@@ -219,7 +219,22 @@ class RobotsTxtTests(TestCase):
         response = self.client.get("/robots.txt")
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response["Content-Type"], "text/plain")
-        self.assertIn("Allow: /", response.content.decode())
+        content = response.content.decode()
+        self.assertIn("Allow: /", content)
+        self.assertIn("Sitemap: http://testserver/sitemap.xml", content)
+
+
+class SitemapXmlTests(TestCase):
+    """Lists the pages worth telling Search Console about -- see dashboard.views.
+    sitemap_xml's docstring."""
+
+    def test_lists_public_pages_as_absolute_urls_and_needs_no_login(self):
+        response = self.client.get("/sitemap.xml")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response["Content-Type"], "application/xml")
+        content = response.content.decode()
+        self.assertIn("<loc>http://testserver/</loc>", content)
+        self.assertIn("<loc>http://testserver/about/researchers/</loc>", content)
 
 
 class GoogleSiteVerificationTests(TestCase):

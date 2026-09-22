@@ -1,5 +1,6 @@
 from django.http import HttpResponse
 from django.shortcuts import render
+from django.urls import reverse
 
 from farm.models import DailyLog
 from farm.services import (
@@ -48,7 +49,27 @@ def robots_txt(request):
     disallow) -- a missing robots.txt is treated as "allow all" too, but returning a
     real one avoids the 404 Search Console otherwise flags for it."""
 
-    return HttpResponse("User-agent: *\nAllow: /\n", content_type="text/plain")
+    sitemap_url = request.build_absolute_uri(reverse("sitemap_xml"))
+    return HttpResponse(f"User-agent: *\nAllow: /\nSitemap: {sitemap_url}\n", content_type="text/plain")
+
+
+def sitemap_xml(request):
+    """Lists only the two pages an anonymous visitor (or a search crawler) can
+    actually reach -- every other page requires login and would just redirect a
+    crawler to the login form, so there's no ranking value in listing it."""
+
+    page_urls = [
+        request.build_absolute_uri(reverse("dashboard")),
+        request.build_absolute_uri(reverse("researchers")),
+    ]
+    url_entries = "".join(f"<url><loc>{url}</loc></url>" for url in page_urls)
+    xml = (
+        '<?xml version="1.0" encoding="UTF-8"?>'
+        '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">'
+        f"{url_entries}"
+        "</urlset>"
+    )
+    return HttpResponse(xml, content_type="application/xml")
 
 
 def google_site_verification(request):
