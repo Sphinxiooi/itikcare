@@ -208,3 +208,31 @@ class DashboardFreeRangeTests(TestCase):
         response = self.client.get("/")
         self.assertNotContains(response, "free-range in the field")
         self.assertContains(response, "Recent Farm Records")
+
+
+class RobotsTxtTests(TestCase):
+    """A missing robots.txt would be treated as "allow all" anyway, but returning a
+    real one avoids the 404 Search Console otherwise flags -- see dashboard.views.
+    robots_txt's docstring."""
+
+    def test_allows_crawling_and_needs_no_login(self):
+        response = self.client.get("/robots.txt")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response["Content-Type"], "text/plain")
+        self.assertIn("Allow: /", response.content.decode())
+
+
+class LandingPageSeoTagsTests(TestCase):
+    """The anonymous landing page (not the dashboard.views.index the same URL renders
+    for a logged-in farmer) is what a brand-name search like "itikcare" would surface
+    -- covers the meta description/Open Graph tags that control how that result looks
+    in a search snippet or a shared link preview."""
+
+    def test_anonymous_visitor_gets_a_description_and_absolute_og_image(self):
+        response = self.client.get("/")
+        content = response.content.decode()
+        self.assertIn('<meta name="description" content="ItikCare forecasts', content)
+        self.assertIn('<meta property="og:title"', content)
+        # og:image is read by an external crawler (not this browser), so it must be an
+        # absolute URL -- {% static %} alone would render a host-relative one.
+        self.assertIn('<meta property="og:image" content="http://testserver/static/images/hero-ducks.jpg">', content)

@@ -1,3 +1,4 @@
+from django.http import HttpResponse
 from django.shortcuts import render
 
 from farm.models import DailyLog
@@ -39,6 +40,15 @@ def researchers(request):
     """Public "About the Researchers" page, linked from the landing page footer."""
 
     return render(request, "researchers.html")
+
+
+def robots_txt(request):
+    """Explicitly allow crawling of the whole site (login-gated pages just redirect
+    to the login form for a crawler with no session, so there's nothing sensitive to
+    disallow) -- a missing robots.txt is treated as "allow all" too, but returning a
+    real one avoids the 404 Search Console otherwise flags for it."""
+
+    return HttpResponse("User-agent: *\nAllow: /\n", content_type="text/plain")
 
 
 def index(request):

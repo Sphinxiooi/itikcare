@@ -6,6 +6,15 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>ItikCare — Egg Yield Forecasting</title>
+    <meta name="description" content="ItikCare forecasts daily and 3-day egg yield for small-scale itik (duck) farms using Random Forest Regression, with rule-based recommendations that turn each forecast into a clear farm action.">
+    <!-- Open Graph/Twitter: controls how this page's title/description/image look when
+         shared as a link (Messenger, Facebook, X) or in a Google search result snippet. -->
+    <meta property="og:type" content="website">
+    <meta property="og:title" content="ItikCare — Egg Yield Forecasting">
+    <meta property="og:description" content="Random Forest-based egg yield forecasting and prescriptive recommendations for small-scale itik (duck) farms.">
+    <meta property="og:image" content="{{ request.scheme }}://{{ request.get_host }}{% static 'images/hero-ducks.jpg' %}">
+    <meta name="twitter:card" content="summary_large_image">
+    <link rel="canonical" href="{{ request.scheme }}://{{ request.get_host }}{% url 'dashboard' %}">
     <link rel="stylesheet" href="{% static 'dist/output.css' %}">
     {% include 'includes/duck_loader.html' %}
     <style>
