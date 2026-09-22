@@ -51,6 +51,17 @@ def robots_txt(request):
     return HttpResponse("User-agent: *\nAllow: /\n", content_type="text/plain")
 
 
+def google_site_verification(request):
+    """Serves the file Google Search Console's "HTML file" verification method
+    expects at the site root -- Google fetches this exact filename and checks its
+    contents match, then never asks for it again once verification succeeds."""
+
+    return HttpResponse(
+        "google-site-verification: google6c0aee7b83489d73.html",
+        content_type="text/plain",
+    )
+
+
 def index(request):
     """Root URL: public landing page for anonymous visitors, dashboard for farmers.
 

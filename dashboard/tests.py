@@ -222,6 +222,18 @@ class RobotsTxtTests(TestCase):
         self.assertIn("Allow: /", response.content.decode())
 
 
+class GoogleSiteVerificationTests(TestCase):
+    """Google Search Console's "HTML file" verification method fetches this exact
+    filename at the site root and checks its contents -- see dashboard.views.
+    google_site_verification's docstring."""
+
+    def test_serves_verification_file_and_needs_no_login(self):
+        response = self.client.get("/google6c0aee7b83489d73.html")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response["Content-Type"], "text/plain")
+        self.assertIn("google-site-verification: google6c0aee7b83489d73.html", response.content.decode())
+
+
 class LandingPageSeoTagsTests(TestCase):
     """The anonymous landing page (not the dashboard.views.index the same URL renders
     for a logged-in farmer) is what a brand-name search like "itikcare" would surface
