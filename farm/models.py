@@ -2,6 +2,7 @@ from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.core.validators import MaxValueValidator, MinValueValidator
 from django.db import models
+from django.utils.translation import gettext_lazy as _
 
 # Fields a DailyLog edit is audited against, and how to render each value as text
 # for the DailyLogEdit.old_value/new_value CharFields. Shared by farm/views.py
@@ -81,7 +82,7 @@ class DailyLog(models.Model):
     date = models.DateField()
     flock_size = models.PositiveIntegerField(
         validators=[MinValueValidator(1), MaxValueValidator(100000)],
-        help_text="Total duck count that day (includes males).",
+        help_text=_("Total duck count that day (includes males)."),
     )
     caging_period = models.PositiveIntegerField(
         help_text="Caging-period marker from the historical CSV (itikcare-spec.md section 10). "
@@ -90,29 +91,29 @@ class DailyLog(models.Model):
     )
     flock_age_weeks = models.PositiveIntegerField(
         validators=[MinValueValidator(1), MaxValueValidator(150)],
-        help_text="Reasonable range 1-150 weeks, padded from the historical dataset's observed 23-107.",
+        help_text=_("Reasonable range 1-150 weeks, padded from the historical dataset's observed 23-107."),
     )
     egg_count = models.PositiveIntegerField(
         validators=[MaxValueValidator(1000)],
-        help_text="Reasonable range up to 1000/day, padded from the historical dataset's observed 112-487.",
+        help_text=_("Reasonable range up to 1000/day, padded from the historical dataset's observed 112-487."),
     )
     feed_intake_kg = models.DecimalField(
         max_digits=6,
         decimal_places=2,
         validators=[MinValueValidator(0), MaxValueValidator(150)],
-        help_text="Reasonable range 0-150 kg/day, padded from the historical dataset's observed 35.5-100.0.",
+        help_text=_("Reasonable range 0-150 kg/day, padded from the historical dataset's observed 35.5-100.0."),
     )
     temperature_c = models.DecimalField(
         max_digits=4,
         decimal_places=1,
         validators=[MinValueValidator(0), MaxValueValidator(45)],
-        help_text="Reasonable range 0-45°C, padded from the historical dataset's observed 24.0-34.4.",
+        help_text=_("Reasonable range 0-45°C, padded from the historical dataset's observed 24.0-34.4."),
     )
     humidity_pct = models.DecimalField(
         max_digits=4,
         decimal_places=1,
         validators=[MinValueValidator(0), MaxValueValidator(100)],
-        help_text="0-100%, a hard physical ceiling rather than just a historical range.",
+        help_text=_("0-100%, a hard physical ceiling rather than just a historical range."),
     )
     recorded_by = models.ForeignKey(
         settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name="daily_logs"
@@ -151,11 +152,11 @@ class DailyLog(models.Model):
         from .services import operational_today
 
         if self.date and self.date > operational_today():
-            raise ValidationError({"date": "You can't log data for a future date."})
+            raise ValidationError({"date": _("You can't log data for a future date.")})
         if self.date and self.flock_id and self.date < self.flock.started_on:
             raise ValidationError({
-                "date": f"This flock started on {self.flock.started_on:%b %d, %Y} — "
-                "you can't log data from before then."
+                "date": _("This flock started on %(date)s — you can't log data from before then.")
+                % {"date": f"{self.flock.started_on:%b %d, %Y}"}
             })
         # A retired flock's history is closed — no new entries for it. This only blocks
         # *creating* a log (self._state.adding); existing rows can still be re-cleaned,
@@ -169,7 +170,7 @@ class DailyLog(models.Model):
             and not getattr(self, "_allow_inactive_flock", False)
         ):
             raise ValidationError(
-                {"flock": "This flock has been retired — you can't log new data for it."}
+                {"flock": _("This flock has been retired — you can't log new data for it.")}
             )
 
 

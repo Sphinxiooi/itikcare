@@ -1,0 +1,32 @@
+{% load i18n itik_icons %}
+{% comment %}
+Shown in place of an egg-yield prediction while it's withheld for warm-up -- see
+forecasting/services.py's forecast_readiness for the rule and the reasoning. Shared by
+the dashboard's Next 3-Day panel and the Forecast & Recommendations page so both say
+exactly the same thing. Expects `forecast_warmup` (a ForecastReadiness) in context.
+{% endcomment %}
+<div class="bg-blue-50 border border-blue-200 text-blue-800 text-sm rounded-md p-3">
+    <p class="font-semibold">
+        {% icon "info-circle" "w-4 h-4 inline -mt-0.5" %}
+        {% if forecast_warmup.reason == "new_farm" %}
+        {% translate "Egg yield forecasts start once you've logged 1 full week" %}
+        {% else %}
+        {% blocktranslate with needed=forecast_warmup.logs_needed %}Logging just resumed. Forecasts return on your {{ needed }}th day of logs{% endblocktranslate %}
+        {% endif %}
+        {% blocktranslate with so_far=forecast_warmup.logs_so_far needed=forecast_warmup.logs_needed %}({{ so_far }}/{{ needed }} days logged){% endblocktranslate %}
+    </p>
+    <p class="mt-1">
+        {% if forecast_warmup.reason == "new_farm" %}
+        {% blocktranslate trimmed %}
+        ItikCare needs at least a week of your own farm's data before predicting egg yield,
+        so the prediction fits your flock and not someone else's.
+        {% endblocktranslate %}
+        {% else %}
+        {% blocktranslate trimmed %}
+        The first 3 days back rebuild your flock's recent laying history, so the
+        prediction reflects how your flock is laying now.
+        {% endblocktranslate %}
+        {% endif %}
+        {% translate "Recommendations are based on the data you've logged and are available now." %}
+    </p>
+</div>

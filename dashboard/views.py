@@ -15,32 +15,23 @@ from farm.services import (
 )
 from farm.weather import fetch_current_weather
 from forecasting.models import Forecast
-from recommendations import rules as recommendation_rules
-from recommendations.models import Recommendation
-
-# Lower rank = shown first. Independent of feature-importance order -- the dashboard's
-# single "Quick Recommendation" card is about urgency (what needs attention right now),
-# not which feature the model currently weighs most; the full importance-ordered list
-# lives on the Forecast & Recommendations page (forecasting/views.py).
-PRIORITY_RANK = {
-    Recommendation.Priority.HIGH: 0,
-    Recommendation.Priority.MEDIUM_HIGH: 1,
-    Recommendation.Priority.MEDIUM: 2,
-    Recommendation.Priority.MEDIUM_LOW: 3,
-    Recommendation.Priority.LOW: 4,
-}
-
-# Tiers the rules table itself treats as elevated/at-risk (rules-table.pdf sections
-# 2.2-2.6) -- only these interrupt the farmer on the dashboard's Quick Recommendation
-# card. Everything milder (on-track/in-range/no-action confirmations) still exists and
-# is traceable on the full Forecast & Recommendations page, just not surfaced here.
-ACTIONABLE_PRIORITIES = {Recommendation.Priority.HIGH, Recommendation.Priority.MEDIUM_HIGH}
+from forecasting.services import current_forecast_warmup
+from recommendations.services import ACTIONABLE_PRIORITIES, most_urgent_recommendation
 
 
 def researchers(request):
     """Public "About the Researchers" page, linked from the landing page footer."""
 
     return render(request, "researchers.html")
+
+
+def privacy_notice(request):
+    """Public Privacy Notice (Data Privacy Act of 2012, RA 10173), linked from the
+    signup form's required consent checkbox and the Google sign-in buttons -- see
+    accounts/forms.py's SignupForm and User.privacy_consented_at. Public so a farmer
+    can read it before they have an account."""
+
+    return render(request, "privacy.html")
 
 
 def robots_txt(request):
@@ -54,13 +45,14 @@ def robots_txt(request):
 
 
 def sitemap_xml(request):
-    """Lists only the two pages an anonymous visitor (or a search crawler) can
+    """Lists only the pages an anonymous visitor (or a search crawler) can
     actually reach -- every other page requires login and would just redirect a
     crawler to the login form, so there's no ranking value in listing it."""
 
     page_urls = [
         request.build_absolute_uri(reverse("dashboard")),
         request.build_absolute_uri(reverse("researchers")),
+        request.build_absolute_uri(reverse("privacy_notice")),
     ]
     url_entries = "".join(f"<url><loc>{url}</loc></url>" for url in page_urls)
     xml = (
@@ -121,9 +113,9 @@ def index(request):
         if flock_is_caged
         else None
     )
-    # Dashboard shows only the single most urgent recommendation (highest priority,
-    # ties broken by feature importance -- matching the ordering convention on the
-    # Forecast & Recommendations page), and only if it's actually at an actionable tier
+    # Dashboard shows only the single most urgent recommendation (see
+    # recommendations.services.most_urgent_recommendation, shared with the header
+    # notification bell), and only if it's actually at an actionable tier
     # (ACTIONABLE_PRIORITIES) -- the 4 recommendation slots always fire (see
     # recommendations/rules.py), including routine "on track"/"in range" confirmations
     # that aren't worth interrupting the farmer for here; those still show in full on the
@@ -131,30 +123,17 @@ def index(request):
     # urgent right now" from "no forecast/recommendations exist yet" for the template.
     top_recommendation = None
     has_calm_recommendations = False
-    if latest_forecast:
-        all_recs = list(latest_forecast.recommendations.all())
-        if all_recs:
-            most_urgent = min(
-                all_recs,
-                key=lambda r: (
-                    PRIORITY_RANK.get(r.priority, 99),
-                    -recommendation_rules.importance_for(r.triggered_by, latest_forecast.feature_importances),
-                ),
-            )
-            if most_urgent.priority in ACTIONABLE_PRIORITIES:
-                top_recommendation = most_urgent
-            else:
-                has_calm_recommendations = True
+    most_urgent = most_urgent_recommendation(latest_forecast)
+    if most_urgent is not None:
+        if most_urgent.priority in ACTIONABLE_PRIORITIES:
+            top_recommendation = most_urgent
+        else:
+            has_calm_recommendations = True
 
-    # Forecast confidence note: source_logs holds daily_log + up to 3 priors from the
-    # same caging period (see forecasting/services.py's _build_feature_row) -- exactly
-    # the lag1/roll3 history the prediction used. The first days of a fresh caging
-    # period (right after resuming from free-range, itikcare-spec.md section 10) have
-    # fewer than 3 priors, so lag1/roll3 are partly or fully imputed rather than built
-    # from real recent history, and the forecast is less reliable until source_logs
-    # is back up to its full count of 4.
-    forecast_history_days = min(latest_forecast.source_logs.count() - 1, 3) if latest_forecast else None
-    forecast_low_confidence = latest_forecast is not None and forecast_history_days < 3
+    # Forecast warm-up notice: a brand-new farm's first week, or the first days back
+    # after free-range, has its yield prediction withheld (recommendations still show) --
+    # see forecasting.services.forecast_readiness for the rule and why.
+    forecast_warmup = current_forecast_warmup(active_flock)
 
     # Next 3-Day Forecast panel: 3 distinct day-by-day numbers (forecast_date + 1/2/3),
     # not the single predicted_tri_day_yield sum -- see farm.services.build_next_day_forecasts
@@ -204,8 +183,7 @@ def index(request):
         "current_age_weeks": current_flock_age_weeks(today_log) or (active_flock.pending_flock_age_weeks if active_flock else None),
         "latest_forecast": latest_forecast,
         "next_day_forecasts": next_day_forecasts,
-        "forecast_history_days": forecast_history_days,
-        "forecast_low_confidence": forecast_low_confidence,
+        "forecast_warmup": forecast_warmup,
         "top_recommendation": top_recommendation,
         "has_calm_recommendations": has_calm_recommendations,
         "recent_logs": recent_logs,

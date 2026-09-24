@@ -1,7 +1,7 @@
 {% extends "base.html" %}
-{% load itik_icons %}
+{% load i18n itik_icons %}
 
-{% block title %}Forecast & Recommendations — ItikCare{% endblock %}
+{% block title %}{% translate "Forecast & Recommendations" %} — ItikCare{% endblock %}
 
 {% block extra_head %}
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
@@ -9,49 +9,55 @@
 
 {% block content %}
 <div class="bg-white border border-gray-200 rounded-xl p-6">
-    <h1 class="text-2xl font-bold text-gray-900">Forecast & Recommendations</h1>
-    <p class="text-sm text-gray-500 mb-4">Forecast future egg yield and receive preventive measures</p>
+    <h1 class="text-2xl font-bold text-gray-900">{% translate "Forecast & Recommendations" %}</h1>
+    <p class="text-sm text-gray-500 mb-4">{% translate "Forecast future egg yield and receive preventive measures" %}</p>
 
     {% if active_flock and not flock_is_caged %}
     <div class="bg-amber-50 border border-amber-200 text-amber-800 text-sm rounded-md p-4 mb-4">
-        {% icon "wheat" "w-4 h-4 inline -mt-0.5" %} This flock is currently <strong>free-range in the field</strong>. Forecasts and recommendations are
+        {% icon "wheat" "w-4 h-4 inline -mt-0.5" %}
+        {% url 'flock_profile' as flock_profile_url %}
+        {% blocktranslate trimmed %}
+        This flock is currently <strong>free-range in the field</strong>. Forecasts and recommendations are
         paused until it's caged again.
-        <a href="{% url 'flock_profile' %}" class="underline font-medium">Mark it as caged from Flock Profile</a>
+        <a href="{{ flock_profile_url }}" class="underline font-medium">Mark it as caged from Flock Profile</a>
         once logging resumes.
+        {% endblocktranslate %}
     </div>
     {% endif %}
 
     <div class="flex gap-8 border-b border-gray-200">
         <button type="button" onclick="itikcareShowTab('forecast')" id="tab-btn-forecast"
-                class="pb-3 font-bold text-emerald-700 border-b-2 border-emerald-700">Forecast</button>
+                class="pb-3 font-bold text-emerald-700 border-b-2 border-emerald-700">{% translate "Forecast" %}</button>
         <button type="button" onclick="itikcareShowTab('recommendations')" id="tab-btn-recommendations"
-                class="pb-3 font-bold text-gray-400 border-b-2 border-transparent">Recommendations</button>
+                class="pb-3 font-bold text-gray-400 border-b-2 border-transparent">{% translate "Recommendations" %}</button>
     </div>
 
     <div id="tab-forecast" class="mt-6">
-        {% if latest_forecast %}
+        {% if forecast_warmup %}
+        {% include "includes/forecast_warmup_notice.html" %}
+        {% elif latest_forecast.has_prediction %}
         <div class="bg-emerald-50 rounded-xl p-6 flex items-center gap-4">
             <span class="flex items-center justify-center w-12 h-12 rounded-lg bg-emerald-700 text-white shrink-0">{% icon "basket" "w-6 h-6" %}</span>
             <div>
-                <p class="text-gray-600">Predicted Egg Yield Tomorrow</p>
-                <p class="text-4xl font-bold text-emerald-700">{{ latest_forecast.predicted_next_day1_yield|floatformat:0 }} eggs</p>
+                <p class="text-gray-600">{% translate "Predicted Egg Yield Tomorrow" %}</p>
+                <p class="text-4xl font-bold text-emerald-700">{% blocktranslate with count=latest_forecast.predicted_next_day1_yield|floatformat:0 %}{{ count }} eggs{% endblocktranslate %}</p>
             </div>
         </div>
         {% else %}
-        <p class="text-sm text-gray-500">No forecast generated yet.</p>
+        <p class="text-sm text-gray-500">{% translate "No forecast generated yet." %}</p>
         {% endif %}
 
         <div class="mt-6">
-            <h2 class="text-lg font-bold text-gray-900 mb-3">Next 3-day Forecast</h2>
+            <h2 class="text-lg font-bold text-gray-900 mb-3">{% translate "Next 3-day Forecast" %}</h2>
             <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
                 {% for day in next_day_forecasts %}
                 <div class="border border-emerald-200 rounded-xl p-4 text-center">
-                    <p class="text-sm text-gray-600">{{ day.date|date:"M j" }}{% if day.is_tomorrow %} | Tomorrow{% endif %}</p>
+                    <p class="text-sm text-gray-600">{{ day.date|date:"M j" }}{% if day.is_tomorrow %} | {% translate "Tomorrow" %}{% endif %}</p>
                     <p class="text-3xl font-bold text-emerald-700">{{ day.value|floatformat:0|default:"—" }}</p>
-                    <p class="text-sm text-gray-500">Eggs</p>
+                    <p class="text-sm text-gray-500">{% translate "Eggs" %}</p>
                 </div>
                 {% empty %}
-                <p class="col-span-3 text-sm text-gray-500">No forecasts generated yet.</p>
+                <p class="col-span-3 text-sm text-gray-500">{% if forecast_warmup %}{% translate "Available once the warm-up above is complete." %}{% else %}{% translate "No forecasts generated yet." %}{% endif %}</p>
                 {% endfor %}
             </div>
         </div>
@@ -59,9 +65,9 @@
         <div class="grid grid-cols-1 lg:grid-cols-3 gap-6 mt-6">
             <div class="lg:col-span-2">
                 <div class="flex flex-wrap justify-between items-center gap-2 mb-1">
-                    <h2 class="text-lg font-bold text-gray-900">Egg Yield Trend</h2>
+                    <h2 class="text-lg font-bold text-gray-900">{% translate "Egg Yield Trend" %}</h2>
                     <form method="get" class="flex items-center gap-2">
-                        <label for="trend_range" class="text-sm text-gray-500">Range</label>
+                        <label for="trend_range" class="text-sm text-gray-500">{% translate "Range" %}</label>
                         <select id="trend_range" name="trend_range" onchange="this.form.submit()"
                                 class="text-sm border border-gray-300 rounded-md px-2 py-1 text-gray-700 bg-white">
                             {% for value, label in trend_range_choices %}
@@ -71,17 +77,17 @@
                     </form>
                 </div>
                 <p class="text-sm text-gray-500 mb-3">
-                    {{ trend_range_label }}: actual vs. predicted{% if trend_has_future_forecast %} (dashed = upcoming forecast, not yet logged){% endif %}
+                    {{ trend_range_label }}: {% translate "actual vs. predicted" %}{% if trend_has_future_forecast %} {% translate "(dashed = upcoming forecast, not yet logged)" %}{% endif %}
                 </p>
                 {% if trend_logs %}
                 <canvas id="trendChart" height="220"></canvas>
                 {% else %}
-                <p class="text-sm text-gray-500">No farm records yet.</p>
+                <p class="text-sm text-gray-500">{% translate "No farm records yet." %}</p>
                 {% endif %}
             </div>
             <div class="bg-emerald-50 rounded-xl p-5">
-                <h2 class="font-bold text-gray-900 mb-1 flex items-center gap-1.5">{% icon "lightbulb" "w-5 h-5" %} Key Influencing Factors</h2>
-                <p class="text-sm text-gray-500 mb-3">How much each farm condition is shaping this forecast</p>
+                <h2 class="font-bold text-gray-900 mb-1 flex items-center gap-1.5">{% icon "lightbulb" "w-5 h-5" %} {% translate "Key Influencing Factors" %}</h2>
+                <p class="text-sm text-gray-500 mb-3">{% translate "How much each farm condition is shaping this forecast" %}</p>
                 {% if feature_importances %}
                 <div class="space-y-3">
                     {% for feature_label, importance in feature_importances %}
@@ -97,15 +103,15 @@
                     {% endfor %}
                 </div>
                 {% else %}
-                <p class="text-sm text-gray-500">No current forecast yet — once you log today's data and a forecast is generated, you'll see the factors influencing it here.</p>
+                <p class="text-sm text-gray-500">{% translate "No current forecast yet — once you log today's data and a forecast is generated, you'll see the factors influencing it here." %}</p>
                 {% endif %}
             </div>
         </div>
     </div>
 
     <div id="tab-recommendations" class="mt-6 hidden">
-        <h2 class="text-lg font-bold text-gray-900">Guide & Preventive Recommendations</h2>
-        <p class="text-sm text-gray-500 mb-4">Practical steps based on your Key Influencing Factors, with the biggest ones listed first</p>
+        <h2 class="text-lg font-bold text-gray-900">{% translate "Guide & Preventive Recommendations" %}</h2>
+        <p class="text-sm text-gray-500 mb-4">{% translate "Practical steps based on your Key Influencing Factors, with the biggest ones listed first" %}</p>
 
         {% if grouped_recommendations %}
         <div class="space-y-4">
@@ -145,7 +151,7 @@
             {% endfor %}
         </div>
         {% else %}
-        <p class="text-sm text-gray-500">No recommendations yet — these are generated once a forecast exists.</p>
+        <p class="text-sm text-gray-500">{% translate "No recommendations yet — these are generated once a forecast exists." %}</p>
         {% endif %}
     </div>
 </div>
@@ -174,7 +180,7 @@
             labels: trendLabels,
             datasets: [
                 {
-                    label: "Actual egg yield",
+                    label: "{{ _("Actual egg yield")|escapejs }}",
                     data: {{ trend_actual_json|safe }},
                     borderColor: "#047857",
                     backgroundColor: "#047857",
@@ -185,7 +191,7 @@
                     spanGaps: false,
                 },
                 {
-                    label: "Predicted egg yield",
+                    label: "{{ _("Predicted egg yield")|escapejs }}",
                     data: {{ trend_predicted_json|safe }},
                     borderColor: "#2a78d6",
                     backgroundColor: "#2a78d6",

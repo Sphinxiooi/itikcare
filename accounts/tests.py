@@ -45,10 +45,12 @@ class SignupTests(TestCase):
 
     def _post(self, **overrides):
         data = {
-            "username": "newfarmer",
+            "full_name": "New Farmer",
+            "contact": "",
             "password1": "a-strong-passw0rd",
             "password2": "a-strong-passw0rd",
             "address": "San Isidro",
+            "privacy_consent": "on",
         }
         data.update(overrides)
         return self.client.post("/accounts/signup/", data)
@@ -56,7 +58,7 @@ class SignupTests(TestCase):
     @patch("accounts.views.geocode_address", return_value=(13.5, 123.2))
     def test_signup_with_resolvable_address_saves_latitude_and_longitude(self, mock_geocode):
         self._post(address="San Isidro")
-        user = User.objects.get(username="newfarmer")
+        user = User.objects.get(username="new.farmer")
         mock_geocode.assert_called_once_with("San Isidro, Libmanan, Camarines Sur, Philippines")
         self.assertEqual(user.address, "San Isidro, Libmanan, Camarines Sur, Philippines")
         self.assertAlmostEqual(float(user.latitude), 13.5)
@@ -66,7 +68,7 @@ class SignupTests(TestCase):
     def test_signup_with_unresolvable_address_succeeds_with_null_coordinates(self, mock_geocode):
         response = self._post(address="Bagacay")
         self.assertRedirects(response, "/flock/", fetch_redirect_response=False)
-        user = User.objects.get(username="newfarmer")
+        user = User.objects.get(username="new.farmer")
         self.assertEqual(user.address, "Bagacay, Libmanan, Camarines Sur, Philippines")
         self.assertIsNone(user.latitude)
         self.assertIsNone(user.longitude)
@@ -76,14 +78,14 @@ class SignupTests(TestCase):
         response = self._post(address="")
         self.assertEqual(response.status_code, 200)
         mock_geocode.assert_not_called()
-        self.assertFalse(User.objects.filter(username="newfarmer").exists())
+        self.assertFalse(User.objects.filter(username="new.farmer").exists())
 
     @patch("accounts.views.geocode_address")
     def test_signup_with_address_outside_barangay_list_fails_validation(self, mock_geocode):
         response = self._post(address="Nowhere Land")
         self.assertEqual(response.status_code, 200)
         mock_geocode.assert_not_called()
-        self.assertFalse(User.objects.filter(username="newfarmer").exists())
+        self.assertFalse(User.objects.filter(username="new.farmer").exists())
 
 
 class SignupRateLimitTests(TestCase):
@@ -97,13 +99,16 @@ class SignupRateLimitTests(TestCase):
         cache.clear()
 
     def _post(self, username):
+        # full_name is a single word here, so the generated username equals it.
         return self.client.post(
             "/accounts/signup/",
             {
-                "username": username,
+                "full_name": username,
+                "contact": "",
                 "password1": "a-strong-passw0rd",
                 "password2": "a-strong-passw0rd",
                 "address": "San Isidro",
+                "privacy_consent": "on",
             },
         )
 
@@ -435,6 +440,11 @@ class AccountSettingsTests(TestCase):
             username="farmerjuan", email="juan@example.com", password="a-strong-passw0rd",
         )
         self.client.force_login(self.user)
+        # A changed email runs accounts.contact.email_domain_accepts_mail (a real DNS
+        # lookup) -- stub it so these tests never touch the network.
+        dns_patcher = patch("accounts.forms.email_domain_accepts_mail", return_value=True)
+        dns_patcher.start()
+        self.addCleanup(dns_patcher.stop)
 
     def _post(self, **overrides):
         data = {
@@ -851,3 +861,333 @@ class BrevoEmailBackendTests(TestCase):
         self.assertEqual(payload["to"], [{"email": "farmer@example.com"}])
         self.assertIn("reset your password", payload["subject"].lower())
         self.assertRegex(payload["textContent"], r"verification code is: \d{6}")
+
+
+class ContactHelperTests(TestCase):
+    """accounts/contact.py -- phone normalizing, splitting the single "Email or phone
+    number" signup field, the email-domain check, and username generation."""
+
+    def test_normalize_ph_mobile_accepts_common_formats(self):
+        from accounts.contact import normalize_ph_mobile
+
+        for raw in ("09171234567", "0917 123 4567", "0917-123-4567", "+639171234567",
+                    "639171234567", " +63 917 123 4567 "):
+            self.assertEqual(normalize_ph_mobile(raw), "09171234567", raw)
+
+    def test_normalize_ph_mobile_rejects_non_mobile_numbers(self):
+        from accounts.contact import normalize_ph_mobile
+
+        for raw in ("", None, "0917123456", "091712345678", "08171234567", "5551234",
+                    "juan@example.com", "0917abc4567"):
+            self.assertIsNone(normalize_ph_mobile(raw), raw)
+
+    def test_split_contact_routes_email_and_phone(self):
+        from accounts.contact import split_contact
+
+        self.assertEqual(split_contact(""), ("", None))
+        self.assertEqual(split_contact("  "), ("", None))
+        self.assertEqual(split_contact("0917 123 4567"), ("", "09171234567"))
+        self.assertEqual(split_contact("Juan@Gmail.com"), ("juan@gmail.com", None))
+
+    def test_split_contact_rejects_junk(self):
+        from django.core.exceptions import ValidationError
+
+        from accounts.contact import split_contact
+
+        for raw in ("juan", "12345", "juan@", "@gmail.com"):
+            with self.assertRaises(ValidationError, msg=raw):
+                split_contact(raw)
+
+    def _mx(self, *exchanges):
+        return [Mock(exchange=exchange) for exchange in exchanges]
+
+    def test_email_domain_with_mx_record_accepts_mail(self):
+        from accounts.contact import email_domain_accepts_mail
+
+        with patch("dns.resolver.Resolver.resolve", return_value=self._mx("mx.gmail.com.")):
+            self.assertTrue(email_domain_accepts_mail("juan@gmail.com"))
+
+    def test_email_domain_that_does_not_exist_is_rejected(self):
+        import dns.resolver
+
+        from accounts.contact import email_domain_accepts_mail
+
+        with patch("dns.resolver.Resolver.resolve", side_effect=dns.resolver.NXDOMAIN):
+            self.assertFalse(email_domain_accepts_mail("juan@gmial.com"))
+
+    def test_email_domain_with_null_mx_is_rejected(self):
+        from accounts.contact import email_domain_accepts_mail
+
+        with patch("dns.resolver.Resolver.resolve", return_value=self._mx(".")):
+            self.assertFalse(email_domain_accepts_mail("juan@example.com"))
+
+    def test_email_domain_with_no_mx_or_a_record_is_rejected(self):
+        import dns.resolver
+
+        from accounts.contact import email_domain_accepts_mail
+
+        with patch("dns.resolver.Resolver.resolve", side_effect=dns.resolver.NoAnswer):
+            self.assertFalse(email_domain_accepts_mail("juan@parked-domain.test"))
+
+    def test_dns_timeout_never_blocks_signup(self):
+        import dns.exception
+
+        from accounts.contact import email_domain_accepts_mail
+
+        with patch("dns.resolver.Resolver.resolve", side_effect=dns.exception.Timeout):
+            self.assertTrue(email_domain_accepts_mail("juan@gmail.com"))
+
+    def test_generate_unique_username_from_full_name_adds_suffix_on_collision(self):
+        from accounts.contact import generate_unique_username
+
+        self.assertEqual(generate_unique_username("Juan Dela Cruz"), "juan.delacruz")
+        User.objects.create_user(username="juan.delacruz", password="x-strong-passw0rd")
+        self.assertEqual(generate_unique_username("juan  dela cruz"), "juan.delacruz2")
+        self.assertEqual(generate_unique_username("Jhanmae Peñaredondo"), "jhanmae.penaredondo")
+        self.assertEqual(generate_unique_username(""), "farmer")
+
+
+@patch("accounts.views.call_command")
+@patch("accounts.views.geocode_address", return_value=None)
+@patch("accounts.forms.email_domain_accepts_mail", return_value=True)
+class SignupContactAndConsentTests(TestCase):
+    """SignupForm's full name / "Email or phone number" / privacy consent fields."""
+
+    def setUp(self):
+        cache.clear()
+
+    def _post(self, **overrides):
+        data = {
+            "full_name": "Juan Dela Cruz",
+            "contact": "",
+            "password1": "a-strong-passw0rd",
+            "password2": "a-strong-passw0rd",
+            "address": "San Isidro",
+            "privacy_consent": "on",
+        }
+        data.update(overrides)
+        return self.client.post(reverse("signup"), data)
+
+    def test_full_name_and_phone_create_account_with_generated_username(self, *mocks):
+        response = self._post(contact="0917 123 4567")
+        self.assertRedirects(response, reverse("flock_profile"), fetch_redirect_response=False)
+        user = User.objects.get(phone_number="09171234567")
+        self.assertEqual(user.username, "juan.delacruz")
+        self.assertEqual(user.first_name, "Juan")
+        self.assertEqual(user.last_name, "Dela Cruz")
+        self.assertEqual(user.email, "")
+        self.assertIsNotNone(user.privacy_consented_at)
+
+    def test_email_goes_into_email_field(self, *mocks):
+        self._post(contact="Juan@Gmail.com")
+        user = User.objects.get(username="juan.delacruz")
+        self.assertEqual(user.email, "juan@gmail.com")
+        self.assertIsNone(user.phone_number)
+
+    def test_blank_contact_still_creates_account(self, *mocks):
+        self._post()
+        self._post(full_name="Maria Santos")
+        # Two blank phone numbers must not collide on the unique index (stored as NULL).
+        self.assertEqual(User.objects.filter(phone_number__isnull=True).count(), 2)
+        self.assertEqual(
+            User.objects.get(username="juan.delacruz").missing_profile_items, ["email_or_phone"]
+        )
+
+    def test_junk_contact_is_rejected(self, *mocks):
+        response = self._post(contact="juan")
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Enter a valid email or an 11-digit mobile number")
+        self.assertFalse(User.objects.exists())
+
+    def test_email_whose_domain_cannot_receive_mail_is_rejected(self, mock_dns, *mocks):
+        mock_dns.return_value = False
+        response = self._post(contact="juan@gmial.com")
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "doesn&#x27;t seem to exist")
+        self.assertFalse(User.objects.exists())
+
+    def test_duplicate_phone_or_email_is_rejected(self, *mocks):
+        User.objects.create_user(
+            username="taken", password="x-strong-passw0rd",
+            email="taken@gmail.com", phone_number="09171234567",
+        )
+        response = self._post(contact="+63 917 123 4567")
+        self.assertContains(response, "mobile number is already in use")
+        response = self._post(contact="TAKEN@gmail.com")
+        self.assertContains(response, "email is already in use")
+        self.assertEqual(User.objects.count(), 1)
+
+    def test_signup_without_privacy_consent_is_rejected(self, *mocks):
+        response = self._post(privacy_consent="")
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Please agree to the Privacy Notice")
+        self.assertFalse(User.objects.exists())
+
+    def test_blank_full_name_is_rejected(self, *mocks):
+        response = self._post(full_name="   ")
+        self.assertEqual(response.status_code, 200)
+        self.assertFalse(User.objects.exists())
+
+    def test_signup_page_labels(self, *mocks):
+        response = self.client.get(reverse("signup"))
+        self.assertContains(response, "Full name")
+        self.assertContains(response, "Email or phone number")
+        self.assertNotContains(response, "(optional)")
+        self.assertContains(response, reverse("privacy_notice"))
+
+
+class ForgivingLoginTests(TestCase):
+    """accounts/auth_backends.py's full name / first name / phone login paths, all
+    case-insensitive (the existing username/email/full-name cases stay covered by
+    LoginIdentifierTests above)."""
+
+    def setUp(self):
+        cache.clear()
+        self.user = User.objects.create_user(
+            username="juan.delacruz",
+            password="a-strong-passw0rd",
+            first_name="Juan",
+            last_name="Dela Cruz",
+            phone_number="09171234567",
+        )
+
+    def _login(self, identifier, password="a-strong-passw0rd"):
+        return self.client.post(reverse("login"), {"username": identifier, "password": password})
+
+    def test_every_identifier_logs_in(self):
+        for identifier in ("JUAN DELA CRUZ", "juan  dela cruz", "juan", "Juan",
+                           "09171234567", "+639171234567", "0917 123 4567", "Juan.DelaCruz"):
+            self.client.logout()
+            response = self._login(identifier)
+            self.assertRedirects(response, reverse("dashboard"), msg_prefix=identifier)
+
+    def test_first_name_matches_a_multi_word_first_name(self):
+        User.objects.create_user(
+            username="maria", password="a-strong-passw0rd",
+            first_name="Maria Clara", last_name="Santos",
+        )
+        # Stored first name is "Maria Clara", but typing just "maria" still finds her.
+        response = self._login("maria")
+        self.assertRedirects(response, reverse("dashboard"))
+
+    def test_shared_first_name_is_ambiguous_but_full_name_still_works(self):
+        User.objects.create_user(
+            username="juan.santos", password="another-strong-pw2",
+            first_name="Juan", last_name="Santos",
+        )
+        response = self._login("juan")
+        self.assertContains(response, "matches more than one account")
+        self.assertNotIn("_auth_user_id", self.client.session)
+
+        response = self._login("Juan Dela Cruz")
+        self.assertRedirects(response, reverse("dashboard"))
+
+    def test_correct_phone_with_wrong_password_fails(self):
+        response = self._login("09171234567", password="wrong-password")
+        self.assertEqual(response.status_code, 200)
+        self.assertNotIn("_auth_user_id", self.client.session)
+
+    def test_login_page_label(self):
+        response = self.client.get(reverse("login"))
+        self.assertContains(response, "Name, email, or phone number")
+
+
+class PasswordResetLookupTests(TestCase):
+    """Reset step 1 accepts anything the login form does -- signup no longer shows the
+    farmer a username (accounts/views.py's request_reset_code)."""
+
+    def setUp(self):
+        cache.clear()
+        User.objects.create_user(
+            username="juan.delacruz", email="juan@gmail.com", password="old-passw0rd",
+            first_name="Juan", last_name="Dela Cruz", phone_number="09171234567",
+        )
+
+    def test_name_email_or_phone_all_send_the_code(self):
+        for identifier in ("Juan Dela Cruz", "juan", "JUAN@gmail.com", "0917 123 4567"):
+            mail.outbox.clear()
+            cache.clear()
+            response = self.client.post(reverse("password_reset"), {"username": identifier})
+            self.assertRedirects(response, reverse("password_reset_verify"), msg_prefix=identifier)
+            self.assertEqual(len(mail.outbox), 1, identifier)
+            self.assertEqual(mail.outbox[0].to, ["juan@gmail.com"])
+
+
+class AccountSettingsContactTests(TestCase):
+    """AccountSettingsForm's separate mobile number field."""
+
+    def setUp(self):
+        self.user = User.objects.create_user(
+            username="juan.delacruz", password="a-strong-passw0rd", first_name="Juan",
+        )
+        self.client.force_login(self.user)
+
+    def _post(self, **overrides):
+        data = {
+            "first_name": "Juan", "last_name": "", "username": "juan.delacruz",
+            "email": "", "phone_number": "", "address": "",
+        }
+        data.update(overrides)
+        return self.client.post(reverse("account_settings"), data)
+
+    def test_adding_a_phone_number_normalizes_it(self):
+        self._post(phone_number="+63 917 123 4567")
+        self.user.refresh_from_db()
+        self.assertEqual(self.user.phone_number, "09171234567")
+
+    def test_clearing_the_phone_number_stores_null(self):
+        self.user.phone_number = "09171234567"
+        self.user.save()
+        self._post(phone_number="")
+        self.user.refresh_from_db()
+        self.assertIsNone(self.user.phone_number)
+
+    def test_invalid_or_taken_phone_is_rejected(self):
+        User.objects.create_user(username="other", password="x-strong-passw0rd", phone_number="09998887777")
+        response = self._post(phone_number="12345")
+        self.assertContains(response, "11-digit mobile number")
+        response = self._post(phone_number="09998887777")
+        self.assertContains(response, "mobile number is already in use")
+        self.user.refresh_from_db()
+        self.assertIsNone(self.user.phone_number)
+
+    @patch("accounts.forms.email_domain_accepts_mail", return_value=False)
+    def test_new_email_on_a_dead_domain_is_rejected(self, mock_dns):
+        response = self._post(email="juan@gmial.com")
+        self.assertContains(response, "seem to exist")
+        self.user.refresh_from_db()
+        self.assertEqual(self.user.email, "")
+
+
+class MissingProfileItemsTests(TestCase):
+    """User.missing_profile_items -- what the notification bell reminds a farmer about."""
+
+    def test_complete_profile_has_nothing_missing(self):
+        user = User(
+            username="a", first_name="Juan", email="juan@gmail.com", phone_number="09171234567",
+            address="San Isidro, Libmanan, Camarines Sur, Philippines",
+            privacy_consented_at=timezone.now(),
+        )
+        self.assertEqual(user.missing_profile_items, [])
+
+    def test_phone_only_still_nudges_for_email(self):
+        user = User(
+            username="a", first_name="Juan", phone_number="09171234567",
+            address="San Isidro, Libmanan, Camarines Sur, Philippines",
+            privacy_consented_at=timezone.now(),
+        )
+        self.assertEqual(user.missing_profile_items, ["email"])
+
+    def test_empty_profile_lists_everything(self):
+        user = User(username="a")
+        self.assertEqual(
+            user.missing_profile_items,
+            ["email_or_phone", "full_name", "address", "privacy_consent"],
+        )
+
+
+class PrivacyNoticeTests(TestCase):
+    def test_privacy_notice_is_public(self):
+        response = self.client.get(reverse("privacy_notice"))
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Data Privacy Act of 2012")

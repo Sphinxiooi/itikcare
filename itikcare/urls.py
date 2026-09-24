@@ -15,6 +15,8 @@ from accounts.forms import StyledAuthenticationForm
 
 urlpatterns = [
     path('admin/', admin.site.urls),
+    # POST-only set_language view behind the English/Filipino switch.
+    path('i18n/', include('django.conf.urls.i18n')),
     path(
         'accounts/login/',
         accounts_views.RateLimitedLoginView.as_view(
@@ -47,6 +49,7 @@ urlpatterns = [
     path('', include('dashboard.urls')),
     path('', include('farm.urls')),
     path('', include('forecasting.urls')),
+    path('', include('notifications.urls')),
 ]
 
 # Farmer-uploaded avatars. whitenoise serves STATIC_ROOT but never MEDIA_ROOT, and

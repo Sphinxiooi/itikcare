@@ -224,6 +224,58 @@ def _write_stub_artifact(path, daily_importances=None, tri_importances=None):
     joblib.dump(artifact, path)
 
 
+def _make_logs(flock, user, start, n, caging_period=1):
+    """n consecutive daily DailyLogs for flock, starting at start."""
+    return [
+        DailyLog.objects.create(
+            flock=flock, date=start + timedelta(days=i), caging_period=caging_period,
+            flock_size=240, flock_age_weeks=25, egg_count=150, feed_intake_kg="40.0",
+            temperature_c="33.0", humidity_pct="70.0", recorded_by=user,
+        )
+        for i in range(n)
+    ]
+
+
+class ForecastReadinessTests(TestCase):
+    """The warm-up rule (services.forecast_readiness): no prediction for a new farm's
+    first week, or for the first 3 logs of a new caging period."""
+
+    def setUp(self):
+        self.user = User.objects.create_user(username="farmer1", password="pw12345")
+        self.flock = Flock.objects.create(owner=self.user, generation_number=1, started_on=date(2024, 1, 1))
+
+    def test_new_farm_needs_seven_logs(self):
+        logs = _make_logs(self.flock, self.user, date(2024, 1, 1), 7)
+        first = services.readiness_for_log(logs[0])
+        self.assertEqual((first.is_ready, first.reason, first.logs_so_far, first.logs_needed), (False, "new_farm", 1, 7))
+        self.assertFalse(services.readiness_for_log(logs[5]).is_ready)
+        self.assertTrue(services.readiness_for_log(logs[6]).is_ready)
+
+    def test_new_caging_period_needs_three_warmup_logs(self):
+        _make_logs(self.flock, self.user, date(2024, 1, 1), 10, caging_period=1)
+        recaged = _make_logs(self.flock, self.user, date(2024, 4, 1), 4, caging_period=2)
+        first = services.readiness_for_log(recaged[0])
+        self.assertEqual((first.is_ready, first.reason, first.logs_so_far, first.logs_needed), (False, "recaged", 1, 4))
+        self.assertFalse(services.readiness_for_log(recaged[2]).is_ready)
+        self.assertTrue(services.readiness_for_log(recaged[3]).is_ready)
+
+    def test_backfilled_past_days_count_toward_warmup(self):
+        logs = _make_logs(self.flock, self.user, date(2024, 1, 10), 1)
+        self.assertFalse(services.readiness_for_log(logs[0]).is_ready)
+        _make_logs(self.flock, self.user, date(2024, 1, 4), 6)  # backfilled, all earlier
+        self.assertTrue(services.readiness_for_log(logs[0]).is_ready)
+
+    def test_current_forecast_warmup_for_a_brand_new_farm_with_no_logs(self):
+        warmup = services.current_forecast_warmup(self.flock)
+        self.assertEqual((warmup.reason, warmup.logs_so_far), ("new_farm", 0))
+
+    def test_current_forecast_warmup_is_none_once_ready_or_free_range(self):
+        _make_logs(self.flock, self.user, date(2024, 1, 1), 7)
+        self.assertIsNone(services.current_forecast_warmup(self.flock))
+        self.flock.is_caged = False
+        self.assertIsNone(services.current_forecast_warmup(self.flock))
+
+
 class GenerateForecastTests(TestCase):
     """DB-backed orchestration tests for services.generate_forecast, following the same
     "real DB rows, no mocking" style as recommendations/tests.py's GenerateRecommendationsTests.
@@ -231,10 +283,17 @@ class GenerateForecastTests(TestCase):
 
     def setUp(self):
         self.user = User.objects.create_user(username="farmer1", password="pw12345")
-        self.flock = Flock.objects.create(owner=self.user, generation_number=1, started_on=date(2024, 1, 1))
+        # A retired earlier generation with a full week of logs, so this owner is past the
+        # new-farm warm-up (services.NEW_FARM_MIN_LOGS) -- these tests are about prediction
+        # itself; ForecastReadinessTests above covers the warm-up rule.
+        old_flock = Flock.objects.create(
+            owner=self.user, generation_number=1, started_on=date(2023, 1, 1), is_active=False
+        )
+        _make_logs(old_flock, self.user, date(2023, 1, 1), 7)
+        self.flock = Flock.objects.create(owner=self.user, generation_number=2, started_on=date(2024, 1, 1))
         self.logs = [
             DailyLog.objects.create(
-                flock=self.flock, date=date(2024, 1, 1) + timedelta(days=i), caging_period=1,
+                flock=self.flock, date=date(2024, 1, 1) + timedelta(days=i), caging_period=2,
                 flock_size=240, flock_age_weeks=25, egg_count=egg, feed_intake_kg="40.0",
                 temperature_c="33.0", humidity_pct="70.0", recorded_by=self.user,
             )
@@ -265,6 +324,25 @@ class GenerateForecastTests(TestCase):
         forecast = services.generate_forecast(day1, model_path=self.model_path)
         self.assertEqual(set(forecast.source_logs.all()), {day1})
 
+    def test_first_days_of_a_caging_period_withhold_prediction_but_keep_recommendations(self):
+        # Days 1-3 of a new caging period are warm-up; day 4 has full lag1/roll3 history.
+        for day in self.logs[:3]:
+            forecast = services.generate_forecast(day, model_path=self.model_path)
+            self.assertFalse(forecast.has_prediction)
+            self.assertIsNone(forecast.predicted_next_day1_yield)
+            # temperature_c=33.0 still fires its rule -- recommendations don't need a prediction.
+            self.assertTrue(forecast.recommendations.exists())
+        self.assertTrue(services.generate_forecast(self.logs[3], model_path=self.model_path).has_prediction)
+
+    def test_new_farm_first_week_withholds_prediction(self):
+        newcomer = User.objects.create_user(username="newfarmer", password="pw12345")
+        flock = Flock.objects.create(owner=newcomer, generation_number=1, started_on=date(2024, 1, 1))
+        logs = _make_logs(flock, newcomer, date(2024, 1, 1), 7)
+        sixth = services.generate_forecast(logs[5], model_path=self.model_path)
+        self.assertFalse(sixth.has_prediction)
+        self.assertTrue(sixth.recommendations.exists())
+        self.assertTrue(services.generate_forecast(logs[6], model_path=self.model_path).has_prediction)
+
     def test_missing_model_file_raises_model_not_trained_error(self):
         missing_path = Path(self.tmpdir.name) / "does-not-exist.joblib"
         with self.assertRaises(services.ModelNotTrainedError):
@@ -291,7 +369,7 @@ class GenerateForecastTests(TestCase):
         # rolls over at 6am rather than midnight (farm.services.operational_today).
         today = operational_today()
         today_log = DailyLog.objects.create(
-            flock=self.flock, date=today, caging_period=1,
+            flock=self.flock, date=today, caging_period=2,
             flock_size=240, flock_age_weeks=25, egg_count=170, feed_intake_kg="40.0",
             temperature_c="33.0", humidity_pct="70.0", recorded_by=self.user,
         )
@@ -310,7 +388,7 @@ class GenerateForecastTests(TestCase):
 
     def test_next_day_forecasts_fall_back_to_carried_forward_weather_on_fetch_failure(self):
         today_log = DailyLog.objects.create(
-            flock=self.flock, date=operational_today(), caging_period=1,
+            flock=self.flock, date=operational_today(), caging_period=2,
             flock_size=240, flock_age_weeks=25, egg_count=170, feed_intake_kg="40.0",
             temperature_c="33.0", humidity_pct="70.0", recorded_by=self.user,
         )
@@ -618,6 +696,8 @@ class ForecastRecommendationsViewTests(TestCase):
         self.client = Client()
         self.client.login(username="farmer1", password="pw12345")
         self.flock = Flock.objects.create(owner=self.user, generation_number=1, started_on=date(2024, 1, 1))
+        # A week of earlier history so the page is past the forecast warm-up.
+        _make_logs(self.flock, self.user, date.today() - timedelta(days=7), 7)
         self.log = DailyLog.objects.create(
             flock=self.flock, date=date.today(), flock_size=240, caging_period=1,
             flock_age_weeks=25, egg_count=150, feed_intake_kg="40.0",
@@ -698,3 +778,22 @@ class ForecastRecommendationsViewTests(TestCase):
     def test_trend_range_query_param_is_respected(self):
         response = self.client.get("/forecast-recommendations/?trend_range=30")
         self.assertEqual(response.context["trend_range"], "30")
+
+    def test_warmup_shows_notice_instead_of_prediction_but_keeps_recommendations(self):
+        newcomer = User.objects.create_user(username="newfarmer", password="pw12345")
+        flock = Flock.objects.create(owner=newcomer, generation_number=1, started_on=date(2024, 1, 1))
+        log = _make_logs(flock, newcomer, date.today(), 1)[0]
+        forecast = Forecast.objects.create(
+            flock=flock, forecast_date=date.today(), feature_importances={"temperature_c": 0.4},
+            model_version="rf-test",
+        )
+        forecast.source_logs.set([log])
+        Recommendation.objects.create(forecast=forecast, triggered_by="temperature_c", message="Add shade.", priority="high")
+
+        client = Client()
+        client.login(username="newfarmer", password="pw12345")
+        response = client.get("/forecast-recommendations/")
+        self.assertContains(response, "1/7 days logged")
+        self.assertNotContains(response, "Predicted Egg Yield Tomorrow")
+        self.assertEqual(response.context["next_day_forecasts"], [])
+        self.assertContains(response, "Add shade.")

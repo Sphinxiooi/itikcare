@@ -1,15 +1,16 @@
 from django.conf import settings
 from django.contrib.auth.models import AbstractUser
 from django.core.exceptions import ValidationError
-from django.core.validators import MaxValueValidator, MinValueValidator
+from django.core.validators import MaxValueValidator, MinValueValidator, RegexValidator
 from django.db import models
+from django.utils.translation import gettext_lazy as _
 
 AVATAR_MAX_SIZE_BYTES = 5 * 1024 * 1024
 
 
 def validate_avatar_size(file):
     if file.size > AVATAR_MAX_SIZE_BYTES:
-        raise ValidationError("Image must be 5MB or smaller.")
+        raise ValidationError(_("Image must be 5MB or smaller."))
 
 
 class User(AbstractUser):
@@ -84,9 +85,59 @@ class User(AbstractUser):
         "in the UI (templates/base.html) when unset.",
     )
 
+    phone_number = models.CharField(
+        max_length=11,
+        unique=True,
+        null=True,
+        blank=True,
+        validators=[
+            RegexValidator(r"^09\d{9}$", "Enter an 11-digit mobile number (09XXXXXXXXX).")
+        ],
+        help_text=("Optional PH mobile number in 11-digit local form (09XXXXXXXXX), "
+        "normalized by accounts/contact.py's normalize_ph_mobile. Login-only: farmers "
+        "can type it into the login form instead of their name or email "
+        "(accounts/auth_backends.py). No SMS is ever sent to it. null (not \"\") when "
+        "unset so the unique index only covers accounts that actually entered one -- "
+        "same pattern as google_sub."),
+    )
+    privacy_consented_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="When the farmer agreed to the Privacy Notice (templates/privacy.html) "
+        "-- the signup consent checkbox, or creating an account via Google sign-in. "
+        "Required under the Data Privacy Act of 2012 (RA 10173) since the app collects "
+        "personal information. Null for accounts created before the notice existed.",
+    )
+
     class Meta:
         verbose_name = "user"
         verbose_name_plural = "users"
+
+    @property
+    def missing_profile_items(self):
+        """Profile details this farmer hasn't filled in yet, as short keys the
+        notification bell can turn into reminders:
+
+        - "email_or_phone": neither an email nor a mobile number -- the farmer has no
+          way to recover the account except asking an admin.
+        - "email": has a phone but no email -- self-service password reset only works
+          by email (accounts/views.py's request_reset_code).
+        - "full_name": no first name on file (e.g. a fresh Google sign-in).
+        - "address": no farm barangay, so weather prefill uses the default location.
+        - "privacy_consent": account predates the Privacy Notice.
+        """
+        missing = []
+        if not self.email and not self.phone_number:
+            missing.append("email_or_phone")
+        elif not self.email:
+            missing.append("email")
+        if not self.first_name:
+            missing.append("full_name")
+        if not self.address:
+            missing.append("address")
+        if self.privacy_consented_at is None:
+            missing.append("privacy_consent")
+        return missing
 
     def save(self, *args, **kwargs):
         # Keep createsuperuser accounts consistent: an admin flag should imply the admin role.

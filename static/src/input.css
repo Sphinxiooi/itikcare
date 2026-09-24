@@ -158,3 +158,120 @@
 #signup-confirm-modal::backdrop {
     background-color: rgb(15 23 42 / 0.45);
 }
+
+/* ---------------------------------------------------------------------------------
+   Night mode (toggle at the bottom of the sidebar, base.html)
+   ---------------------------------------------------------------------------------
+   The toggle adds/removes a `dark` class on <html> and remembers the choice in
+   localStorage (see the tiny inline script at the top of base.html's <head>, which
+   applies it before first paint so there's no white flash on page load).
+
+   Rather than adding a `dark:` twin to every colour class across ~20 templates,
+   this block re-themes the palette in one place:
+
+   1. Tailwind v4 compiles every colour utility to a CSS variable
+      (e.g. .text-gray-900 { color: var(--color-gray-900) }), so re-pointing the gray
+      scale's variables flips every gray text/border/background at once -- including
+      hover: variants and /opacity variants -- with no per-class work.
+   2. Colours that are used in *both* a light and a dark role can't be remapped by
+      variable (e.g. --color-white is behind both bg-white cards and text-white on
+      green buttons), so those get targeted class overrides below instead.
+      `:where(html.dark)` adds zero specificity, so an override has the same weight
+      as the utility it replaces and a hover: variant still wins over it on hover.
+
+   The `dark:` variant is still declared so a template can opt into an explicit
+   dark style later if one element needs special handling. */
+@custom-variant dark (&:where(.dark, .dark *));
+
+html.dark {
+    color-scheme: dark; /* native date pickers, selects, scrollbars follow the theme */
+
+    --surface-page: #0d1412;
+    --surface-card: #151f1c;
+    --surface-raised: #1b2723;
+
+    /* Gray scale, inverted: light grays become dark surfaces/borders, dark grays
+       (body text) become light. */
+    --color-gray-50: #1a2522;
+    --color-gray-100: #1f2b28;
+    --color-gray-200: #2c3a36;
+    --color-gray-300: #3d4c48;
+    --color-gray-400: #7d8a86;
+    --color-gray-500: #9aa6a2;
+    --color-gray-600: #b3bdb9;
+    --color-gray-700: #c9d1ce;
+    --color-gray-800: #e0e6e3;
+    --color-gray-900: #f0f4f2;
+
+    /* Pale tint backgrounds/borders on status cards and alerts. These shades are
+       only ever used as backgrounds or borders in the templates, never as text on a
+       dark fill, so they're safe to remap wholesale. */
+    --color-emerald-50: #13302a;
+    --color-emerald-200: #1f5446;
+    --color-amber-50: #2e2410;
+    --color-amber-100: #3a2d12;
+    --color-amber-200: #5c4518;
+    --color-amber-300: #7a5a1c;
+    --color-red-50: #331719;
+    --color-red-100: #4a1f22;
+    --color-red-200: #5e2629;
+    --color-sky-50: #0f2633;
+    --color-sky-200: #1d4a60;
+    --color-blue-50: #121f38;
+    --color-blue-200: #24406e;
+    --color-orange-50: #33200f;
+}
+
+html.dark body {
+    background-color: var(--surface-page);
+}
+html.dark .app-background {
+    background-image:
+        radial-gradient(circle at top right, rgb(16 185 129 / 0.08), transparent 60%),
+        linear-gradient(160deg, #0f1c18 0%, #0d1412 50%, #0b100f 100%);
+}
+/* Unstyled native form fields (no bg class) would otherwise stay white. */
+html.dark input:not([type="checkbox"]):not([type="radio"]):not([type="file"]),
+html.dark select,
+html.dark textarea {
+    background-color: var(--surface-raised);
+    color: var(--color-gray-900);
+}
+html.dark dialog::backdrop {
+    background-color: rgb(0 0 0 / 0.6);
+}
+
+@layer utilities {
+    /* White cards/panels -> dark card surface (text-white is left alone). */
+    :where(html.dark) .bg-white { background-color: var(--surface-card); }
+    :where(html.dark) .bg-white\/95 { background-color: rgb(21 31 28 / 0.95); }
+    :where(html.dark) .bg-white\/80 { background-color: rgb(21 31 28 / 0.8); }
+    :where(html.dark) .bg-white\/50 { background-color: rgb(21 31 28 / 0.5); }
+    :where(html.dark) .hover\:bg-white:hover { background-color: var(--surface-raised); }
+    :where(html.dark) .bg-emerald-50\/60 { background-color: rgb(19 48 42 / 0.6); }
+    :where(html.dark) .bg-emerald-100 { background-color: #1a4a3d; }
+
+    /* Dark brand/status text meant for white backgrounds -> lighter shade of the same
+       hue so it keeps its meaning (green = good, red = problem) with enough contrast. */
+    :where(html.dark) .text-emerald-600,
+    :where(html.dark) .text-emerald-700 { color: #34d399; }
+    :where(html.dark) .text-emerald-800,
+    :where(html.dark) .text-emerald-900 { color: #6ee7b7; }
+    :where(html.dark) .hover\:text-emerald-700:hover,
+    :where(html.dark) .group:hover .group-hover\:text-emerald-700 { color: #34d399; }
+    :where(html.dark) .hover\:text-emerald-800:hover { color: #6ee7b7; }
+    :where(html.dark) .text-red-600,
+    :where(html.dark) .text-red-700 { color: #f87171; }
+    :where(html.dark) .text-red-800 { color: #fca5a5; }
+    :where(html.dark) .hover\:text-red-700:hover,
+    :where(html.dark) .hover\:text-red-800:hover { color: #fca5a5; }
+    :where(html.dark) .text-amber-600,
+    :where(html.dark) .text-amber-700 { color: #fbbf24; }
+    :where(html.dark) .text-amber-800 { color: #fcd34d; }
+    :where(html.dark) .text-orange-600 { color: #fb923c; }
+    :where(html.dark) .text-sky-600,
+    :where(html.dark) .text-sky-700 { color: #38bdf8; }
+    :where(html.dark) .text-sky-800 { color: #7dd3fc; }
+    :where(html.dark) .text-blue-700 { color: #60a5fa; }
+    :where(html.dark) .text-blue-800 { color: #93c5fd; }
+}

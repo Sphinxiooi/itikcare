@@ -13,7 +13,10 @@ from farm.services import (
 from recommendations import rules as recommendation_rules
 
 from .models import Forecast
+from .services import current_forecast_warmup
 from .pipeline import FEATURE_LABELS, FEATURES as RAW_FEATURES
+from django.utils.translation import gettext as _
+from django.utils.translation import gettext_lazy
 
 # Maps a Recommendation.triggered_by key to how it's grouped and labeled on the Forecast &
 # Recommendations page, matching the Figma categories (Flock Management, Feeding
@@ -21,10 +24,10 @@ from .pipeline import FEATURE_LABELS, FEATURES as RAW_FEATURES
 # it's presentation grouping only — the traceability itself lives in
 # Recommendation.triggered_by.
 RECOMMENDATION_CATEGORIES = {
-    "flock_age_weeks": {"title": "Flock Management", "icon": "wrench", "color": "amber"},
-    "feed_intake_kg": {"title": "Feeding Management", "icon": "wheat", "color": "emerald"},
-    "temperature_c": {"title": "Temperature Management", "icon": "thermometer", "color": "red"},
-    "humidity_pct": {"title": "Humidity Management", "icon": "droplet", "color": "blue"},
+    "flock_age_weeks": {"title": gettext_lazy("Flock Management"), "icon": "wrench", "color": "amber"},
+    "feed_intake_kg": {"title": gettext_lazy("Feeding Management"), "icon": "wheat", "color": "emerald"},
+    "temperature_c": {"title": gettext_lazy("Temperature Management"), "icon": "thermometer", "color": "red"},
+    "humidity_pct": {"title": gettext_lazy("Humidity Management"), "icon": "droplet", "color": "blue"},
 }
 
 # These two triggered_by keys render nested inside one outer "Environmental Management"
@@ -34,7 +37,7 @@ RECOMMENDATION_CATEGORIES = {
 # defense — a reviewer asking "why do these two nest together" is better answered by this
 # one line than by an extra layer of indirection.
 ENVIRONMENTAL_KEYS = ("temperature_c", "humidity_pct")
-ENVIRONMENT_FRAME_META = {"title": "Environmental Management", "icon": "cloud", "color": "gray"}
+ENVIRONMENT_FRAME_META = {"title": gettext_lazy("Environmental Management"), "icon": "cloud", "color": "gray"}
 
 
 def _percent_shares(importances):
@@ -92,6 +95,9 @@ def forecast_recommendations(request):
     # that query almost never returned more than 1 distinct future day -- next_day_forecasts
     # is the correct source for a genuine 3-day-ahead view.
     next_day_forecasts = build_next_day_forecasts(latest_forecast)
+    # Prediction withheld during warm-up (recommendations still show) -- see
+    # forecasting.services.forecast_readiness.
+    forecast_warmup = current_forecast_warmup(active_flock)
     trend_range_choices = trend_range_choices_for(active_flock)
     trend_range = resolve_trend_range(request.GET.get("trend_range", "7"), trend_range_choices)
     trend_data = build_trend_chart_data(active_flock, flock_is_caged, trend_range, next_day_forecasts)
@@ -116,7 +122,9 @@ def forecast_recommendations(request):
             if name in RAW_FEATURES
         }
         feature_importances = [
-            (FEATURE_LABELS.get(name, name), percent)
+            # pipeline.py stays Django-free (no translation imports), so its English
+            # labels are translated here, at display time.
+            (_(FEATURE_LABELS.get(name, name)), percent)
             for name, percent in _percent_shares(raw_importances)
         ]
 
@@ -157,6 +165,7 @@ def forecast_recommendations(request):
         "flock_is_caged": flock_is_caged,
         "latest_forecast": latest_forecast,
         "next_day_forecasts": next_day_forecasts,
+        "forecast_warmup": forecast_warmup,
         "feature_importances": feature_importances,
         "grouped_recommendations": grouped_recommendations,
         "trend_range": trend_range,

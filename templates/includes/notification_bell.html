@@ -1,0 +1,49 @@
+{% load i18n itik_icons %}
+{% comment %}
+Header notification bell (left of the profile avatar in base.html). The list is
+computed live by notifications/services.py and exposed through the
+notification_state context processor; read/dismiss state is POSTed back via the
+script in base.html. Every item links to the page where its issue gets fixed.
+{% endcomment %}
+<div id="notif-root" class="relative"
+     data-read-url="{% url 'notifications_mark_all_read' %}"
+     data-dismiss-url="{% url 'notifications_dismiss' %}">
+    {% csrf_token %}
+    <button type="button" id="notif-bell" aria-haspopup="true" aria-expanded="false" aria-controls="notif-panel"
+            class="relative flex items-center justify-center w-10 h-10 rounded-full text-gray-600 hover:bg-gray-100 hover:text-emerald-700 transition-colors">
+        <span class="sr-only">{% translate "Notifications" %}{% if notification_state.unread_count %} {% blocktranslate with count=notification_state.unread_count %}({{ count }} unread){% endblocktranslate %}{% endif %}</span>
+        {% icon "bell" "w-6 h-6" %}
+        <span id="notif-badge"
+              class="{% if not notification_state.unread_count %}hidden {% endif %}absolute top-1 right-1 min-w-[1.1rem] h-[1.1rem] px-1 rounded-full bg-red-600 text-white text-[0.65rem] font-bold leading-[1.1rem] text-center">
+            {% if notification_state.unread_count > 9 %}9+{% else %}{{ notification_state.unread_count }}{% endif %}
+        </span>
+    </button>
+
+    <div id="notif-panel" role="region" aria-label="{% translate "Notifications" %}"
+         class="hidden fixed sm:absolute left-3 right-3 sm:left-auto sm:right-0 top-14 sm:top-12 sm:w-96 bg-white border border-gray-200 rounded-xl shadow-2xl overflow-hidden">
+        <div class="flex items-center justify-between px-4 py-3 border-b border-gray-100">
+            <p class="font-bold text-gray-900">{% translate "Notifications" %}</p>
+        </div>
+        <ul id="notif-list" class="max-h-[70vh] overflow-y-auto divide-y divide-gray-100">
+            {% for n in notification_state.items %}
+            <li class="notif-item flex items-start gap-3 px-4 py-3 {% if n.is_unread %}bg-emerald-50/60{% endif %}" data-key="{{ n.key }}">
+                <span class="mt-0.5 flex items-center justify-center w-8 h-8 shrink-0 rounded-full
+                    {% if n.level == 'action' %}bg-amber-100 text-amber-700{% elif n.level == 'warning' %}bg-red-50 text-red-700{% else %}bg-blue-50 text-blue-700{% endif %}">
+                    {% icon n.icon "w-4 h-4" %}
+                </span>
+                <a href="{{ n.url }}" class="min-w-0 flex-1 group">
+                    <p class="text-sm font-semibold text-gray-900 group-hover:text-emerald-700">{{ n.title }}</p>
+                    <p class="text-xs text-gray-600 mt-0.5">{{ n.message|truncatechars:160 }}</p>
+                </a>
+                <button type="button" class="notif-dismiss shrink-0 -mr-1 p-1 rounded-md text-gray-400 hover:text-gray-700 hover:bg-gray-100 transition-colors">
+                    <span class="sr-only">{% translate "Dismiss" %}</span>
+                    {% icon "x-mark" "w-4 h-4" %}
+                </button>
+            </li>
+            {% endfor %}
+        </ul>
+        <p id="notif-empty" class="{% if notification_state.items %}hidden {% endif %}flex items-center gap-2 px-4 py-6 text-sm text-gray-500">
+            {% icon "check-circle" "w-5 h-5 text-emerald-600" %} {% translate "You're all caught up." %}
+        </p>
+    </div>
+</div>

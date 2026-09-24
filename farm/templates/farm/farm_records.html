@@ -1,7 +1,7 @@
 {% extends "base.html" %}
-{% load itik_icons %}
+{% load i18n itik_icons %}
 
-{% block title %}Farm Records — ItikCare{% endblock %}
+{% block title %}{% translate "Farm Records" %} — ItikCare{% endblock %}
 
 {% block extra_head %}
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
@@ -11,13 +11,13 @@
 <div class="bg-white border border-gray-200 rounded-xl p-6">
     <div class="flex flex-wrap justify-between items-start gap-3 mb-4">
         <div>
-            <h1 class="text-2xl font-bold text-gray-900">Farm Records</h1>
-            <p class="text-sm text-gray-500">Record of daily farm observations</p>
+            <h1 class="text-2xl font-bold text-gray-900">{% translate "Farm Records" %}</h1>
+            <p class="text-sm text-gray-500">{% translate "Record of daily farm observations" %}</p>
         </div>
         <div class="flex flex-wrap items-center gap-3">
             <form method="get" class="flex flex-wrap items-center gap-2">
                 {% if flock_choices %}
-                <label for="flock" class="text-sm text-gray-500">Flock Number</label>
+                <label for="flock" class="text-sm text-gray-500">{% translate "Flock Number" %}</label>
                 <select id="flock" name="flock" onchange="this.form.submit()"
                         class="text-sm border border-gray-300 rounded-md px-2.5 py-2 text-gray-700 focus:outline-none focus:ring-2 focus:ring-emerald-600">
                     {% for value, label in flock_choices.items %}
@@ -25,7 +25,7 @@
                     {% endfor %}
                 </select>
 
-                <label for="month" class="text-sm text-gray-500">Month</label>
+                <label for="month" class="text-sm text-gray-500">{% translate "Month" %}</label>
                 <select id="month" name="month" onchange="this.form.submit()"
                         class="text-sm border border-gray-300 rounded-md px-2.5 py-2 text-gray-700 focus:outline-none focus:ring-2 focus:ring-emerald-600">
                     {% for value, label in month_choices.items %}
@@ -35,7 +35,7 @@
                 {% endif %}
             </form>
             <a href="{% url 'log_daily_data' %}" class="text-sm font-medium bg-emerald-700 text-white rounded-md px-4 py-2 hover:bg-emerald-800 whitespace-nowrap">
-                + Log Today's Data
+                + {% translate "Log Today's Data" %}
             </a>
         </div>
     </div>
@@ -43,13 +43,13 @@
     {% if records_charts_available %}
     <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
         <div class="bg-white border border-gray-200 rounded-xl p-4 transition duration-150 ease-out motion-safe:hover:scale-[1.02] hover:shadow-md">
-            <p class="text-xs font-medium text-gray-500 uppercase tracking-wide flex items-center gap-1">{% icon "egg" "w-3.5 h-3.5" %} Avg. Daily Egg Yield</p>
+            <p class="text-xs font-medium text-gray-500 uppercase tracking-wide flex items-center gap-1">{% icon "egg" "w-3.5 h-3.5" %} {% translate "Avg. Daily Egg Yield" %}</p>
             <div class="flex items-end justify-between mt-1">
                 <div>
                     <p class="text-2xl font-bold text-gray-900">{{ avg_egg_yield|floatformat:0 }}</p>
                     {% if egg_yield_delta_pct is not None %}
                     <p class="text-xs font-medium {% if egg_yield_delta_pct > 0 %}text-emerald-700{% elif egg_yield_delta_pct < 0 %}text-red-600{% else %}text-gray-500{% endif %}">
-                        {% if egg_yield_delta_pct > 0 %}▲{% elif egg_yield_delta_pct < 0 %}▼{% endif %} {{ egg_yield_delta_pct }}% vs last month
+                        {% if egg_yield_delta_pct > 0 %}▲{% elif egg_yield_delta_pct < 0 %}▼{% endif %} {% blocktranslate %}{{ egg_yield_delta_pct }}% vs last month{% endblocktranslate %}
                     </p>
                     {% endif %}
                 </div>
@@ -58,13 +58,13 @@
         </div>
 
         <div class="bg-white border border-gray-200 rounded-xl p-4 transition duration-150 ease-out motion-safe:hover:scale-[1.02] hover:shadow-md">
-            <p class="text-xs font-medium text-gray-500 uppercase tracking-wide flex items-center gap-1">{% icon "wheat" "w-3.5 h-3.5" %} Avg. Feed / Bird</p>
+            <p class="text-xs font-medium text-gray-500 uppercase tracking-wide flex items-center gap-1">{% icon "wheat" "w-3.5 h-3.5" %} {% translate "Avg. Feed / Bird" %}</p>
             <div class="flex items-end justify-between mt-1">
                 <div>
-                    <p class="text-2xl font-bold text-gray-900">{{ avg_feed_per_bird }}<span class="text-sm font-medium text-gray-500"> g/day</span></p>
+                    <p class="text-2xl font-bold text-gray-900">{{ avg_feed_per_bird }}<span class="text-sm font-medium text-gray-500"> {% translate "g/day" %}</span></p>
                     {% if feed_per_bird_delta_pct is not None %}
                     <p class="text-xs font-medium text-gray-500">
-                        {% if feed_per_bird_delta_pct > 0 %}▲{% elif feed_per_bird_delta_pct < 0 %}▼{% endif %} {{ feed_per_bird_delta_pct }}% vs last month
+                        {% if feed_per_bird_delta_pct > 0 %}▲{% elif feed_per_bird_delta_pct < 0 %}▼{% endif %} {% blocktranslate %}{{ feed_per_bird_delta_pct }}% vs last month{% endblocktranslate %}
                     </p>
                     {% endif %}
                 </div>
@@ -73,30 +73,30 @@
         </div>
 
         <div class="bg-white border border-gray-200 rounded-xl p-4 transition duration-150 ease-out motion-safe:hover:scale-[1.02] hover:shadow-md">
-            <p class="text-xs font-medium text-gray-500 uppercase tracking-wide flex items-center gap-1">{% icon "thermometer" "w-3.5 h-3.5" %} Avg. Temp / Humidity</p>
+            <p class="text-xs font-medium text-gray-500 uppercase tracking-wide flex items-center gap-1">{% icon "thermometer" "w-3.5 h-3.5" %} {% translate "Avg. Temp / Humidity" %}</p>
             <div class="flex items-end justify-between mt-1">
                 <div>
                     <p class="text-2xl font-bold text-gray-900">{{ avg_temperature }}°C</p>
-                    <p class="text-xs font-medium text-gray-500">{{ avg_humidity }}% humidity</p>
+                    <p class="text-xs font-medium text-gray-500">{% blocktranslate %}{{ avg_humidity }}% humidity{% endblocktranslate %}</p>
                 </div>
                 <canvas id="sparkTemp" width="80" height="32"></canvas>
             </div>
         </div>
 
         <div class="bg-white border border-gray-200 rounded-xl p-4 transition duration-150 ease-out motion-safe:hover:scale-[1.02] hover:shadow-md">
-            <p class="text-xs font-medium text-gray-500 uppercase tracking-wide flex items-center gap-1">{% icon "flock" "w-3.5 h-3.5" %} Flock Size</p>
+            <p class="text-xs font-medium text-gray-500 uppercase tracking-wide flex items-center gap-1">{% icon "flock" "w-3.5 h-3.5" %} {% translate "Flock Size" %}</p>
             <p class="text-2xl font-bold text-gray-900 mt-1">{{ current_flock_size }}</p>
-            <p class="text-xs text-gray-400 mt-1">as of latest entry</p>
+            <p class="text-xs text-gray-400 mt-1">{% translate "as of latest entry" %}</p>
         </div>
     </div>
 
     <div class="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-6">
         <div class="bg-gray-50 border border-gray-200 rounded-xl p-4">
-            <h2 class="text-sm font-bold text-gray-900 mb-3">Egg Yield &amp; Feed per Bird</h2>
+            <h2 class="text-sm font-bold text-gray-900 mb-3">{% translate "Egg Yield &amp; Feed per Bird" %}</h2>
             <canvas id="recordsMainChart" height="220"></canvas>
         </div>
         <div class="bg-gray-50 border border-gray-200 rounded-xl p-4">
-            <h2 class="text-sm font-bold text-gray-900 mb-3">Temperature &amp; Humidity</h2>
+            <h2 class="text-sm font-bold text-gray-900 mb-3">{% translate "Temperature &amp; Humidity" %}</h2>
             <canvas id="recordsEnvChart" height="220"></canvas>
         </div>
     </div>
@@ -116,45 +116,45 @@
             <div class="flex justify-between items-start gap-3 mb-3">
                 <p class="font-semibold text-gray-900">{{ log.date }}</p>
                 {% if log.is_locked %}
-                <span class="text-gray-400 text-xs font-medium shrink-0" title="Used to train a forecasting model — no longer editable">Locked</span>
+                <span class="text-gray-400 text-xs font-medium shrink-0" title="{% translate "Used to train a forecasting model — no longer editable" %}">{% translate "Locked" %}</span>
                 {% elif not log.flock.is_active %}
-                <span class="text-gray-400 text-xs font-medium shrink-0" title="This flock has been retired — its records are read-only">Read-only</span>
+                <span class="text-gray-400 text-xs font-medium shrink-0" title="{% translate "This flock has been retired — its records are read-only" %}">{% translate "Read-only" %}</span>
                 {% else %}
-                <a href="{% url 'farm_record_edit' log.pk %}" class="text-emerald-700 text-sm font-medium hover:underline shrink-0">Edit</a>
+                <a href="{% url 'farm_record_edit' log.pk %}" class="text-emerald-700 text-sm font-medium hover:underline shrink-0">{% translate "Edit" %}</a>
                 {% endif %}
             </div>
             <dl class="grid grid-cols-2 gap-x-3 gap-y-2.5 text-sm">
                 <div>
-                    <dt class="text-xs text-gray-500">Egg Count</dt>
+                    <dt class="text-xs text-gray-500">{% translate "Egg Count" %}</dt>
                     <dd class="font-medium text-gray-900">{{ log.egg_count }}</dd>
                 </div>
                 <div>
-                    <dt class="text-xs text-gray-500">Feed (kg)</dt>
+                    <dt class="text-xs text-gray-500">{% translate "Feed (kg)" %}</dt>
                     <dd class="font-medium text-gray-900">{{ log.feed_intake_kg }}</dd>
                 </div>
                 <div>
-                    <dt class="text-xs text-gray-500">Temp (°C)</dt>
+                    <dt class="text-xs text-gray-500">{% translate "Temp (°C)" %}</dt>
                     <dd class="font-medium text-gray-900">{{ log.temperature_c }}°C</dd>
                 </div>
                 <div>
-                    <dt class="text-xs text-gray-500">Humidity (%)</dt>
+                    <dt class="text-xs text-gray-500">{% translate "Humidity (%)" %}</dt>
                     <dd class="font-medium text-gray-900">{{ log.humidity_pct }}%</dd>
                 </div>
                 <div>
-                    <dt class="text-xs text-gray-500">Flock Count</dt>
+                    <dt class="text-xs text-gray-500">{% translate "Flock Count" %}</dt>
                     <dd class="font-medium text-gray-900">{{ log.flock_size }}</dd>
                 </div>
                 <div>
-                    <dt class="text-xs text-gray-500">Avg. Age (wk)</dt>
+                    <dt class="text-xs text-gray-500">{% translate "Avg. Age (wk)" %}</dt>
                     <dd class="font-medium text-gray-900">{{ log.flock_age_weeks }}</dd>
                 </div>
             </dl>
             {% if log.edits.all %}
             <details class="mt-3">
-                <summary class="text-gray-500 text-xs font-medium cursor-pointer hover:underline">History ({{ log.edits.all|length }})</summary>
+                <summary class="text-gray-500 text-xs font-medium cursor-pointer hover:underline">{% blocktranslate with count=log.edits.all|length %}History ({{ count }}){% endblocktranslate %}</summary>
                 <ul class="mt-2 text-xs text-gray-600 space-y-1 bg-gray-50 border border-gray-200 rounded-md p-2">
                     {% for edit in log.edits.all %}
-                    <li>{{ edit.changed_at|date:"M j, Y g:i A" }} — {{ edit.changed_by }} changed {{ edit.field_name }} from "{{ edit.old_value }}" to "{{ edit.new_value }}"</li>
+                    <li>{{ edit.changed_at|date:"M j, Y g:i A" }} — {% blocktranslate with who=edit.changed_by field=edit.field_name old=edit.old_value new=edit.new_value %}{{ who }} changed {{ field }} from "{{ old }}" to "{{ new }}"{% endblocktranslate %}</li>
                     {% endfor %}
                 </ul>
             </details>
@@ -167,13 +167,13 @@
         <table class="w-full text-sm text-left">
             <thead class="bg-emerald-700 text-white">
                 <tr>
-                    <th class="py-2.5 px-3 rounded-l-md">Date</th>
-                    <th class="py-2.5 px-3 text-center">Egg Count</th>
-                    <th class="py-2.5 px-3 text-center">Feed (kg)</th>
-                    <th class="py-2.5 px-3 text-center">Temp (°C)</th>
-                    <th class="py-2.5 px-3 text-center">Humidity (%)</th>
-                    <th class="py-2.5 px-3 text-center">Flock Count</th>
-                    <th class="py-2.5 px-3 text-center">Avg. Age (wk)</th>
+                    <th class="py-2.5 px-3 rounded-l-md">{% translate "Date" %}</th>
+                    <th class="py-2.5 px-3 text-center">{% translate "Egg Count" %}</th>
+                    <th class="py-2.5 px-3 text-center">{% translate "Feed (kg)" %}</th>
+                    <th class="py-2.5 px-3 text-center">{% translate "Temp (°C)" %}</th>
+                    <th class="py-2.5 px-3 text-center">{% translate "Humidity (%)" %}</th>
+                    <th class="py-2.5 px-3 text-center">{% translate "Flock Count" %}</th>
+                    <th class="py-2.5 px-3 text-center">{% translate "Avg. Age (wk)" %}</th>
                     <th class="py-2.5 px-3 rounded-r-md"></th>
                 </tr>
             </thead>
@@ -190,20 +190,20 @@
                     <td class="py-2.5 px-3 text-right whitespace-nowrap">
                         {% if log.edits.all %}
                         <details class="inline-block text-left align-middle">
-                            <summary class="inline text-gray-500 text-xs font-medium cursor-pointer hover:underline">History ({{ log.edits.all|length }})</summary>
+                            <summary class="inline text-gray-500 text-xs font-medium cursor-pointer hover:underline">{% blocktranslate with count=log.edits.all|length %}History ({{ count }}){% endblocktranslate %}</summary>
                             <ul class="mt-2 text-xs text-gray-600 space-y-1 bg-gray-50 border border-gray-200 rounded-md p-2">
                                 {% for edit in log.edits.all %}
-                                <li>{{ edit.changed_at|date:"M j, Y g:i A" }} — {{ edit.changed_by }} changed {{ edit.field_name }} from "{{ edit.old_value }}" to "{{ edit.new_value }}"</li>
+                                <li>{{ edit.changed_at|date:"M j, Y g:i A" }} — {% blocktranslate with who=edit.changed_by field=edit.field_name old=edit.old_value new=edit.new_value %}{{ who }} changed {{ field }} from "{{ old }}" to "{{ new }}"{% endblocktranslate %}</li>
                                 {% endfor %}
                             </ul>
                         </details>
                         {% endif %}
                         {% if log.is_locked %}
-                        <span class="text-gray-400 text-xs font-medium" title="Used to train a forecasting model — no longer editable">Locked</span>
+                        <span class="text-gray-400 text-xs font-medium" title="{% translate "Used to train a forecasting model — no longer editable" %}">{% translate "Locked" %}</span>
                         {% elif not log.flock.is_active %}
-                        <span class="text-gray-400 text-xs font-medium" title="This flock has been retired — its records are read-only">Read-only</span>
+                        <span class="text-gray-400 text-xs font-medium" title="{% translate "This flock has been retired — its records are read-only" %}">{% translate "Read-only" %}</span>
                         {% else %}
-                        <a href="{% url 'farm_record_edit' log.pk %}" class="text-emerald-700 font-medium hover:underline">Edit</a>
+                        <a href="{% url 'farm_record_edit' log.pk %}" class="text-emerald-700 font-medium hover:underline">{% translate "Edit" %}</a>
                         {% endif %}
                     </td>
                 </tr>
@@ -213,12 +213,18 @@
     </div>
     {% else %}
     <p class="text-sm text-gray-500">
-        {% if selected_month == "all" %}No farm records yet.{% else %}No farm records for the selected month.{% endif %}
+        {% if selected_month == "all" %}{% translate "No farm records yet." %}{% else %}{% translate "No farm records for the selected month." %}{% endif %}
     </p>
     {% endif %}
 </div>
 
 {% if records_charts_available %}
+{% comment %}
+"Humidity (%)" goes through {% translate ... as %} rather than _() because Django
+doubles "%" in template-literal msgids and only the translate tag turns "%%" back
+into "%" -- _() inside {{ }} would render "Humidity (%%)" in the chart legend.
+{% endcomment %}
+{% translate "Humidity (%)" as humidity_pct_label %}
 <script>
 (function () {
     // Chart.js doesn't honor prefers-reduced-motion on its own -- disabling the
@@ -257,7 +263,7 @@
             labels,
             datasets: [
                 {
-                    label: "Egg yield",
+                    label: "{{ _("Egg yield")|escapejs }}",
                     data: {{ records_chart_egg_yield_json|safe }},
                     borderColor: "#047857",
                     backgroundColor: "#047857",
@@ -268,7 +274,7 @@
                     yAxisID: "y",
                 },
                 {
-                    label: "Feed per bird (g/day)",
+                    label: "{{ _("Feed per bird (g/day)")|escapejs }}",
                     data: {{ records_chart_feed_per_bird_json|safe }},
                     borderColor: "#d97706",
                     backgroundColor: "#d97706",
@@ -284,11 +290,11 @@
             animation: chartAnimation,
             plugins: { legend: { position: "bottom" } },
             scales: {
-                y: { beginAtZero: true, position: "left", title: { display: true, text: "Egg yield" } },
+                y: { beginAtZero: true, position: "left", title: { display: true, text: "{{ _("Egg yield")|escapejs }}" } },
                 y1: {
                     beginAtZero: true,
                     position: "right",
-                    title: { display: true, text: "g/bird/day" },
+                    title: { display: true, text: "{{ _("g/bird/day")|escapejs }}" },
                     grid: { drawOnChartArea: false },
                 },
             },
@@ -301,7 +307,7 @@
             labels,
             datasets: [
                 {
-                    label: "Temperature (°C)",
+                    label: "{{ _("Temperature (°C)")|escapejs }}",
                     data: {{ records_chart_temperature_json|safe }},
                     borderColor: "#ea580c",
                     backgroundColor: "#ea580c",
@@ -312,7 +318,7 @@
                     yAxisID: "y",
                 },
                 {
-                    label: "Humidity (%)",
+                    label: "{{ humidity_pct_label|escapejs }}",
                     data: {{ records_chart_humidity_json|safe }},
                     borderColor: "#0284c7",
                     backgroundColor: "#0284c7",

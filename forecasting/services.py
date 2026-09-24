@@ -11,6 +11,7 @@ and persists the result — the same role ``train_forecast_model.py`` plays for 
 import logging
 import subprocess
 import sys
+from dataclasses import dataclass
 from datetime import datetime, timedelta
 from decimal import Decimal
 
@@ -38,6 +39,68 @@ class ModelNotTrainedError(Exception):
     """Raised when generate_forecast is called before train_forecast_model has ever run."""
 
 
+# --- Forecast warm-up ---------------------------------------------------------------
+# The yield prediction is withheld (recommendations still run) until there's enough of
+# the farmer's *own* data behind it:
+#
+# * NEW_FARM_MIN_LOGS -- a brand-new farmer's model is bootstrapped from the foundation
+#   farm's history only (accounts/views.py::_bootstrap_train). A Random Forest can't
+#   predict outside the range of yields it was trained on, so a much smaller (or larger)
+#   flock gets a number anchored to the foundation farm's scale -- e.g. 154 eggs for a
+#   50-duck flock. One week of logs is required before any prediction is shown.
+# * RECAGE_WARMUP_LOGS -- the first logs of a new caging period (back from free-range, or
+#   a new flock generation) have fewer than 3 prior days in the segment, so lag1/roll3
+#   would be partly imputed (itikcare-spec.md section 10). Predictions resume on the log
+#   *after* these, which is the first one with a full 3-day history behind it.
+NEW_FARM_MIN_LOGS = 7
+RECAGE_WARMUP_LOGS = 3
+
+
+@dataclass(frozen=True)
+class ForecastReadiness:
+    """Whether a prediction may be shown yet, and if not, how far along the warm-up is.
+
+    reason is "new_farm" or "recaged" while warming up, "" once ready. logs_so_far /
+    logs_needed drive the farmer-facing "n/7 days logged" notice.
+    """
+
+    is_ready: bool
+    reason: str = ""
+    logs_so_far: int = 0
+    logs_needed: int = 0
+
+
+def forecast_readiness(owner, flock=None, caging_period=None, as_of=None) -> ForecastReadiness:
+    """Apply the warm-up rule (see NEW_FARM_MIN_LOGS / RECAGE_WARMUP_LOGS above).
+
+    Counts logs, not calendar days: a backfilled past day is real history that feeds
+    lag1/roll3 just like one logged on time. as_of limits the count to logs dated on or
+    before that day (so re-checking an older log gives the same answer it got then).
+    The new-farm rule is checked first; the recage rule needs flock + caging_period.
+    """
+    owner_logs = DailyLog.objects.filter(flock__owner=owner)
+    if as_of is not None:
+        owner_logs = owner_logs.filter(date__lte=as_of)
+
+    total = owner_logs.count()
+    if total < NEW_FARM_MIN_LOGS:
+        return ForecastReadiness(False, "new_farm", total, NEW_FARM_MIN_LOGS)
+
+    if flock is not None and caging_period is not None:
+        in_period = owner_logs.filter(flock=flock, caging_period=caging_period).count()
+        if in_period <= RECAGE_WARMUP_LOGS:
+            return ForecastReadiness(False, "recaged", in_period, RECAGE_WARMUP_LOGS + 1)
+
+    return ForecastReadiness(True)
+
+
+def readiness_for_log(daily_log: DailyLog) -> ForecastReadiness:
+    """forecast_readiness as of one specific DailyLog."""
+    return forecast_readiness(
+        daily_log.flock.owner, daily_log.flock, daily_log.caging_period, as_of=daily_log.date
+    )
+
+
 def model_path_for(owner_id: int):
     """Per-owner model artifact path — there is no single global model any more."""
     return MODEL_DIR / f"forecast_model_{owner_id}.joblib"
@@ -50,6 +113,23 @@ def _load_artifact(model_path) -> dict:
             f"`python manage.py train_forecast_model --owner-id <id>` first."
         )
     return joblib.load(model_path)
+
+
+def current_forecast_warmup(active_flock):
+    """The warm-up state to show on the dashboard / Forecast page / notification bell,
+    or None when there's nothing to show (no flock, free-range, or already ready).
+
+    Judged against the flock's most recent log (all logs, no as_of cut-off). A farmer
+    with no logs yet at all still gets the new-farm "0/7" notice straight away.
+    """
+    if active_flock is None or not active_flock.is_caged:
+        return None
+    latest_log = DailyLog.objects.filter(flock=active_flock).order_by("-date").first()
+    if latest_log is None:
+        readiness = forecast_readiness(active_flock.owner)
+    else:
+        readiness = forecast_readiness(active_flock.owner, active_flock, latest_log.caging_period)
+    return None if readiness.is_ready else readiness
 
 
 def _build_feature_row(daily_log: DailyLog):
@@ -156,32 +236,51 @@ def generate_forecast(daily_log: DailyLog, model_path=None) -> Forecast:
     day rolls over at 6am, not midnight) — since Open-Meteo's forecast is anchored to
     real "now" and can't meaningfully inform a backdated log's future days; otherwise
     the recursion falls back to daily_log's own carried-forward temperature_c/humidity_pct.
+
+    During a warm-up period (see forecast_readiness) every predicted_* field is left null
+    and the model is never asked to predict -- only recommendations are generated.
     """
     artifact = _load_artifact(model_path or model_path_for(daily_log.flock.owner_id))
     X, priors = _build_feature_row(daily_log)
 
-    daily_pred = max(float(artifact["daily_pipeline"].predict(X)[0]), 0.0)
-    tri_pred = max(float(artifact["tri_day_pipeline"].predict(X)[0]), 0.0)
+    if readiness_for_log(daily_log).is_ready:
+        daily_pred = max(float(artifact["daily_pipeline"].predict(X)[0]), 0.0)
+        tri_pred = max(float(artifact["tri_day_pipeline"].predict(X)[0]), 0.0)
 
-    if daily_log.date == operational_today():
-        lat, lon = get_effective_coordinates(daily_log.flock.owner)
-        weather_by_date = fetch_forecast_weather(lat, lon)
+        if daily_log.date == operational_today():
+            lat, lon = get_effective_coordinates(daily_log.flock.owner)
+            weather_by_date = fetch_forecast_weather(lat, lon)
+        else:
+            weather_by_date = {}
+        next_days = _predict_next_days(artifact["daily_pipeline"], daily_log, priors, weather_by_date)
+        predictions = {
+            "predicted_daily_yield": daily_pred,
+            "predicted_tri_day_yield": tri_pred,
+            "predicted_next_day1_yield": next_days[0],
+            "predicted_next_day2_yield": next_days[1],
+            "predicted_next_day3_yield": next_days[2],
+        }
+        predictions = {field: Decimal(str(round(value, 2))) for field, value in predictions.items()}
     else:
-        weather_by_date = {}
-    day1_pred, day2_pred, day3_pred = _predict_next_days(
-        artifact["daily_pipeline"], daily_log, priors, weather_by_date
-    )
+        # Warm-up: no prediction at all (see forecast_readiness). The Forecast row is still
+        # written so recommendations -- which only read the logged inputs and the model's
+        # feature importances, never the predicted values -- keep working.
+        predictions = dict.fromkeys(
+            [
+                "predicted_daily_yield",
+                "predicted_tri_day_yield",
+                "predicted_next_day1_yield",
+                "predicted_next_day2_yield",
+                "predicted_next_day3_yield",
+            ]
+        )
 
     with transaction.atomic():
         forecast, _ = Forecast.objects.update_or_create(
             flock=daily_log.flock,
             forecast_date=daily_log.date,
             defaults={
-                "predicted_daily_yield": Decimal(str(round(daily_pred, 2))),
-                "predicted_tri_day_yield": Decimal(str(round(tri_pred, 2))),
-                "predicted_next_day1_yield": Decimal(str(round(day1_pred, 2))),
-                "predicted_next_day2_yield": Decimal(str(round(day2_pred, 2))),
-                "predicted_next_day3_yield": Decimal(str(round(day3_pred, 2))),
+                **predictions,
                 "feature_importances": artifact["feature_importances"]["daily"],
                 "model_version": artifact["model_version"],
             },

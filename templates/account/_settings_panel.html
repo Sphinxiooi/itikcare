@@ -1,4 +1,4 @@
-{% load static %}
+{% load static i18n %}
 {% comment %}
 Wrapped in a single id'd container so the AJAX submit handler (templates/base.html)
 can swap this whole thing -- personal-info card plus the included flock panel --
@@ -9,13 +9,13 @@ or the header avatar's modal).
 <div class="bg-white border border-gray-200 rounded-xl p-6 max-w-3xl mb-6">
     {% if just_saved %}
     <div id="account-saved-banner" class="mb-4 text-sm font-medium text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-lg px-4 py-2.5 transition-opacity duration-500">
-        Saved
+        {% translate "Saved" %}
     </div>
     {% endif %}
     <div class="flex items-start justify-between gap-4 mb-1">
         <div>
-            <h1 class="text-2xl font-bold text-gray-900">Personal Information</h1>
-            <p class="text-sm text-gray-500 mb-6">Your name, contact details, and farm location.</p>
+            <h1 class="text-2xl font-bold text-gray-900">{% translate "Personal Information" %}</h1>
+            <p class="text-sm text-gray-500 mb-6">{% translate "Your name, contact details, and farm location." %}</p>
         </div>
         <div class="shrink-0 flex items-center gap-4">
             {% comment %}
@@ -28,7 +28,7 @@ or the header avatar's modal).
             <button type="button" id="account-edit-toggle"
                     class="{% if account_form.errors %}hidden{% endif %} inline-flex items-center gap-1.5 text-sm font-medium text-emerald-700 hover:text-emerald-800">
                 <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="m16.862 4.487 1.687-1.688a1.875 1.875 0 1 1 2.652 2.652L10.582 16.07a4.5 4.5 0 0 1-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 0 1 1.13-1.897l8.932-8.931Zm0 0L19.5 7.125"/></svg>
-                Edit
+                {% translate "Edit" %}
             </button>
         </div>
     </div>
@@ -43,18 +43,22 @@ or the header avatar's modal).
             </span>
             {% endif %}
             <div>
-                <p class="text-base font-semibold text-gray-900">{{ user.get_full_name|default:"Name not set" }}</p>
+                <p class="text-base font-semibold text-gray-900">{{ user.get_full_name|default:_("Name not set") }}</p>
                 <p class="text-sm text-gray-500">@{{ user.username }}</p>
             </div>
         </div>
         <dl class="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-4">
             <div>
-                <dt class="text-xs font-medium text-gray-500 uppercase">Email</dt>
-                <dd class="text-sm text-gray-900">{{ user.email|default:"Not set" }}</dd>
+                <dt class="text-xs font-medium text-gray-500 uppercase">{% translate "Email" %}</dt>
+                <dd class="text-sm text-gray-900">{{ user.email|default:_("Not set") }}</dd>
             </div>
             <div>
-                <dt class="text-xs font-medium text-gray-500 uppercase">Farm address</dt>
-                <dd class="text-sm text-gray-900">{{ account_form.address.value|default:"Not set" }}</dd>
+                <dt class="text-xs font-medium text-gray-500 uppercase">{% translate "Mobile number" %}</dt>
+                <dd class="text-sm text-gray-900">{{ user.phone_number|default:_("Not set") }}</dd>
+            </div>
+            <div>
+                <dt class="text-xs font-medium text-gray-500 uppercase">{% translate "Farm address" %}</dt>
+                <dd class="text-sm text-gray-900">{{ account_form.address.value|default:_("Not set") }}</dd>
             </div>
         </dl>
     </div>
@@ -75,62 +79,70 @@ or the header avatar's modal).
             </span>
             {% endif %}
             <div>
-                <label for="{{ account_form.avatar.id_for_label }}" class="block text-sm font-medium text-gray-700 mb-1">Profile picture</label>
+                <label for="{{ account_form.avatar.id_for_label }}" class="block text-sm font-medium text-gray-700 mb-1">{% translate "Profile picture" %}</label>
                 {{ account_form.avatar }}
                 {% if account_form.avatar.errors %}
                 <p class="text-sm text-red-600 mt-1">{{ account_form.avatar.errors.0 }}</p>
                 {% else %}
-                <p class="text-xs text-gray-400 mt-1">PNG or JPG, up to 5MB.</p>
+                <p class="text-xs text-gray-400 mt-1">{% translate "PNG or JPG, up to 5MB." %}</p>
                 {% endif %}
             </div>
         </div>
 
         <div class="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-4">
             <div>
-                <label for="{{ account_form.first_name.id_for_label }}" class="block text-sm font-medium text-gray-700 mb-1">First name</label>
+                <label for="{{ account_form.first_name.id_for_label }}" class="block text-sm font-medium text-gray-700 mb-1">{% translate "First name" %}</label>
                 {{ account_form.first_name }}
                 {% if account_form.first_name.errors %}
                 <p class="text-sm text-red-600 mt-1">{{ account_form.first_name.errors.0 }}</p>
                 {% endif %}
             </div>
             <div>
-                <label for="{{ account_form.last_name.id_for_label }}" class="block text-sm font-medium text-gray-700 mb-1">Last name</label>
+                <label for="{{ account_form.last_name.id_for_label }}" class="block text-sm font-medium text-gray-700 mb-1">{% translate "Last name" %}</label>
                 {{ account_form.last_name }}
                 {% if account_form.last_name.errors %}
                 <p class="text-sm text-red-600 mt-1">{{ account_form.last_name.errors.0 }}</p>
                 {% endif %}
             </div>
             <div>
-                <label for="{{ account_form.username.id_for_label }}" class="block text-sm font-medium text-gray-700 mb-1">Username</label>
+                <label for="{{ account_form.username.id_for_label }}" class="block text-sm font-medium text-gray-700 mb-1">{% translate "Username" %}</label>
                 {{ account_form.username }}
                 {% if account_form.username.errors %}
                 <p class="text-sm text-red-600 mt-1">{{ account_form.username.errors.0 }}</p>
                 {% endif %}
             </div>
             <div>
-                <label for="{{ account_form.email.id_for_label }}" class="block text-sm font-medium text-gray-700 mb-1">Email</label>
+                <label for="{{ account_form.email.id_for_label }}" class="block text-sm font-medium text-gray-700 mb-1">{% translate "Email" %}</label>
                 {{ account_form.email }}
                 {% if account_form.email.errors %}
                 <p class="text-sm text-red-600 mt-1">{{ account_form.email.errors.0 }}</p>
                 {% endif %}
-                <p class="text-xs text-gray-400 mt-1">Used to reset your password, and can be used to log in instead of your username.</p>
+                <p class="text-xs text-gray-400 mt-1">{% translate "Used to reset your password, and can be used to log in." %}</p>
+            </div>
+            <div>
+                <label for="{{ account_form.phone_number.id_for_label }}" class="block text-sm font-medium text-gray-700 mb-1">{% translate "Mobile number" %}</label>
+                {{ account_form.phone_number }}
+                {% if account_form.phone_number.errors %}
+                <p class="text-sm text-red-600 mt-1">{{ account_form.phone_number.errors.0 }}</p>
+                {% endif %}
+                <p class="text-xs text-gray-400 mt-1">{% translate "11 digits, e.g. 09171234567. Can be used to log in. We never send SMS." %}</p>
             </div>
             <div class="sm:col-span-2">
-                <label for="{{ account_form.address.id_for_label }}" class="block text-sm font-medium text-gray-700 mb-1">Farm address</label>
+                <label for="{{ account_form.address.id_for_label }}" class="block text-sm font-medium text-gray-700 mb-1">{% translate "Farm address" %}</label>
                 {{ account_form.address }}
                 {% if account_form.address.errors %}
                 <p class="text-sm text-red-600 mt-1">{{ account_form.address.errors.0 }}</p>
                 {% endif %}
-                <p class="text-xs text-gray-400 mt-1">Your barangay in Libmanan — used to personalize weather suggestions on your daily log.</p>
+                <p class="text-xs text-gray-400 mt-1">{% translate "Your barangay in Libmanan — used to personalize weather suggestions on your daily log." %}</p>
             </div>
         </div>
 
         <div class="flex items-center gap-3">
             <button type="submit" class="bg-emerald-700 text-white font-semibold rounded-lg px-8 py-2.5 hover:bg-emerald-800">
-                Save changes
+                {% translate "Save changes" %}
             </button>
             <button type="button" id="account-edit-cancel" class="text-sm font-medium text-gray-600 hover:text-gray-800">
-                Cancel
+                {% translate "Cancel" %}
             </button>
         </div>
     </form>
@@ -156,27 +168,31 @@ or the header avatar's modal).
     {% if user.is_foundation_farmer %}
     <div class="mt-6 border-2 border-red-200 rounded-lg p-4">
         <p class="text-sm text-gray-600">
+            {% blocktranslate trimmed %}
             This account can't be deleted. It's the foundation farmer account — its historical
             daily logs seed the starter forecasting model every new farmer gets at signup, so
             removing it would break onboarding for everyone else.
+            {% endblocktranslate %}
         </p>
     </div>
     {% else %}
     <details class="group mt-6 border-2 border-red-200 rounded-lg">
         <summary class="flex items-center justify-between gap-4 p-4 cursor-pointer select-none list-none [&::-webkit-details-marker]:hidden">
-            <span class="text-sm font-bold text-red-700">Delete your account</span>
+            <span class="text-sm font-bold text-red-700">{% translate "Delete your account" %}</span>
             <svg class="w-5 h-5 text-red-700 shrink-0 transition-transform duration-200 group-open:rotate-180" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="m19.5 8.25-7.5 7.5-7.5-7.5"/></svg>
         </summary>
         <div class="px-4 pb-4 pt-1 border-t border-red-100 space-y-3">
             <p class="text-sm text-gray-600 pt-3">
+                {% blocktranslate trimmed %}
                 Deleting your account deactivates it and clears your name, email, photo, and
                 address. Your flock, daily logs, forecasts, and recommendations are kept on
                 record. This isn't reversible from here — you'd need to ask an admin to restore
                 access.
+                {% endblocktranslate %}
             </p>
             <button type="button" id="delete-account-open"
                     class="font-semibold text-white rounded-lg px-6 py-2.5 bg-red-700 hover:bg-red-800 transition-colors">
-                Delete my account
+                {% translate "Delete my account" %}
             </button>
         </div>
     </details>

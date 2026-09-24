@@ -10,7 +10,7 @@ from django.shortcuts import get_object_or_404, redirect, render
 from django.views.decorators.http import require_GET, require_POST
 
 from forecasting.models import Forecast
-from forecasting.services import ModelNotTrainedError, generate_forecast, trigger_retrain
+from forecasting.services import ModelNotTrainedError, generate_forecast, readiness_for_log, trigger_retrain
 
 from .forms import DailyLogEditForm, DailyLogForm, FlockRegisterForm, FlockResumeCagingForm
 from .models import AUDITED_FIELDS, DailyLog, DailyLogEdit, Flock
@@ -27,6 +27,8 @@ from .services import (
     recompute_caging_period,
 )
 from .weather import fetch_historical_weather
+from django.utils.formats import date_format
+from django.utils.translation import gettext as _
 
 logger = logging.getLogger(__name__)
 
@@ -71,10 +73,10 @@ def log_daily_data(request):
 
     active_flock = get_active_flock(request.user)
     if active_flock is None:
-        messages.error(request, "No active flock exists yet. Register your flock before logging daily data.")
+        messages.error(request, _("No active flock exists yet. Register your flock before logging daily data."))
         return redirect("flock_profile")
     if not active_flock.is_caged:
-        messages.error(request, "This flock is currently free-range in the field. Mark it as caged from Flock Profile before logging daily data.")
+        messages.error(request, _("This flock is currently free-range in the field. Mark it as caged from Flock Profile before logging daily data."))
         return redirect("flock_profile")
 
     previous_log = DailyLog.objects.filter(flock=active_flock).order_by("-date").first()
@@ -142,37 +144,49 @@ def log_daily_data(request):
                         active_flock.save(
                             update_fields=["pending_flock_size", "pending_flock_age_weeks", "pending_feed_intake_kg"]
                         )
-                    messages.success(request, "Daily data saved.")
+                    messages.success(request, _("Daily data saved."))
                     if new_date == operational_today():
                         try:
-                            generate_forecast(daily_log)
+                            forecast = generate_forecast(daily_log)
+                            if not forecast.has_prediction:
+                                # Warm-up: recommendations were generated, the yield
+                                # prediction was withheld (see forecast_readiness).
+                                warmup = readiness_for_log(daily_log)
+                                messages.info(
+                                    request,
+                                    _(
+                                        "%(so_far)s/%(needed)s days logged. Egg yield "
+                                        "forecasts start once there's enough of your own data. "
+                                        "Recommendations are ready now."
+                                    ) % {"so_far": warmup.logs_so_far, "needed": warmup.logs_needed},
+                                )
                         except ModelNotTrainedError:
                             messages.warning(
                                 request,
-                                "No trained forecasting model exists yet, so no forecast was "
-                                "generated for this entry. Ask an admin to run the training command.",
+                                _("No trained forecasting model exists yet, so no forecast was "
+                                "generated for this entry. Ask an admin to run the training command."),
                             )
                         except Exception:
                             logger.exception("Forecast generation failed for DailyLog id=%s", daily_log.pk)
                             messages.warning(
                                 request,
-                                "Your data was saved, but the forecast could not be generated this time.",
+                                _("Your data was saved, but the forecast could not be generated this time."),
                             )
                     else:
                         # Backfilling a missed past day: still saved as ordinary history (see
                         # the log_daily_data docstring), just never gets its own forecast.
                         messages.info(
                             request,
-                            "This entry backfills a past date, so it won't generate its own "
+                            _("This entry backfills a past date, so it won't generate its own "
                             "forecast — it's still saved as history and will feed into future "
-                            "predictions.",
+                            "predictions."),
                         )
                     if is_new_period:
                         # The previous caging period just closed with this entry's gap — a
                         # complete new segment of training data now exists (itikcare-spec.md
                         # section 5's "rolling retraining as new data comes in").
                         trigger_retrain("caging_period_closed", active_flock.owner_id)
-                        messages.info(request, "New caging period detected — model retraining triggered.")
+                        messages.info(request, _("New caging period detected — model retraining triggered."))
                     return redirect("dashboard")
     else:
         initial = {}
@@ -239,7 +253,8 @@ def farm_records(request):
 
     owner_flocks = list(Flock.objects.filter(owner=request.user).order_by("-generation_number"))
     flock_choices = {
-        str(f.id): f"Flock #{f.generation_number}" + (" (active)" if f.is_active else " (retired)")
+        str(f.id): (_("Flock #%(number)s (active)") if f.is_active else _("Flock #%(number)s (retired)"))
+        % {"number": f.generation_number}
         for f in owner_flocks
     }
     flocks_by_id = {str(f.id): f for f in owner_flocks}
@@ -258,7 +273,7 @@ def farm_records(request):
         DailyLog.objects.filter(flock=selected_flock).dates("date", "month", order="DESC")
         if selected_flock else []
     )
-    month_choices = {"all": "All months", **{d.strftime("%Y-%m"): d.strftime("%B %Y") for d in month_values}}
+    month_choices = {"all": _("All months"), **{d.strftime("%Y-%m"): date_format(d, "F Y") for d in month_values}}
 
     selected_month = request.GET.get("month", "all")
     if selected_month not in month_choices:
@@ -313,13 +328,13 @@ def farm_record_edit(request, pk):
     if daily_log.is_locked:
         messages.error(
             request,
-            "This record was used to train a forecasting model and can no longer be edited or deleted.",
+            _("This record was used to train a forecasting model and can no longer be edited or deleted."),
         )
         return redirect("farm_records")
     if not daily_log.flock.is_active:
         messages.error(
             request,
-            "This record belongs to a retired flock and is read-only.",
+            _("This record belongs to a retired flock and is read-only."),
         )
         return redirect("farm_records")
     # Snapshot old values before the form touches the instance: ModelForm.is_valid()
@@ -338,7 +353,7 @@ def farm_record_edit(request, pk):
             # same way log_daily_data does on create.
             new_date = form.cleaned_data["date"]
             if DailyLog.objects.filter(flock=daily_log.flock, date=new_date).exclude(pk=daily_log.pk).exists():
-                form.add_error("date", "Another record already exists for this date — edit that one instead.")
+                form.add_error("date", _("Another record already exists for this date — edit that one instead."))
 
         if form.is_valid():
             changes = []
@@ -370,9 +385,14 @@ def farm_record_edit(request, pk):
                             changed_by=request.user,
                         )
             except IntegrityError:
-                form.add_error("date", "Another record already exists for this date — edit that one instead.")
+                form.add_error("date", _("Another record already exists for this date — edit that one instead."))
             else:
-                messages.success(request, f"Record updated ({len(changes)} field(s) changed)." if changes else "No changes made.")
+                messages.success(
+                    request,
+                    _("Record updated (%(count)d field(s) changed).") % {"count": len(changes)}
+                    if changes
+                    else _("No changes made."),
+                )
                 return redirect("farm_records")
     else:
         form = DailyLogEditForm(instance=daily_log)
@@ -405,13 +425,13 @@ def farm_record_delete(request, pk):
     if daily_log.is_locked:
         messages.error(
             request,
-            "This record was used to train a forecasting model and can no longer be edited or deleted.",
+            _("This record was used to train a forecasting model and can no longer be edited or deleted."),
         )
         return redirect("farm_records")
     if not daily_log.flock.is_active:
         messages.error(
             request,
-            "This record belongs to a retired flock and is read-only.",
+            _("This record belongs to a retired flock and is read-only."),
         )
         return redirect("farm_records")
 
@@ -420,7 +440,7 @@ def farm_record_delete(request, pk):
         flock = daily_log.flock
         daily_log.delete()
         Forecast.objects.filter(flock=flock, forecast_date=log_date).delete()
-        messages.success(request, f"Record for {log_date} deleted.")
+        messages.success(request, _("Record for %(date)s deleted.") % {"date": log_date})
         return redirect("farm_records")
 
     context = {"active_nav": "records", "daily_log": daily_log}
@@ -499,7 +519,7 @@ def flock_profile(request):
                 pending_flock_age_weeks=form.cleaned_data["flock_age_weeks"],
                 pending_feed_intake_kg=form.cleaned_data["feed_intake_kg"],
             )
-            messages.success(request, "Flock registered.")
+            messages.success(request, _("Flock registered."))
             return redirect("flock_profile")
         context = {"active_nav": "flock_profile", "active_flock": None, "form": form}
         return render(request, template_name, context)
@@ -519,7 +539,7 @@ def flock_retire(request):
 
     active_flock = get_active_flock(request.user)
     if active_flock is None:
-        messages.error(request, "No active flock to retire.")
+        messages.error(request, _("No active flock to retire."))
         return redirect("flock_profile")
 
     active_flock.is_active = False
@@ -527,8 +547,8 @@ def flock_retire(request):
     # Retirement closes out this generation's entire history at once — a
     # complete new segment of training data now exists.
     trigger_retrain("flock_retired", active_flock.owner_id)
-    messages.success(request, "Flock retired. Register a new flock when you're ready to start the next generation.")
-    messages.info(request, "Model retraining has been triggered in the background.")
+    messages.success(request, _("Flock retired. Register a new flock when you're ready to start the next generation."))
+    messages.info(request, _("Model retraining has been triggered in the background."))
     return redirect("flock_profile")
 
 
@@ -544,15 +564,15 @@ def toggle_caging_status(request):
 
     active_flock = get_active_flock(request.user)
     if active_flock is None:
-        messages.error(request, "No active flock to update.")
+        messages.error(request, _("No active flock to update."))
         return redirect("flock_profile")
 
     active_flock.is_caged = not active_flock.is_caged
     active_flock.save(update_fields=["is_caged"])
     if active_flock.is_caged:
-        messages.success(request, "Flock marked as caged. Daily logging and forecasts have resumed.")
+        messages.success(request, _("Flock marked as caged. Daily logging and forecasts have resumed."))
     else:
-        messages.success(request, "Flock marked as free-range. It's out in the field — logging and forecasts are paused until it's caged again.")
+        messages.success(request, _("Flock marked as free-range. It's out in the field — logging and forecasts are paused until it's caged again."))
     return redirect("flock_profile")
 
 
@@ -570,7 +590,7 @@ def resume_caging(request):
 
     active_flock = get_active_flock(request.user)
     if active_flock is None or active_flock.is_caged:
-        messages.error(request, "No free-range flock to resume caging for.")
+        messages.error(request, _("No free-range flock to resume caging for."))
         return redirect("flock_profile")
 
     form = FlockResumeCagingForm(request.POST)
@@ -580,8 +600,8 @@ def resume_caging(request):
         active_flock.save(update_fields=["is_caged", "pending_flock_size"])
         messages.success(
             request,
-            f"Flock marked as caged with {form.cleaned_data['flock_size']} ducks. "
-            "Daily logging and forecasts have resumed.",
+            _("Flock marked as caged with %(size)s ducks. Daily logging and forecasts have resumed.")
+            % {"size": form.cleaned_data["flock_size"]},
         )
     else:
         messages.error(request, form.errors["flock_size"][0])

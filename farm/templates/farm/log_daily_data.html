@@ -1,16 +1,17 @@
 {% extends "base.html" %}
+{% load i18n %}
 
-{% block title %}Log Daily Data — ItikCare{% endblock %}
+{% block title %}{% translate "Log Daily Data" %} — ItikCare{% endblock %}
 
 {% block content %}
 <div class="bg-white border border-gray-200 rounded-xl p-6">
-    <h1 class="text-2xl font-bold text-gray-900">Log Today's Farm Data</h1>
-    <p class="text-sm text-gray-500 mb-6">Enter daily data to improve forecasting accuracy</p>
+    <h1 class="text-2xl font-bold text-gray-900">{% translate "Log Today's Farm Data" %}</h1>
+    <p class="text-sm text-gray-500 mb-6">{% translate "Enter daily data to improve forecasting accuracy" %}</p>
 
     {% if confirm_mode %}
     <div class="rounded-md border border-emerald-200 bg-emerald-50 p-4 mb-4">
         <p class="text-sm font-semibold text-emerald-800 mb-2">
-            Please confirm this entry before it's saved and a new forecast is generated:
+            {% translate "Please confirm this entry before it's saved and a new forecast is generated:" %}
         </p>
         <dl class="grid grid-cols-1 sm:grid-cols-2 gap-x-6 text-sm text-gray-700">
             {% for field in form %}
@@ -24,13 +25,13 @@
 
     {% if anomaly_warnings %}
     <div class="rounded-md border border-amber-300 bg-amber-50 p-4 mb-4">
-        <p class="text-sm font-semibold text-amber-800 mb-1">Heads up — these look unusual for this flock:</p>
+        <p class="text-sm font-semibold text-amber-800 mb-1">{% translate "Heads up — these look unusual for this flock:" %}</p>
         <ul class="list-disc list-inside text-sm text-amber-700">
             {% for warning in anomaly_warnings %}
             <li>{{ warning }}</li>
             {% endfor %}
         </ul>
-        <p class="text-xs text-amber-700 mt-2">Double-check for typos. If the numbers are correct, go ahead and confirm.</p>
+        <p class="text-xs text-amber-700 mt-2">{% translate "Double-check for typos. If the numbers are correct, go ahead and confirm." %}</p>
     </div>
     {% endif %}
 
@@ -38,10 +39,10 @@
         {% csrf_token %}
         {% for field in form %}{{ field.as_hidden }}{% endfor %}
         <button type="submit" name="edit" value="1" class="border border-gray-300 text-gray-700 font-semibold rounded-lg px-8 py-2.5 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed">
-            Edit
+            {% translate "Edit" %}
         </button>
-        <button type="submit" name="confirmed" value="1" data-loader-text="Saving your log and updating the forecast…" class="bg-emerald-700 text-white font-semibold rounded-lg px-8 py-2.5 hover:bg-emerald-800 disabled:opacity-50 disabled:cursor-not-allowed">
-            Confirm &amp; Save
+        <button type="submit" name="confirmed" value="1" data-loader-text="{% translate "Saving your log and updating the forecast…" %}" class="bg-emerald-700 text-white font-semibold rounded-lg px-8 py-2.5 hover:bg-emerald-800 disabled:opacity-50 disabled:cursor-not-allowed">
+            {% translate "Confirm &amp; Save" %}
         </button>
     </form>
     {% else %}
@@ -61,17 +62,17 @@
         {% endfor %}
         <div id="weather-suggestion" class="hidden sm:col-span-2 rounded-md border border-sky-200 bg-sky-50 p-3 -mt-2 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
             <p class="text-sm text-sky-800">
-                Historical weather for this date:
+                {% translate "Historical weather for this date:" %}
                 <strong id="weather-suggestion-values"></strong>
-                <span class="block sm:inline text-xs text-sky-700">Not filled in yet — accept it, or type your own reading.</span>
+                <span class="block sm:inline text-xs text-sky-700">{% translate "Not filled in yet — accept it, or type your own reading." %}</span>
             </p>
             <button type="button" id="weather-suggestion-accept" class="shrink-0 bg-sky-700 text-white text-sm font-semibold rounded-lg px-4 py-1.5 hover:bg-sky-800 disabled:opacity-60 disabled:cursor-default">
-                Use these values
+                {% translate "Use these values" %}
             </button>
         </div>
         <div class="sm:col-span-2 mt-2">
             <button type="submit" class="w-full sm:w-auto bg-emerald-700 text-white font-semibold rounded-lg px-8 py-2.5 hover:bg-emerald-800 disabled:opacity-50 disabled:cursor-not-allowed">
-                Review &amp; Save
+                {% translate "Review &amp; Save" %}
             </button>
         </div>
     </form>
@@ -96,7 +97,7 @@
                     parts.push(weather.temperature_c + " °C");
                 }
                 if (weather.humidity_pct !== undefined) {
-                    parts.push(weather.humidity_pct + " % humidity");
+                    parts.push(weather.humidity_pct + " % " + "{{ _("humidity")|escapejs }}");
                 }
                 return parts.join(" · ");
             }
@@ -113,7 +114,7 @@
                 if (suggestion.humidity_pct !== undefined) {
                     humidityInput.value = suggestion.humidity_pct;
                 }
-                acceptButton.textContent = "Applied ✓";
+                acceptButton.textContent = "{{ _("Applied ✓")|escapejs }}";
                 acceptButton.disabled = true;
             });
 
@@ -122,7 +123,7 @@
             [temperatureInput, humidityInput].forEach(function (input) {
                 input.addEventListener("input", function () {
                     if (suggestion && acceptButton.disabled) {
-                        acceptButton.textContent = "Use these values";
+                        acceptButton.textContent = "{{ _("Use these values")|escapejs }}";
                         acceptButton.disabled = false;
                     }
                 });
@@ -157,7 +158,7 @@
                         }
                         suggestion = weather;
                         valuesLabel.textContent = text;
-                        acceptButton.textContent = "Use these values";
+                        acceptButton.textContent = "{{ _("Use these values")|escapejs }}";
                         acceptButton.disabled = false;
                         panel.classList.remove("hidden");
                     })

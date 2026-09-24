@@ -3,6 +3,7 @@ from django.utils import timezone
 
 from .models import DailyLog
 from .services import operational_today
+from django.utils.translation import gettext_lazy as _
 
 INPUT_CLASSES = (
     "w-full rounded-md border border-gray-300 px-3 py-2 text-sm "
@@ -32,16 +33,17 @@ class DailyLogForm(forms.ModelForm):
             "humidity_pct": forms.NumberInput(attrs={"class": INPUT_CLASSES, "step": "0.1", "min": "0", "max": "100"}),
         }
         labels = {
-            "flock_size": "Flock Size (number of ducks)",
-            "egg_count": "Today's Egg Count",
-            "feed_intake_kg": "Feed Intake (kg)",
-            "flock_age_weeks": "Average Flock Age (weeks)",
-            "temperature_c": "Temperature (°C)",
-            "humidity_pct": "Humidity (%)",
+            "date": _("Date"),
+            "flock_size": _("Flock Size (number of ducks)"),
+            "egg_count": _("Today's Egg Count"),
+            "feed_intake_kg": _("Feed Intake (kg)"),
+            "flock_age_weeks": _("Average Flock Age (weeks)"),
+            "temperature_c": _("Temperature (°C)"),
+            "humidity_pct": _("Humidity (%)"),
         }
         help_texts = {
-            "flock_size": "Pre-filled from your last entry — adjust if ducks were lost or added.",
-            "flock_age_weeks": "Pre-filled forward from your last entry based on today's date — adjust if needed.",
+            "flock_size": _("Pre-filled from your last entry — adjust if ducks were lost or added."),
+            "flock_age_weeks": _("Pre-filled forward from your last entry based on today's date — adjust if needed."),
         }
 
     def __init__(self, *args, active_flock=None, **kwargs):
@@ -67,11 +69,11 @@ class DailyLogForm(forms.ModelForm):
         """
         entered_date = self.cleaned_data["date"]
         if entered_date > operational_today():
-            raise forms.ValidationError("You can't log data for a future date.")
+            raise forms.ValidationError(_("You can't log data for a future date."))
         if self.active_flock is not None and entered_date < self.active_flock.started_on:
             raise forms.ValidationError(
-                f"This flock started on {self.active_flock.started_on:%b %d, %Y} — "
-                "you can't log data from before then."
+                _("This flock started on %(date)s — you can't log data from before then.")
+                % {"date": f"{self.active_flock.started_on:%b %d, %Y}"}
             )
         return entered_date
 
@@ -94,25 +96,25 @@ class FlockRegisterForm(forms.Form):
     """
 
     started_on = forms.DateField(
-        label="Flock Start Date",
-        help_text="When this flock began. Use today's date if it's brand new, or a past "
-        "date if you've been raising it for a while and are only just starting to log it here.",
+        label=_("Flock Start Date"),
+        help_text=_("When this flock began. Use today's date if it's brand new, or a past "
+        "date if you've been raising it for a while and are only just starting to log it here."),
         widget=forms.DateInput(attrs={"type": "date", "class": INPUT_CLASSES}),
     )
     flock_size = forms.IntegerField(
-        label="Flock Size (number of ducks)",
+        label=_("Flock Size (number of ducks)"),
         min_value=1,
         max_value=100000,
         widget=forms.NumberInput(attrs={"class": INPUT_CLASSES, "min": "1", "max": "100000"}),
     )
     flock_age_weeks = forms.IntegerField(
-        label="Flock Age (weeks)",
+        label=_("Flock Age (weeks)"),
         min_value=1,
         max_value=150,
         widget=forms.NumberInput(attrs={"class": INPUT_CLASSES, "min": "1", "max": "150"}),
     )
     feed_intake_kg = forms.DecimalField(
-        label="Feed Intake (kg/day)",
+        label=_("Feed Intake (kg/day)"),
         min_value=0,
         max_value=150,
         widget=forms.NumberInput(attrs={"class": INPUT_CLASSES, "step": "0.1", "min": "0", "max": "150"}),
@@ -129,7 +131,7 @@ class FlockRegisterForm(forms.Form):
     def clean_started_on(self):
         started_on = self.cleaned_data["started_on"]
         if started_on > timezone.localdate():
-            raise forms.ValidationError("Flock start date can't be in the future.")
+            raise forms.ValidationError(_("Flock start date can't be in the future."))
         return started_on
 
 
@@ -143,8 +145,8 @@ class FlockResumeCagingForm(forms.Form):
     """
 
     flock_size = forms.IntegerField(
-        label="Current Flock Size (ducks)",
-        help_text="Adjust if ducks were added or lost while free-range.",
+        label=_("Current Flock Size (ducks)"),
+        help_text=_("Adjust if ducks were added or lost while free-range."),
         min_value=1,
         max_value=100000,
         widget=forms.NumberInput(attrs={"class": INPUT_CLASSES, "min": "1", "max": "100000"}),
@@ -172,6 +174,9 @@ class DailyLogEditForm(forms.ModelForm):
             "temperature_c": forms.NumberInput(attrs={"class": INPUT_CLASSES, "step": "0.1", "min": "0", "max": "45"}),
             "humidity_pct": forms.NumberInput(attrs={"class": INPUT_CLASSES, "step": "0.1", "min": "0", "max": "100"}),
         }
+        # Same (translated) labels as the daily-log form, instead of the model's
+        # auto-generated "Temperature c" / "Humidity pct" field names.
+        labels = DailyLogForm.Meta.labels
 
     def __init__(self, *args, **kwargs):
         # Caps the browser's native date picker at today, and at this record's own
@@ -187,10 +192,10 @@ class DailyLogEditForm(forms.ModelForm):
         or back before its flock even started."""
         entered_date = self.cleaned_data["date"]
         if entered_date > operational_today():
-            raise forms.ValidationError("You can't log data for a future date.")
+            raise forms.ValidationError(_("You can't log data for a future date."))
         if entered_date < self.instance.flock.started_on:
             raise forms.ValidationError(
-                f"This flock started on {self.instance.flock.started_on:%b %d, %Y} — "
-                "you can't log data from before then."
+                _("This flock started on %(date)s — you can't log data from before then.")
+                % {"date": f"{self.instance.flock.started_on:%b %d, %Y}"}
             )
         return entered_date

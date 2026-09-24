@@ -1,0 +1,1505 @@
+# Filipino translation of the ItikCare interface.
+#
+# Source of truth for every Filipino string in the app. After editing, rebuild the
+# compiled catalog with:  python manage.py compile_translations
+#
+# The "Rules table" section translates the adviser's rules-table texts
+# (recommendations/rules.py). Recommendation rows store the English exactly as worded
+# there, and the UI looks that English up here at display time -- so any change to a
+# rule's English wording in rules.py must be mirrored in its msgid below, or that
+# card silently falls back to English.
+msgid ""
+msgstr ""
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Language: fil\n"
+"Plural-Forms: nplurals=2; plural=(n != 1);\n"
+
+
+# ----------------------------------------------------------------------
+# Interface (templates and Python)
+# ----------------------------------------------------------------------
+
+msgid "Dashboard"
+msgstr "Dashboard"
+
+msgid "Temperature"
+msgstr "Temperatura"
+
+msgid "Humidity"
+msgstr "Halumigmig"
+
+msgid "current weather in your area"
+msgstr "kasalukuyang panahon sa inyong lugar"
+
+msgid "You haven't logged today's data yet."
+msgstr "Hindi mo pa naitatala ang datos ngayong araw."
+
+msgid "Record Today's Data"
+msgstr "Itala ang Datos Ngayon"
+
+msgid "Flocks Status"
+msgstr "Kalagayan ng Kawan"
+
+msgid "Ducks"
+msgstr "Itik"
+
+msgid "Flocks Age"
+msgstr "Edad ng Kawan"
+
+msgid "Weeks"
+msgstr "Linggo"
+
+msgid "Today's Egg Yield"
+msgstr "Ani ng Itlog Ngayon"
+
+msgid "Eggs"
+msgstr "Itlog"
+
+msgid "Next 3-Day Forecast"
+msgstr "Pagtataya sa Susunod na 3 Araw"
+
+msgid "Tomorrow"
+msgstr "Bukas"
+
+msgid "No forecasts generated yet."
+msgstr "Wala pang nagagawang pagtataya."
+
+msgid "Egg Yield Trend"
+msgstr "Takbo ng Ani ng Itlog"
+
+msgid "Range"
+msgstr "Saklaw"
+
+msgid "actual vs. predicted"
+msgstr "aktwal kumpara sa tinaya"
+
+msgid "(dashed = upcoming forecast, not yet logged)"
+msgstr "(putol-putol na linya = paparating na pagtataya, hindi pa naitatala)"
+
+msgid "No farm records yet — log daily data to see the trend here."
+msgstr "Wala pang talaan ng bukid — magtala ng araw-araw na datos para makita rito ang takbo."
+
+msgid "Top Recommendation"
+msgstr "Pangunahing Rekomendasyon"
+
+msgid "View all"
+msgstr "Tingnan lahat"
+
+msgid "Everything looks good — no urgent action needed right now."
+msgstr "Maayos ang lahat — walang agarang kailangang gawin ngayon."
+
+msgid "No recommendations yet."
+msgstr "Wala pang rekomendasyon."
+
+msgid "Recent Farm Records"
+msgstr "Mga Bagong Talaan ng Bukid"
+
+msgid "Last 5 daily entries"
+msgstr "Huling 5 araw-araw na tala"
+
+msgid "Egg Count"
+msgstr "Bilang ng Itlog"
+
+msgid "Feed (kg)"
+msgstr "Patuka (kg)"
+
+msgid "Temp / Humidity"
+msgstr "Temp / Halumigmig"
+
+msgid "Flock Count"
+msgstr "Bilang ng Kawan"
+
+msgid "Avg. Age (wk)"
+msgstr "Karaniwang Edad (lg)"
+
+msgid "Date"
+msgstr "Petsa"
+
+msgid "No farm records yet."
+msgstr "Wala pang talaan ng bukid."
+
+msgid "Actual egg yield"
+msgstr "Aktwal na ani ng itlog"
+
+msgid "Predicted egg yield"
+msgstr "Tinayang ani ng itlog"
+
+msgid "Good Day, %(name)s!"
+msgstr "Magandang araw, %(name)s!"
+
+msgid "No flock registered yet. <a href=\"%(flock_profile_url)s\" class=\"underline font-medium\">Register a flock</a> to start logging daily data and see forecasts and recommendations here."
+msgstr "Wala pang nakarehistrong kawan. <a href=\"%(flock_profile_url)s\" class=\"underline font-medium\">Magrehistro ng kawan</a> para makapagsimulang magtala ng araw-araw na datos at makita rito ang mga pagtataya at rekomendasyon."
+
+msgid "This flock is currently <strong>free-range in the field</strong>. Daily logging, forecasts, and the data summary are paused until it's caged again. <a href=\"%(flock_profile_url)s\" class=\"underline font-medium\">Mark it as caged from Flock Profile</a> once logging resumes."
+msgstr "Ang kawang ito ay kasalukuyang <strong>nakapastol sa bukid</strong>. Nakahinto muna ang araw-araw na pagtatala, pagtataya, at buod ng datos hanggang maikulong itong muli. <a href=\"%(flock_profile_url)s\" class=\"underline font-medium\">Markahan itong nakakulong sa Flock Profile</a> kapag magsisimula na ulit ang pagtatala."
+
+msgid "Feed Intake: %(feed_intake_display)skg"
+msgstr "Patuka: %(feed_intake_display)skg"
+
+msgid "Avg. Age: %(current_age_weeks)s weeks"
+msgstr "Karaniwang Edad: %(current_age_weeks)s linggo"
+
+msgid "Farm Records"
+msgstr "Talaan ng Bukid"
+
+msgid "Record of daily farm observations"
+msgstr "Talaan ng araw-araw na obserbasyon sa bukid"
+
+msgid "Flock Number"
+msgstr "Numero ng Kawan"
+
+msgid "Month"
+msgstr "Buwan"
+
+msgid "Log Today's Data"
+msgstr "Itala ang Datos Ngayon"
+
+msgid "Avg. Daily Egg Yield"
+msgstr "Karaniwang Ani ng Itlog Bawat Araw"
+
+msgid "Avg. Feed / Bird"
+msgstr "Karaniwang Patuka / Itik"
+
+msgid "g/day"
+msgstr "g/araw"
+
+msgid "Avg. Temp / Humidity"
+msgstr "Karaniwang Temp / Halumigmig"
+
+msgid "Flock Size"
+msgstr "Laki ng Kawan"
+
+msgid "as of latest entry"
+msgstr "batay sa pinakabagong tala"
+
+msgid "Egg Yield &amp; Feed per Bird"
+msgstr "Ani ng Itlog at Patuka bawat Itik"
+
+msgid "Temperature &amp; Humidity"
+msgstr "Temperatura at Halumigmig"
+
+msgid "Used to train a forecasting model — no longer editable"
+msgstr "Ginamit sa pagsasanay ng forecasting model — hindi na mababago"
+
+msgid "Locked"
+msgstr "Naka-lock"
+
+msgid "This flock has been retired — its records are read-only"
+msgstr "Retirado na ang kawang ito — pagbasa na lang ang pwede sa mga tala nito"
+
+msgid "Read-only"
+msgstr "Pagbasa lang"
+
+msgid "Edit"
+msgstr "I-edit"
+
+msgid "Temp (°C)"
+msgstr "Temp (°C)"
+
+msgid "Humidity (%%)"
+msgstr "Halumigmig (%%)"
+
+msgid "No farm records for the selected month."
+msgstr "Walang talaan ng bukid para sa napiling buwan."
+
+msgid "Egg yield"
+msgstr "Ani ng itlog"
+
+msgid "Feed per bird (g/day)"
+msgstr "Patuka bawat itik (g/araw)"
+
+msgid "g/bird/day"
+msgstr "g/itik/araw"
+
+msgid "Temperature (°C)"
+msgstr "Temperatura (°C)"
+
+msgid "%(egg_yield_delta_pct)s%% vs last month"
+msgstr "%(egg_yield_delta_pct)s%% kumpara noong nakaraang buwan"
+
+msgid "%(feed_per_bird_delta_pct)s%% vs last month"
+msgstr "%(feed_per_bird_delta_pct)s%% kumpara noong nakaraang buwan"
+
+msgid "%(avg_humidity)s%% humidity"
+msgstr "%(avg_humidity)s%% halumigmig"
+
+msgid "History (%(count)s)"
+msgstr "Kasaysayan (%(count)s)"
+
+msgid "%(who)s changed %(field)s from \"%(old)s\" to \"%(new)s\""
+msgstr "Binago ni %(who)s ang %(field)s mula \"%(old)s\" tungo sa \"%(new)s\""
+
+msgid "Delete Record"
+msgstr "Burahin ang Tala"
+
+msgid "This permanently removes this daily log and its edit history. This cannot be undone."
+msgstr "Permanente nitong buburahin ang araw-araw na talang ito at ang kasaysayan ng pag-edit nito. Hindi na ito maibabalik."
+
+msgid "Deleting record…"
+msgstr "Binubura ang tala…"
+
+msgid "Cancel"
+msgstr "Kanselahin"
+
+msgid "Delete Record — %(date)s?"
+msgstr "Burahin ang Tala — %(date)s?"
+
+msgid "Edit Record"
+msgstr "I-edit ang Tala"
+
+msgid "Changes are recorded in the audit trail (old value, new value, who, when)."
+msgstr "Naitatala ang mga pagbabago sa audit trail (lumang halaga, bagong halaga, sino, kailan)."
+
+msgid "Saving changes…"
+msgstr "Sine-save ang mga pagbabago…"
+
+msgid "Save Changes"
+msgstr "I-save ang Pagbabago"
+
+msgid "Edit history"
+msgstr "Kasaysayan ng pag-edit"
+
+msgid "Flock Profile"
+msgstr "Profile ng Kawan"
+
+msgid "Log Daily Data"
+msgstr "Itala ang Araw-araw na Datos"
+
+msgid "Log Today's Farm Data"
+msgstr "Itala ang Datos ng Bukid Ngayon"
+
+msgid "Enter daily data to improve forecasting accuracy"
+msgstr "Maglagay ng araw-araw na datos para gumanda ang katumpakan ng pagtataya"
+
+msgid "Please confirm this entry before it's saved and a new forecast is generated:"
+msgstr "Pakikumpirma ang talang ito bago ito i-save at gumawa ng bagong pagtataya:"
+
+msgid "Heads up — these look unusual for this flock:"
+msgstr "Paalala — mukhang kakaiba ang mga ito para sa kawang ito:"
+
+msgid "Double-check for typos. If the numbers are correct, go ahead and confirm."
+msgstr "Suriing mabuti kung may mali sa pag-type. Kung tama ang mga numero, ituloy at kumpirmahin."
+
+msgid "Saving your log and updating the forecast…"
+msgstr "Sine-save ang iyong tala at ina-update ang pagtataya…"
+
+msgid "Confirm &amp; Save"
+msgstr "Kumpirmahin at I-save"
+
+msgid "Historical weather for this date:"
+msgstr "Naitalang panahon sa petsang ito:"
+
+msgid "Not filled in yet — accept it, or type your own reading."
+msgstr "Hindi pa nailalagay — tanggapin ito, o i-type ang sarili mong sukat."
+
+msgid "Use these values"
+msgstr "Gamitin ang mga ito"
+
+msgid "Review &amp; Save"
+msgstr "Suriin at I-save"
+
+msgid "humidity"
+msgstr "halumigmig"
+
+msgid "Applied ✓"
+msgstr "Nailagay na ✓"
+
+msgid "Flock Summary"
+msgstr "Buod ng Kawan"
+
+msgid "Current Flock Size"
+msgstr "Kasalukuyang Laki ng Kawan"
+
+msgid "Average Age"
+msgstr "Karaniwang Edad"
+
+msgid "Flock #"
+msgstr "Kawan #"
+
+msgid "Status"
+msgstr "Kalagayan"
+
+msgid "Free-range"
+msgstr "Nakapastol"
+
+msgid "Ducks are currently free-range — daily logging and forecasts are paused until they're caged again."
+msgstr "Nakapastol ngayon ang mga itik — nakahinto muna ang araw-araw na pagtatala at pagtataya hanggang maikulong silang muli."
+
+msgid "Manage flock"
+msgstr "Pamahalaan ang kawan"
+
+msgid "Caging Status"
+msgstr "Kalagayan ng Pagkukulong"
+
+msgid "Ducks are currently free-range in the field. Daily logging and forecasts are paused until they're caged again."
+msgstr "Nakapastol ngayon sa bukid ang mga itik. Nakahinto muna ang araw-araw na pagtatala at pagtataya hanggang maikulong silang muli."
+
+msgid "Resuming daily logging…"
+msgstr "Ibinabalik ang araw-araw na pagtatala…"
+
+msgid "Mark as Caged"
+msgstr "Markahang Nakakulong"
+
+msgid "Active"
+msgstr "Aktibo"
+
+msgid "Ducks are currently caged and daily logging is active."
+msgstr "Nakakulong ngayon ang mga itik at aktibo ang araw-araw na pagtatala."
+
+msgid "Updating caging status…"
+msgstr "Ina-update ang kalagayan ng pagkukulong…"
+
+msgid "Daily logging and forecasts will be paused until this flock is marked as caged again."
+msgstr "Ihihinto muna ang araw-araw na pagtatala at pagtataya hanggang markahang nakakulong muli ang kawang ito."
+
+msgid "Mark flock as free-range?"
+msgstr "Markahang nakapastol ang kawan?"
+
+msgid "Mark as Free-range"
+msgstr "Markahang Nakapastol"
+
+msgid "Retiring this flock?"
+msgstr "Iretiro ang kawang ito?"
+
+msgid "Retiring flock…"
+msgstr "Nireretiro ang kawan…"
+
+msgid "Retire This Flock"
+msgstr "Iretiro ang Kawang Ito"
+
+msgid "Register Flock"
+msgstr "Magrehistro ng Kawan"
+
+msgid "No flock has been set up yet."
+msgstr "Wala pang nakarehistrong kawan."
+
+msgid "No flock has been set up yet. Tell us a bit about your ducks to get started — these details will pre-fill your first daily log."
+msgstr "Wala pang nakarehistrong kawan. Magkuwento nang kaunti tungkol sa iyong mga itik para makapagsimula — ang mga detalyeng ito ang unang ilalagay sa iyong unang araw-araw na tala."
+
+msgid "Registering your flock…"
+msgstr "Inirerehistro ang iyong kawan…"
+
+msgid "Double-check the flock size, age, and feed intake above — these details will pre-fill your first daily log and can't be edited afterwards from this page."
+msgstr "Suriing mabuti ang laki, edad, at patuka ng kawan sa itaas — ilalagay ang mga detalyeng ito sa iyong unang araw-araw na tala at hindi na mababago mula sa pahinang ito pagkatapos."
+
+msgid "Are these details correct?"
+msgstr "Tama ba ang mga detalyeng ito?"
+
+msgid "Yes, Register Flock"
+msgstr "Oo, Iparehistro ang Kawan"
+
+msgid "Flock #%(number)s — started %(started)s"
+msgstr "Kawan #%(number)s — nagsimula noong %(started)s"
+
+msgid "%(size)s ducks"
+msgstr "%(size)s itik"
+
+msgid "%(current_age_weeks)s wks"
+msgstr "%(current_age_weeks)s lg"
+
+msgid "Use this when the current ducks are being retired and a new, younger flock is brought in. No flock will be registered afterwards — you'll fill out the new flock's details from this page when you're ready."
+msgstr "Gamitin ito kapag ireretiro na ang kasalukuyang mga itik at may darating na bago at mas batang kawan. Walang kawang mairerehistro pagkatapos — ikaw ang maglalagay ng detalye ng bagong kawan sa pahinang ito kapag handa ka na."
+
+msgid "This marks Flock #%(number)s as retired. No flock will be registered afterwards — you'll need to register the next one from this page before logging further data."
+msgstr "Mamarkahan nitong retirado ang Kawan #%(number)s. Walang kawang mairerehistro pagkatapos — kailangan mong iparehistro ang susunod sa pahinang ito bago magtala ulit ng datos."
+
+msgid "Retire Flock #%(number)s?"
+msgstr "Iretiro ang Kawan #%(number)s?"
+
+msgid "Forecast & Recommendations"
+msgstr "Pagtataya at Rekomendasyon"
+
+msgid "Forecast future egg yield and receive preventive measures"
+msgstr "Tayahin ang magiging ani ng itlog at tumanggap ng mga hakbang pang-iwas"
+
+msgid "Forecast"
+msgstr "Pagtataya"
+
+msgid "Recommendations"
+msgstr "Mga Rekomendasyon"
+
+msgid "Predicted Egg Yield Tomorrow"
+msgstr "Tinayang Ani ng Itlog Bukas"
+
+msgid "No forecast generated yet."
+msgstr "Wala pang nagagawang pagtataya."
+
+msgid "Next 3-day Forecast"
+msgstr "Pagtataya sa Susunod na 3 Araw"
+
+msgid "Available once the warm-up above is complete."
+msgstr "Magiging available kapag tapos na ang warm-up sa itaas."
+
+msgid "Key Influencing Factors"
+msgstr "Mga Pangunahing Salik"
+
+msgid "How much each farm condition is shaping this forecast"
+msgstr "Gaano kalaki ang epekto ng bawat kalagayan ng bukid sa pagtatayang ito"
+
+msgid "No current forecast yet — once you log today's data and a forecast is generated, you'll see the factors influencing it here."
+msgstr "Wala pang kasalukuyang pagtataya — kapag naitala mo na ang datos ngayon at nakagawa na ng pagtataya, makikita mo rito ang mga salik na nakaaapekto rito."
+
+msgid "Guide & Preventive Recommendations"
+msgstr "Gabay at Mga Rekomendasyong Pang-iwas"
+
+msgid "Practical steps based on your Key Influencing Factors, with the biggest ones listed first"
+msgstr "Mga praktikal na hakbang batay sa iyong Mga Pangunahing Salik, nakalista mula sa pinakamalaki"
+
+msgid "No recommendations yet — these are generated once a forecast exists."
+msgstr "Wala pang rekomendasyon — nagagawa ang mga ito kapag may pagtataya na."
+
+msgid "This flock is currently <strong>free-range in the field</strong>. Forecasts and recommendations are paused until it's caged again. <a href=\"%(flock_profile_url)s\" class=\"underline font-medium\">Mark it as caged from Flock Profile</a> once logging resumes."
+msgstr "Ang kawang ito ay kasalukuyang <strong>nakapastol sa bukid</strong>. Nakahinto muna ang pagtataya at rekomendasyon hanggang maikulong itong muli. <a href=\"%(flock_profile_url)s\" class=\"underline font-medium\">Markahan itong nakakulong sa Flock Profile</a> kapag magsisimula na ulit ang pagtatala."
+
+msgid "%(count)s eggs"
+msgstr "%(count)s itlog"
+
+msgid "Reading:"
+msgstr "Sukat:"
+
+msgid "Learn More"
+msgstr "Alamin Pa"
+
+msgid "Page not found"
+msgstr "Hindi nahanap ang pahina"
+
+msgid "Egg Yield Forecasting"
+msgstr "Pagtataya ng Ani ng Itlog"
+
+msgid "The page you're looking for doesn't exist or may have moved."
+msgstr "Wala ang pahinang hinahanap mo o maaaring nailipat na ito."
+
+msgid "Back to ItikCare"
+msgstr "Bumalik sa ItikCare"
+
+msgid "Toggle navigation"
+msgstr "Buksan/isara ang menu"
+
+msgid "Loading…"
+msgstr "Naglo-load…"
+
+msgid "Are you sure?"
+msgstr "Sigurado ka ba?"
+
+msgid "Confirm"
+msgstr "Kumpirmahin"
+
+msgid "Delete your account?"
+msgstr "Burahin ang iyong account?"
+
+msgid "Deleting your account…"
+msgstr "Binubura ang iyong account…"
+
+msgid "Current password"
+msgstr "Kasalukuyang password"
+
+msgid "Permanently delete"
+msgstr "Permanenteng burahin"
+
+msgid "Forecast &amp; Recommendations"
+msgstr "Pagtataya at Rekomendasyon"
+
+msgid "You'll need to log in again to get back to your dashboard."
+msgstr "Kailangan mong mag-log in ulit para makabalik sa iyong dashboard."
+
+msgid "Log out of ItikCare?"
+msgstr "Mag-log out sa ItikCare?"
+
+msgid "Log out"
+msgstr "Mag-log out"
+
+msgid "Signing you out…"
+msgstr "Nila-log out ka…"
+
+msgid "Logout"
+msgstr "Mag-log out"
+
+msgid "Loading your profile…"
+msgstr "Binubuksan ang iyong profile…"
+
+msgid "This deactivates your account and clears your name, email, photo, and address. Your flock, daily logs, forecasts, and recommendations stay on record. This isn't reversible from here — you'd need to ask an admin to restore access."
+msgstr "Idi-deactivate nito ang iyong account at buburahin ang iyong pangalan, email, larawan, at address. Mananatili sa talaan ang iyong kawan, araw-araw na tala, pagtataya, at rekomendasyon. Hindi na ito maibabalik mula rito — kailangan mong humingi ng tulong sa admin para maibalik ang access."
+
+msgid "Type your username (\"%(username)s\") to confirm"
+msgstr "I-type ang iyong username (\"%(username)s\") para kumpirmahin"
+
+msgid "Account Settings"
+msgstr "Settings ng Account"
+
+msgid "Saved"
+msgstr "Na-save"
+
+msgid "Personal Information"
+msgstr "Personal na Impormasyon"
+
+msgid "Your name, contact details, and farm location."
+msgstr "Ang iyong pangalan, detalye ng contact, at lokasyon ng bukid."
+
+msgid "Email"
+msgstr "Email"
+
+msgid "Mobile number"
+msgstr "Numero ng mobile"
+
+msgid "Farm address"
+msgstr "Address ng bukid"
+
+msgid "Profile picture"
+msgstr "Larawan sa profile"
+
+msgid "PNG or JPG, up to 5MB."
+msgstr "PNG o JPG, hanggang 5MB."
+
+msgid "First name"
+msgstr "Pangalan"
+
+msgid "Last name"
+msgstr "Apelyido"
+
+msgid "Username"
+msgstr "Username"
+
+msgid "Used to reset your password, and can be used to log in."
+msgstr "Ginagamit para i-reset ang iyong password, at pwedeng gamitin sa pag-log in."
+
+msgid "11 digits, e.g. 09171234567. Can be used to log in. We never send SMS."
+msgstr "11 digit, hal. 09171234567. Pwedeng gamitin sa pag-log in. Hindi kami kailanman nagpapadala ng SMS."
+
+msgid "Your barangay in Libmanan — used to personalize weather suggestions on your daily log."
+msgstr "Ang iyong barangay sa Libmanan — ginagamit para iangkop ang mungkahing panahon sa iyong araw-araw na tala."
+
+msgid "Save changes"
+msgstr "I-save ang pagbabago"
+
+msgid "Delete your account"
+msgstr "Burahin ang iyong account"
+
+msgid "Delete my account"
+msgstr "Burahin ang aking account"
+
+msgid "Name not set"
+msgstr "Wala pang pangalan"
+
+msgid "Not set"
+msgstr "Wala pa"
+
+msgid "This account can't be deleted. It's the foundation farmer account — its historical daily logs seed the starter forecasting model every new farmer gets at signup, so removing it would break onboarding for everyone else."
+msgstr "Hindi mabubura ang account na ito. Ito ang pangunahing account ng magsasaka — ang mga lumang tala nito ang pinagmumulan ng panimulang forecasting model na natatanggap ng bawat bagong magsasaka sa pag-sign up, kaya kapag binura ito ay masisira ang pagsisimula ng iba."
+
+msgid "Deleting your account deactivates it and clears your name, email, photo, and address. Your flock, daily logs, forecasts, and recommendations are kept on record. This isn't reversible from here — you'd need to ask an admin to restore access."
+msgstr "Ang pagbura sa iyong account ay magde-deactivate dito at buburahin ang iyong pangalan, email, larawan, at address. Mananatili sa talaan ang iyong kawan, araw-araw na tala, pagtataya, at rekomendasyon. Hindi na ito maibabalik mula rito — kailangan mong humingi ng tulong sa admin para maibalik ang access."
+
+msgid "Egg yield forecasts start once you've logged 1 full week"
+msgstr "Magsisimula ang pagtataya ng ani ng itlog kapag nakapagtala ka na ng 1 buong linggo"
+
+msgid "Recommendations are based on the data you've logged and are available now."
+msgstr "Ang mga rekomendasyon ay batay sa datos na naitala mo at available na ngayon."
+
+msgid "Logging just resumed. Forecasts return on your %(needed)sth day of logs"
+msgstr "Kababalik lang ng pagtatala. Babalik ang pagtataya sa ika-%(needed)s araw ng iyong tala"
+
+msgid "(%(so_far)s/%(needed)s days logged)"
+msgstr "(%(so_far)s/%(needed)s araw na naitala)"
+
+msgid "ItikCare needs at least a week of your own farm's data before predicting egg yield, so the prediction fits your flock and not someone else's."
+msgstr "Kailangan ng ItikCare ng hindi bababa sa isang linggong datos mula sa sarili mong bukid bago tayahin ang ani ng itlog, para ang pagtataya ay akma sa iyong kawan at hindi sa iba."
+
+msgid "The first 3 days back rebuild your flock's recent laying history, so the prediction reflects how your flock is laying now."
+msgstr "Ang unang 3 araw pagbalik ay bumubuo muli sa kamakailang kasaysayan ng pangingitlog ng iyong kawan, para ang pagtataya ay tumugma sa kasalukuyang pangingitlog nito."
+
+msgid "Language"
+msgstr "Wika"
+
+msgid "Notifications"
+msgstr "Mga Abiso"
+
+msgid "Dismiss"
+msgstr "Alisin"
+
+msgid "You're all caught up."
+msgstr "Wala ka nang bagong abiso."
+
+msgid "(%(count)s unread)"
+msgstr "(%(count)s hindi pa nababasa)"
+
+msgid "Night mode"
+msgstr "Night mode"
+
+msgid "Log in"
+msgstr "Mag-log in"
+
+msgid "Web-Based Egg Yield Forecasting System"
+msgstr "Web-Based na Sistema ng Pagtataya ng Ani ng Itlog"
+
+msgid "Welcome Back, Farmer!"
+msgstr "Maligayang Pagbabalik, Magsasaka!"
+
+msgid "Sign in to access your dashboard"
+msgstr "Mag-sign in para mabuksan ang iyong dashboard"
+
+msgid "Signing you in…"
+msgstr "Sina-sign in ka…"
+
+msgid "Name, email, or phone number"
+msgstr "Pangalan, email, o numero ng telepono"
+
+msgid "Password"
+msgstr "Password"
+
+msgid "Show password"
+msgstr "Ipakita ang password"
+
+msgid "Sign in to ItikCare"
+msgstr "Mag-sign in sa ItikCare"
+
+msgid "or"
+msgstr "o"
+
+msgid "Sign in with Google"
+msgstr "Mag-sign in gamit ang Google"
+
+msgid "By continuing with Google,"
+msgstr "Sa pagpapatuloy gamit ang Google,"
+
+msgid "Forgot your password?"
+msgstr "Nakalimutan ang password?"
+
+msgid "New to ItikCare?"
+msgstr "Bago sa ItikCare?"
+
+msgid "Create a farm account"
+msgstr "Gumawa ng farm account"
+
+msgid "Hide password"
+msgstr "Itago ang password"
+
+msgid "you agree to our <a href=\"%(privacy_url)s\" target=\"_blank\" rel=\"noopener\" class=\"text-emerald-700 hover:underline\">Privacy Notice</a>."
+msgstr "sumasang-ayon ka sa aming <a href=\"%(privacy_url)s\" target=\"_blank\" rel=\"noopener\" class=\"text-emerald-700 hover:underline\">Privacy Notice</a>."
+
+msgid "Password updated"
+msgstr "Na-update ang password"
+
+msgid "Your password has been changed. You can now log in with your new password."
+msgstr "Napalitan na ang iyong password. Pwede ka nang mag-log in gamit ang bagong password."
+
+msgid "Choose a new password"
+msgstr "Pumili ng bagong password"
+
+msgid "Enter your verification code"
+msgstr "Ilagay ang iyong verification code"
+
+msgid "Verifying your code…"
+msgstr "Sinusuri ang iyong code…"
+
+msgid "Verification code"
+msgstr "Verification code"
+
+msgid "New password"
+msgstr "Bagong password"
+
+msgid "Confirm new password"
+msgstr "Kumpirmahin ang bagong password"
+
+msgid "Set new password"
+msgstr "Itakda ang bagong password"
+
+msgid "Didn't get it?"
+msgstr "Hindi natanggap?"
+
+msgid "Request a new code"
+msgstr "Humingi ng bagong code"
+
+msgid "Back to log in"
+msgstr "Bumalik sa pag-log in"
+
+msgid "We've sent a 6-digit code to %(masked_email)s. Enter it below along with your new password."
+msgstr "Nagpadala kami ng 6-digit na code sa %(masked_email)s. Ilagay ito sa ibaba kasama ang iyong bagong password."
+
+msgid "Reset your password"
+msgstr "I-reset ang iyong password"
+
+msgid "Enter your name, email, or phone number and we'll email a verification code to the address on file. If you never added an email, ask an admin to reset your password instead."
+msgstr "Ilagay ang iyong pangalan, email, o numero ng telepono at magpapadala kami ng verification code sa email na nakatala. Kung hindi ka kailanman naglagay ng email, humingi na lang sa admin na i-reset ang iyong password."
+
+msgid "Sending verification code…"
+msgstr "Ipinapadala ang verification code…"
+
+msgid "Send verification code"
+msgstr "Ipadala ang verification code"
+
+msgid "Sign up"
+msgstr "Mag-sign up"
+
+msgid "Create Your Farm Account"
+msgstr "Gumawa ng Iyong Farm Account"
+
+msgid "Start logging your own farm's daily data and forecasts"
+msgstr "Simulang itala ang araw-araw na datos at pagtataya ng sarili mong bukid"
+
+msgid "Creating your account…"
+msgstr "Ginagawa ang iyong account…"
+
+msgid "Full name"
+msgstr "Buong pangalan"
+
+msgid "You'll log in with your name — even just your first name works."
+msgstr "Mag-log in ka gamit ang iyong pangalan — pwede kahit pangalan lang."
+
+msgid "Email or phone number"
+msgstr "Email o numero ng telepono"
+
+msgid "Lets you log in if you forget how you spelled your name. An email also lets you reset your own password."
+msgstr "Magagamit mo sa pag-log in kung makalimutan mo kung paano mo isinulat ang iyong pangalan. Sa email, ikaw mismo ang makapagre-reset ng iyong password."
+
+msgid "What makes a good password"
+msgstr "Ano ang magandang password"
+
+msgid "At least 8 characters. Avoid common or all-number passwords."
+msgstr "Hindi bababa sa 8 character. Iwasan ang karaniwang password o puro numero."
+
+msgid "Do"
+msgstr "Gawin"
+
+msgid "Use at least 8 characters — longer is stronger."
+msgstr "Gumamit ng hindi bababa sa 8 character — mas mahaba, mas matibay."
+
+msgid "Make it unlike your name, email, or phone number."
+msgstr "Gawin itong iba sa iyong pangalan, email, o numero ng telepono."
+
+msgid "Don't"
+msgstr "Huwag"
+
+msgid "Use a common password."
+msgstr "Gumamit ng karaniwang password."
+
+msgid "Use a password made up entirely of numbers."
+msgstr "Gumamit ng password na puro numero."
+
+msgid "Confirm password"
+msgstr "Kumpirmahin ang password"
+
+msgid "Create account"
+msgstr "Gumawa ng account"
+
+msgid "Sign up with Google"
+msgstr "Mag-sign up gamit ang Google"
+
+msgid "Already have an account?"
+msgstr "May account ka na?"
+
+msgid "Create this account?"
+msgstr "Gawin ang account na ito?"
+
+msgid "Full name:"
+msgstr "Buong pangalan:"
+
+msgid "Email or phone:"
+msgstr "Email o telepono:"
+
+msgid "Farm address:"
+msgstr "Address ng bukid:"
+
+msgid "Double-check these details — you can still change them later from your flock profile."
+msgstr "Suriing mabuti ang mga detalyeng ito — pwede mo pa rin itong baguhin mamaya sa iyong profile."
+
+msgid "Go back"
+msgstr "Bumalik"
+
+msgid "I have read and agree to the <a href=\"%(privacy_url)s\" target=\"_blank\" rel=\"noopener\" class=\"font-semibold text-emerald-700 hover:underline\">Privacy Notice</a>, including how ItikCare uses my personal information."
+msgstr "Nabasa ko at sumasang-ayon ako sa <a href=\"%(privacy_url)s\" target=\"_blank\" rel=\"noopener\" class=\"font-semibold text-emerald-700 hover:underline\">Privacy Notice</a>, kasama kung paano ginagamit ng ItikCare ang aking personal na impormasyon."
+
+msgid "Enter a valid email or an 11-digit mobile number (09XXXXXXXXX)."
+msgstr "Maglagay ng tamang email o 11-digit na numero ng mobile (09XXXXXXXXX)."
+
+msgid "Enter a valid email address."
+msgstr "Maglagay ng tamang email address."
+
+msgid "Please enter a correct name, email, or phone number, and the correct password (passwords are case-sensitive)."
+msgstr "Pakilagay ang tamang pangalan, email, o numero ng telepono, at ang tamang password (mahalaga ang malaki at maliit na titik sa password)."
+
+msgid "That name matches more than one account — log in with your full name, email, or phone number instead."
+msgstr "Higit sa isang account ang may ganitong pangalan — mag-log in na lang gamit ang iyong buong pangalan, email, o numero ng telepono."
+
+msgid "That email is already in use by another account."
+msgstr "Ginagamit na ng ibang account ang email na iyan."
+
+msgid "This email address doesn't seem to exist — check the spelling (e.g. gmail.com)."
+msgstr "Mukhang hindi umiiral ang email address na ito — suriin ang pagbaybay (hal. gmail.com)."
+
+msgid "That mobile number is already in use by another account."
+msgstr "Ginagamit na ng ibang account ang numero ng mobile na iyan."
+
+msgid "Enter the 6-digit code exactly as emailed to you."
+msgstr "Ilagay ang 6-digit na code nang eksakto gaya ng ipinadala sa iyong email."
+
+msgid "Please agree to the Privacy Notice to create your account."
+msgstr "Pakisang-ayunan ang Privacy Notice para makagawa ng account."
+
+msgid "Enter your full name."
+msgstr "Ilagay ang iyong buong pangalan."
+
+msgid "Enter an 11-digit mobile number (09XXXXXXXXX)."
+msgstr "Maglagay ng 11-digit na numero ng mobile (09XXXXXXXXX)."
+
+msgid "Incorrect password."
+msgstr "Mali ang password."
+
+msgid "Type your username exactly to confirm."
+msgstr "I-type nang eksakto ang iyong username para kumpirmahin."
+
+msgid "Select your barangay"
+msgstr "Piliin ang iyong barangay"
+
+msgid "Image must be 5MB or smaller."
+msgstr "Ang larawan ay dapat 5MB o mas maliit."
+
+msgid "Your account has been deleted."
+msgstr "Nabura na ang iyong account."
+
+msgid "This account can't be deleted — it seeds every new farmer's starter forecasting model."
+msgstr "Hindi mabubura ang account na ito — ito ang pinagmumulan ng panimulang forecasting model ng bawat bagong magsasaka."
+
+msgid "Start the password reset process again."
+msgstr "Simulan muli ang pag-reset ng password."
+
+msgid "Google sign-in isn't available right now."
+msgstr "Hindi available ang pag-sign in gamit ang Google ngayon."
+
+msgid "Google sign-in didn't complete — please try again."
+msgstr "Hindi natapos ang pag-sign in gamit ang Google — pakisubukan ulit."
+
+msgid "This account has been deactivated. Contact an admin if you believe this is a mistake."
+msgstr "Na-deactivate na ang account na ito. Makipag-ugnayan sa admin kung sa tingin mo ay mali ito."
+
+msgid "Welcome! Add your name and farm location so we can personalize your dashboard."
+msgstr "Maligayang pagdating! Idagdag ang iyong pangalan at lokasyon ng bukid para maiangkop namin ang iyong dashboard."
+
+msgid "You also need to register your flock before you can log daily data."
+msgstr "Kailangan mo ring iparehistro ang iyong kawan bago ka makapagtala ng araw-araw na datos."
+
+msgid "Your account is ready, but your starter forecasting model is still warming up — try logging your first daily entry again shortly if no forecast appears."
+msgstr "Handa na ang iyong account, pero inihahanda pa ang iyong panimulang forecasting model — subukang itala ulit ang iyong unang tala mamaya kung walang lumabas na pagtataya."
+
+msgid "Welcome! Register your flock to start logging daily data."
+msgstr "Maligayang pagdating! Iparehistro ang iyong kawan para makapagsimulang magtala ng araw-araw na datos."
+
+msgid "Account settings updated."
+msgstr "Na-update ang settings ng account."
+
+msgid "If that account exists and has an email on file, we've sent it a verification code."
+msgstr "Kung umiiral ang account na iyan at may nakatalang email, pinadalhan na namin ito ng verification code."
+
+msgid "We couldn't find that farm address, so weather suggestions will use the default location for now."
+msgstr "Hindi namin mahanap ang address ng bukid na iyan, kaya ang mungkahing panahon ay gagamit muna ng default na lokasyon."
+
+msgid "That account doesn't have an email on file, so it can't self-service a reset — ask an admin to reset your password from /admin/ instead."
+msgstr "Walang nakatalang email ang account na iyan, kaya hindi ito makapag-reset nang mag-isa — humingi na lang sa admin na i-reset ang iyong password mula sa /admin/."
+
+msgid "That code has expired — request a new one."
+msgstr "Expired na ang code na iyan — humingi ng bago."
+
+msgid "Too many incorrect attempts — request a new code."
+msgstr "Masyadong maraming maling subok — humingi ng bagong code."
+
+msgid "Incorrect code — %(remaining)s attempt(s) left."
+msgstr "Mali ang code — %(remaining)s subok na lang ang natitira."
+
+msgid "We couldn't confirm the email sent just now — if no code arrives shortly, request a new one."
+msgstr "Hindi namin makumpirma ang email na kapapadala lang — kung walang dumating na code sa ilang sandali, humingi ng bago."
+
+msgid "Flock Size (number of ducks)"
+msgstr "Laki ng Kawan (bilang ng itik)"
+
+msgid "Today's Egg Count"
+msgstr "Bilang ng Itlog Ngayon"
+
+msgid "Feed Intake (kg)"
+msgstr "Patuka (kg)"
+
+msgid "Average Flock Age (weeks)"
+msgstr "Karaniwang Edad ng Kawan (linggo)"
+
+msgid "Humidity (%)"
+msgstr "Halumigmig (%)"
+
+msgid "Pre-filled from your last entry — adjust if ducks were lost or added."
+msgstr "Kinuha mula sa huli mong tala — baguhin kung may nawala o nadagdag na itik."
+
+msgid "Pre-filled forward from your last entry based on today's date — adjust if needed."
+msgstr "Tinantya mula sa huli mong tala batay sa petsa ngayon — baguhin kung kailangan."
+
+msgid "Flock Start Date"
+msgstr "Petsa ng Simula ng Kawan"
+
+msgid "When this flock began. Use today's date if it's brand new, or a past date if you've been raising it for a while and are only just starting to log it here."
+msgstr "Kailan nagsimula ang kawang ito. Gamitin ang petsa ngayon kung bago pa lang ito, o isang nakaraang petsa kung matagal mo na itong inaalagaan at ngayon mo lang sisimulang itala rito."
+
+msgid "Flock Age (weeks)"
+msgstr "Edad ng Kawan (linggo)"
+
+msgid "Feed Intake (kg/day)"
+msgstr "Patuka (kg/araw)"
+
+msgid "Current Flock Size (ducks)"
+msgstr "Kasalukuyang Laki ng Kawan (itik)"
+
+msgid "Adjust if ducks were added or lost while free-range."
+msgstr "Baguhin kung may nadagdag o nawalang itik habang nakapastol."
+
+msgid "You can't log data for a future date."
+msgstr "Hindi ka pwedeng magtala para sa petsang hindi pa dumarating."
+
+msgid "Flock start date can't be in the future."
+msgstr "Hindi pwedeng nasa hinaharap ang petsa ng simula ng kawan."
+
+msgid "This flock started on %(date)s — you can't log data from before then."
+msgstr "Nagsimula ang kawang ito noong %(date)s — hindi ka pwedeng magtala ng datos bago ang petsang iyon."
+
+msgid "Total duck count that day (includes males)."
+msgstr "Kabuuang bilang ng itik sa araw na iyon (kasama ang mga lalaki)."
+
+msgid "Reasonable range 1-150 weeks, padded from the historical dataset's observed 23-107."
+msgstr "Makatwirang saklaw: 1-150 linggo (sa lumang datos ng bukid: 23-107)."
+
+msgid "Reasonable range up to 1000/day, padded from the historical dataset's observed 112-487."
+msgstr "Makatwirang saklaw: hanggang 1000 bawat araw (sa lumang datos ng bukid: 112-487)."
+
+msgid "Reasonable range 0-150 kg/day, padded from the historical dataset's observed 35.5-100.0."
+msgstr "Makatwirang saklaw: 0-150 kg bawat araw (sa lumang datos ng bukid: 35.5-100.0)."
+
+msgid "Reasonable range 0-45°C, padded from the historical dataset's observed 24.0-34.4."
+msgstr "Makatwirang saklaw: 0-45°C (sa lumang datos ng bukid: 24.0-34.4)."
+
+msgid "0-100%, a hard physical ceiling rather than just a historical range."
+msgstr "0-100%, ang pisikal na hangganan."
+
+msgid "This flock has been retired — you can't log new data for it."
+msgstr "Retirado na ang kawang ito — hindi ka na pwedeng magtala ng bagong datos para rito."
+
+msgid "Last 7 days"
+msgstr "Huling 7 araw"
+
+msgid "Last 1 month"
+msgstr "Huling 1 buwan"
+
+msgid "All data"
+msgstr "Lahat ng datos"
+
+msgid "Egg count"
+msgstr "Bilang ng itlog"
+
+msgid "Feed intake"
+msgstr "Patuka"
+
+msgid "Flock size"
+msgstr "Laki ng kawan"
+
+msgid "You entered %(eggs)s eggs, but only %(ducks)s ducks. That's more eggs than ducks, which isn't normally possible — please check for a typo."
+msgstr "Naglagay ka ng %(eggs)s itlog, pero %(ducks)s itik lang. Mas marami ang itlog kaysa sa itik, na karaniwang hindi posible — pakisuri kung may mali sa pag-type."
+
+msgid "%(label)s of %(value)s is unusual for this flock — your average so far is about %(mean)s."
+msgstr "Kakaiba ang %(label)s na %(value)s para sa kawang ito — ang karaniwan mo sa ngayon ay mga %(mean)s."
+
+msgid "All months"
+msgstr "Lahat ng buwan"
+
+msgid "Flock retired. Register a new flock when you're ready to start the next generation."
+msgstr "Naretiro na ang kawan. Magrehistro ng bagong kawan kapag handa ka nang simulan ang susunod na henerasyon."
+
+msgid "Model retraining has been triggered in the background."
+msgstr "Sinimulan na sa background ang muling pagsasanay ng model."
+
+msgid "No active flock exists yet. Register your flock before logging daily data."
+msgstr "Wala pang aktibong kawan. Iparehistro ang iyong kawan bago magtala ng araw-araw na datos."
+
+msgid "This flock is currently free-range in the field. Mark it as caged from Flock Profile before logging daily data."
+msgstr "Nakapastol ngayon sa bukid ang kawang ito. Markahan itong nakakulong sa Flock Profile bago magtala ng araw-araw na datos."
+
+msgid "This record was used to train a forecasting model and can no longer be edited or deleted."
+msgstr "Ginamit na ang talang ito sa pagsasanay ng forecasting model at hindi na mababago o mabubura."
+
+msgid "This record belongs to a retired flock and is read-only."
+msgstr "Ang talang ito ay sa isang retiradong kawan at pagbasa na lang ang pwede."
+
+msgid "No active flock to retire."
+msgstr "Walang aktibong kawan na ireretiro."
+
+msgid "No active flock to update."
+msgstr "Walang aktibong kawan na ia-update."
+
+msgid "Flock marked as caged. Daily logging and forecasts have resumed."
+msgstr "Namarkahang nakakulong ang kawan. Bumalik na ang araw-araw na pagtatala at pagtataya."
+
+msgid "Flock marked as free-range. It's out in the field — logging and forecasts are paused until it's caged again."
+msgstr "Namarkahang nakapastol ang kawan. Nasa bukid ito — nakahinto muna ang pagtatala at pagtataya hanggang maikulong itong muli."
+
+msgid "No free-range flock to resume caging for."
+msgstr "Walang nakapastol na kawan na ibabalik sa kulungan."
+
+msgid "Flock #%(number)s (active)"
+msgstr "Kawan #%(number)s (aktibo)"
+
+msgid "Flock #%(number)s (retired)"
+msgstr "Kawan #%(number)s (retirado)"
+
+msgid "Record for %(date)s deleted."
+msgstr "Nabura ang tala para sa %(date)s."
+
+msgid "Flock registered."
+msgstr "Nairehistro ang kawan."
+
+msgid "Flock marked as caged with %(size)s ducks. Daily logging and forecasts have resumed."
+msgstr "Namarkahang nakakulong ang kawan na may %(size)s itik. Bumalik na ang araw-araw na pagtatala at pagtataya."
+
+msgid "Another record already exists for this date — edit that one instead."
+msgstr "May tala na para sa petsang ito — iyon na lang ang i-edit."
+
+msgid "No changes made."
+msgstr "Walang binago."
+
+msgid "Daily data saved."
+msgstr "Na-save ang araw-araw na datos."
+
+msgid "Record updated (%(count)d field(s) changed)."
+msgstr "Na-update ang tala (%(count)d field ang binago)."
+
+msgid "This entry backfills a past date, so it won't generate its own forecast — it's still saved as history and will feed into future predictions."
+msgstr "Para sa nakaraang petsa ang talang ito, kaya hindi ito gagawa ng sariling pagtataya — naka-save pa rin ito bilang kasaysayan at gagamitin sa mga susunod na pagtataya."
+
+msgid "New caging period detected — model retraining triggered."
+msgstr "May bagong panahon ng pagkukulong — sinimulan ang muling pagsasanay ng model."
+
+msgid "No trained forecasting model exists yet, so no forecast was generated for this entry. Ask an admin to run the training command."
+msgstr "Wala pang nasanay na forecasting model, kaya walang pagtatayang nagawa para sa talang ito. Hilingin sa admin na patakbuhin ang training command."
+
+msgid "Your data was saved, but the forecast could not be generated this time."
+msgstr "Na-save ang iyong datos, pero hindi nakagawa ng pagtataya sa pagkakataong ito."
+
+msgid "%(so_far)s/%(needed)s days logged. Egg yield forecasts start once there's enough of your own data. Recommendations are ready now."
+msgstr "%(so_far)s/%(needed)s araw na naitala. Magsisimula ang pagtataya ng ani ng itlog kapag sapat na ang sarili mong datos. Handa na ngayon ang mga rekomendasyon."
+
+msgid "Environmental Management"
+msgstr "Pamamahala ng Kapaligiran"
+
+msgid "Flock Management"
+msgstr "Pamamahala ng Kawan"
+
+msgid "Feeding Management"
+msgstr "Pamamahala ng Pagpapakain"
+
+msgid "Temperature Management"
+msgstr "Pamamahala ng Temperatura"
+
+msgid "Humidity Management"
+msgstr "Pamamahala ng Halumigmig"
+
+msgid "Set up your flock"
+msgstr "I-set up ang iyong kawan"
+
+msgid "Register your flock so you can start logging data and getting forecasts."
+msgstr "Iparehistro ang iyong kawan para makapagsimulang magtala ng datos at makatanggap ng pagtataya."
+
+msgid "Today's log is missing"
+msgstr "Wala pa ang tala ngayong araw"
+
+msgid "Record today's egg count, feed, and weather so your forecast stays up to date."
+msgstr "Itala ang bilang ng itlog, patuka, at panahon ngayon para manatiling bago ang iyong pagtataya."
+
+msgid "Complete your profile"
+msgstr "Kumpletuhin ang iyong profile"
+
+msgid "Forecast is warming up"
+msgstr "Inihahanda pa ang pagtataya"
+
+msgid "Flock is free-range"
+msgstr "Nakapastol ang kawan"
+
+msgid "Logging and forecasts are paused. Mark the flock as caged when the ducks are back."
+msgstr "Nakahinto ang pagtatala at pagtataya. Markahang nakakulong ang kawan kapag nakabalik na ang mga itik."
+
+msgid "Missing: %(dates)s. Filling these in keeps your forecast accurate."
+msgstr "Kulang: %(dates)s. Ang pagpuno sa mga ito ay nagpapanatiling tumpak ng iyong pagtataya."
+
+msgid "Add your %(fields)s in Account Settings."
+msgstr "Idagdag ang iyong %(fields)s sa Settings ng Account."
+
+msgid "Recommendation needs attention (%(variable)s)"
+msgstr "May rekomendasyong kailangang pansinin (%(variable)s)"
+
+msgid "%(so_far)s/%(needed)s days logged — egg yield predictions start once there's enough of your own data. Recommendations are already available."
+msgstr "%(so_far)s/%(needed)s araw na naitala — magsisimula ang pagtataya ng ani ng itlog kapag sapat na ang sarili mong datos. Available na ang mga rekomendasyon."
+
+msgid "full name"
+msgstr "buong pangalan"
+
+msgid "email"
+msgstr "email"
+
+msgid "farm location"
+msgstr "lokasyon ng bukid"
+
+msgid "profile photo"
+msgstr "larawan sa profile"
+
+msgid "feed intake kg"
+msgstr "patuka"
+
+msgid "flock age weeks"
+msgstr "edad ng kawan"
+
+msgid "temperature c"
+msgstr "temperatura"
+
+msgid "humidity pct"
+msgstr "halumigmig"
+
+msgid "Flock Age"
+msgstr "Edad ng Kawan"
+
+msgid "Feed Intake"
+msgstr "Patuka"
+
+msgid "%(count)d recent day has no record"
+msgid_plural "%(count)d recent days have no record"
+msgstr[0] "%(count)d kamakailang araw ang walang tala"
+msgstr[1] "%(count)d kamakailang araw ang walang tala"
+
+
+# ----------------------------------------------------------------------
+# Rules table: status labels (Recommendation.status)
+# ----------------------------------------------------------------------
+
+msgid "Low"
+msgstr "Mababa"
+
+msgid "Medium-Low"
+msgstr "Katamtaman-Mababa"
+
+msgid "Medium/Normal"
+msgstr "Katamtaman/Normal"
+
+msgid "Medium-High"
+msgstr "Katamtaman-Mataas"
+
+msgid "High"
+msgstr "Mataas"
+
+msgid "Underfed"
+msgstr "Kulang sa Patuka"
+
+msgid "On Track"
+msgstr "Tama Lang"
+
+msgid "Overfed"
+msgstr "Sobra sa Patuka"
+
+
+# ----------------------------------------------------------------------
+# Rules table: action text and Learn More (recommendations/rules.py)
+# ----------------------------------------------------------------------
+
+msgid "Give more feed. Aim for 70–110 grams per bird every day. If not enough feed, the ducks will grow slow and lay eggs late."
+msgstr "Dagdagan ang patuka. Layuning makapagbigay ng 70–110 gramo bawat itik araw-araw. Kapag kulang ang patuka, mabagal lalaki ang mga itik at mahuhuli ang pangingitlog."
+
+msgid "Baby ducks need good food every day to grow big. If they don't get enough food for a long time, they will lay eggs late. Note: ducklings from week 1 to 5 eat less than 70 g a day, and that's normal — don't mark them as underfed."
+msgstr "Kailangan ng mga sisiw na itik ng mabuting pagkain araw-araw para lumaki. Kapag matagal silang kulang sa pagkain, mahuhuli ang kanilang pangingitlog. Paalala: ang mga sisiw mula linggo 1 hanggang 5 ay kumakain ng mas mababa sa 70 g bawat araw, at normal iyon — huwag silang ituring na kulang sa patuka."
+
+msgid "Keep giving the same amount of feed. Check their weight every week."
+msgstr "Ituloy ang parehong dami ng patuka. Timbangin sila bawat linggo."
+
+msgid "Weighing some birds every week is the easiest way to check if the ducklings are growing well. Even if the feed amount looks right on paper, it can still fall short if there's not enough feeder space, not enough water, or too many ducks fighting for food — so keep checking weight often. Note: ducklings from week 1 to 5 will naturally eat less than 70 g a day and that's still normal. Just watch if their weight is going up."
+msgstr "Ang pagtimbang sa ilang itik bawat linggo ang pinakamadaling paraan para malaman kung maayos ang paglaki ng mga sisiw. Kahit mukhang tama ang dami ng patuka sa papel, maaari pa rin itong kulangin kung kulang ang lalagyan ng patuka, kulang ang tubig, o masyadong maraming itik ang nag-aagawan sa pagkain — kaya madalas na timbangin sila. Paalala: ang mga sisiw mula linggo 1 hanggang 5 ay natural na kumakain ng mas mababa sa 70 g bawat araw at normal pa rin iyon. Bantayan lang kung tumataas ang kanilang timbang."
+
+msgid "Give less feed. Too much feed can cause leg problems in growing ducklings."
+msgstr "Bawasan ang patuka. Ang sobrang patuka ay maaaring magdulot ng problema sa binti ng lumalaking sisiw."
+
+msgid "When young ducks grow too fast because of too much feed, they can get leg problems like bent or twisted legs, or “angel wing,” where the wing feathers twist outward. Both problems come from too much food. Give the right amount of feed, not rich or high-protein feed."
+msgstr "Kapag masyadong mabilis lumaki ang batang itik dahil sa sobrang patuka, maaari silang magkaproblema sa binti gaya ng baluktot o pilipit na binti, o “angel wing,” kung saan pumipilipit palabas ang balahibo ng pakpak. Parehong galing sa sobrang pagkain ang mga problemang ito. Ibigay ang tamang dami ng patuka, hindi ang sobrang sustansya o mataas sa protina."
+
+msgid "Give more feed, about 110–130 grams per bird per day. If not, egg-laying may start late or weak."
+msgstr "Dagdagan ang patuka, mga 110–130 gramo bawat itik bawat araw. Kung hindi, maaaring mahuli o humina ang pagsisimula ng pangingitlog."
+
+msgid "Around week 18 to 26, the ducks' bodies are getting ready to lay eggs. They need enough food now. If not enough, you will see the problem later — laying starts late or not steady."
+msgstr "Mula mga linggo 18 hanggang 26, naghahanda na ang katawan ng mga itik sa pangingitlog. Kailangan nila ng sapat na pagkain ngayon. Kapag kulang, makikita mo ang problema sa huli — mahuhuli o hindi magiging tuloy-tuloy ang pangingitlog."
+
+msgid "Keep the same feed while they are getting ready to lay eggs."
+msgstr "Panatilihin ang parehong patuka habang naghahanda silang mangitlog."
+
+msgid "This is before the first egg, around week 22–23. Keep the feed the same. Do not change the feed right before laying starts — this can cause stress and delay the eggs."
+msgstr "Ito ang panahon bago ang unang itlog, mga linggo 22–23. Panatilihing pareho ang patuka. Huwag palitan ang patuka bago mismo magsimula ang pangingitlog — maaari itong magdulot ng stress at maantala ang itlog."
+
+msgid "Give less feed. Extra feed now does not help them lay more eggs."
+msgstr "Bawasan ang patuka. Hindi nakatutulong ang sobrang patuka ngayon para dumami ang kanilang itlog."
+
+msgid "Unlike the growing stage, too much feed here won't hurt the legs or wings, but it also won't make ducks start laying sooner or better. The extra feed is basically wasted money."
+msgstr "Hindi tulad sa yugto ng paglaki, hindi makasasama sa binti o pakpak ang sobrang patuka rito, pero hindi rin nito mapapaaga o mapapaganda ang pangingitlog. Sayang lang ang pera sa sobrang patuka."
+
+msgid "Give more feed right away, about 115–150 grams per bird per day. Not enough feed now means fewer and smaller eggs."
+msgstr "Dagdagan agad ang patuka, mga 115–150 gramo bawat itik bawat araw. Kapag kulang ang patuka ngayon, mas kaunti at mas maliit ang itlog."
+
+msgid "This is peak laying time. Ducks need the most food now because they lay eggs almost every day. Even a short time of not enough feed at peak can quickly mean fewer and smaller eggs, because they don't have much stored energy to use."
+msgstr "Ito ang rurok ng pangingitlog. Pinakamaraming pagkain ang kailangan ng mga itik ngayon dahil halos araw-araw silang nangingitlog. Kahit maikling panahon lang na kulang ang patuka sa rurok ay maaaring agad magpakaunti at magpaliit ng itlog, dahil kaunti lang ang naiimbak nilang lakas."
+
+msgid "Keep the same feed during peak egg-laying time."
+msgstr "Panatilihin ang parehong patuka sa panahon ng rurok ng pangingitlog."
+
+msgid "This is when the flock lays the most eggs, usually week 26 to 52. Keep the feed steady. This protects the number and size of the eggs."
+msgstr "Ito ang panahong pinakamarami ang itlog ng kawan, karaniwang linggo 26 hanggang 52. Panatilihing tuloy-tuloy ang patuka. Pinoprotektahan nito ang dami at laki ng itlog."
+
+msgid "Give less feed. Extra feed at peak doesn't turn into more eggs — it's just wasted."
+msgstr "Bawasan ang patuka. Hindi nagiging dagdag na itlog ang sobrang patuka sa rurok — nasasayang lang ito."
+
+msgid "Laying ducks need a fixed amount of food each day. More food than that will not give more eggs. It just costs more money and can make ducks too fat, which can lower egg production later."
+msgstr "Kailangan ng nangingitlog na itik ng tiyak na dami ng pagkain bawat araw. Ang higit pa roon ay hindi magbibigay ng dagdag na itlog. Dagdag gastos lang ito at maaaring tumaba nang sobra ang mga itik, na maaaring magpababa ng produksyon ng itlog sa huli."
+
+msgid "Give more feed, about 110–140 grams per bird per day, so you don't lose more eggs than needed."
+msgstr "Dagdagan ang patuka, mga 110–140 gramo bawat itik bawat araw, para hindi mabawasan nang higit sa dapat ang itlog."
+
+msgid "Egg number goes down naturally after peak time. But not enough feed makes it go down even faster. Giving the right feed now protects the flock's remaining productive days."
+msgstr "Natural na bumababa ang dami ng itlog pagkatapos ng rurok. Pero kapag kulang ang patuka, mas bumibilis pa ang pagbaba nito. Ang pagbibigay ng tamang patuka ngayon ay nagpoprotekta sa natitirang produktibong araw ng kawan."
+
+msgid "Keep the feed the same, adjusted properly for this after-peak stage."
+msgstr "Panatilihing pareho ang patuka, na naiangkop nang tama sa yugtong ito pagkatapos ng rurok."
+
+msgid "After peak laying, egg number slowly goes down and ducks need a little less feed too. A slightly lower feed amount at this stage is correct. It is not a bad thing."
+msgstr "Pagkatapos ng rurok ng pangingitlog, dahan-dahang bumababa ang dami ng itlog at kaunting mas kaunting patuka na rin ang kailangan ng mga itik. Tama ang bahagyang mas mababang patuka sa yugtong ito. Hindi ito masama."
+
+msgid "Give less feed. Production is going down, so you get less value for the feed cost."
+msgstr "Bawasan ang patuka. Bumababa na ang produksyon, kaya mas maliit na ang balik sa gastos sa patuka."
+
+msgid "As flocks pass peak, the eggs you get per kilo of feed get worse. Giving too much feed to a flock that is slowing down is a big waste of money."
+msgstr "Habang lumalampas sa rurok ang kawan, pakaunti nang pakaunti ang itlog na nakukuha mo bawat kilo ng patuka. Malaking sayang ng pera ang pagbibigay ng sobrang patuka sa kawang bumabagal na."
+
+msgid "Give more feed, about 90–120 grams per bird per day. Even old layers need a minimum amount to stay healthy."
+msgstr "Dagdagan ang patuka, mga 90–120 gramo bawat itik bawat araw. Kahit ang matatandang nangingitlog ay nangangailangan ng pinakamababang dami para manatiling malusog."
+
+msgid "Old layers (around week 72–80 and up) mostly eat just to stay healthy, not to make eggs. DOST-PCAARRD recommends culling some birds every year to keep the flock efficient, so even older birds still need this minimum feed. Skipping it can cause too much weight loss, weak immunity, and welfare problems."
+msgstr "Ang matatandang nangingitlog (mga linggo 72–80 pataas) ay kumakain na lang karamihan para manatiling malusog, hindi para mangitlog. Inirerekomenda ng DOST-PCAARRD ang pag-cull ng ilang itik bawat taon para manatiling episyente ang kawan, kaya kailangan pa rin ng matatandang itik ang pinakamababang patukang ito. Kapag hindi ito ibinigay, maaaring bumagsak nang sobra ang timbang, humina ang resistensya, at magkaproblema sa kapakanan nila."
+
+msgid "Keep the same maintenance-level feed."
+msgstr "Panatilihin ang parehong patuka para sa pagpapanatili ng kalusugan."
+
+msgid "At this stage, feed is mainly to keep the ducks healthy, not to make eggs. Keep a steady feed amount until the flock is culled or replaced."
+msgstr "Sa yugtong ito, pangunahing para sa kalusugan ng mga itik ang patuka, hindi para sa itlog. Panatilihing tuloy-tuloy ang dami ng patuka hanggang ma-cull o mapalitan ang kawan."
+
+msgid "Give less feed, and think about replacing the flock since they're producing very little now."
+msgstr "Bawasan ang patuka, at pag-isipang palitan ang kawan dahil kakaunti na lang ang kanilang produksyon."
+
+msgid "Once a flock reaches retirement age (around week 72–80), egg output has gone down a lot. Feeding them more now mostly wastes money. This is the time to plan culling and get new layers."
+msgstr "Kapag umabot na sa edad ng pagreretiro ang kawan (mga linggo 72–80), malaki na ang ibinaba ng itlog. Sayang lang ang pera kapag dinagdagan pa ang patuka ngayon. Ito na ang panahon para magplano ng pag-cull at kumuha ng bagong nangingitlog."
+
+msgid "Retire or cull the layers that are slowing down, and move fully to the replacement ducks. Keeping old birds past this point mostly adds feed cost without much egg return."
+msgstr "Iretiro o i-cull ang mga nangingitlog na bumabagal na, at lumipat nang buo sa mga kapalit na itik. Ang pagpapanatili sa matatandang itik lampas dito ay dagdag gastos lang sa patuka nang walang gaanong balik na itlog."
+
+msgid "Layers are usually productive until about week 72–80. After that, egg output drops so much that feeding them costs more than the eggs they give. Culling on time protects your farm's money."
+msgstr "Karaniwang produktibo ang mga nangingitlog hanggang mga linggo 72–80. Pagkatapos noon, bumababa nang husto ang itlog kaya mas malaki na ang gastos sa pagpapakain kaysa sa kita sa itlog. Ang napapanahong pag-cull ay nagpoprotekta sa pera ng iyong bukid."
+
+msgid "Start raising your replacement ducks now. New layers need about 22–26 weeks from hatching before they start laying. So order and start brooding now, so you don't have a gap with no eggs."
+msgstr "Simulan nang alagaan ang mga kapalit na itik ngayon. Kailangan ng bagong nangingitlog ng mga 22–26 linggo mula sa pagkapisa bago magsimulang mangitlog. Kaya umorder at simulan na ang brooding ngayon, para walang panahong walang itlog."
+
+msgid "The 22–26 weeks has two parts. About 22–23 weeks is how long a duckling needs to grow before it can lay (a little different per breed — IP-Kayumanggi around week 20, IP-Khaki around week 22, IP-Itim around week 23). The rest is extra time for getting the ducks from the hatchery to your farm — buying, transport, and settling in — which can add 2–4 more weeks. If your supplier has been slow before, order earlier, closer to the longer end."
+msgstr "May dalawang bahagi ang 22–26 na linggo. Mga 22–23 linggo ang kailangan ng sisiw para lumaki bago ito makapangitlog (medyo iba-iba bawat lahi — IP-Kayumanggi mga linggo 20, IP-Khaki mga linggo 22, IP-Itim mga linggo 23). Ang natitira ay dagdag na panahon para madala ang mga itik mula sa hatchery papunta sa iyong bukid — pagbili, pagbiyahe, at pag-aangkop — na maaaring magdagdag ng 2–4 na linggo. Kung mabagal na ang iyong supplier dati, umorder nang mas maaga, mas malapit sa mas mahabang panahon."
+
+msgid "No need to plan replacements yet. Focus on protecting production during this peak/sustained laying period."
+msgstr "Hindi pa kailangang magplano ng kapalit. Magtuon sa pagprotekta sa produksyon sa panahong ito ng rurok at tuloy-tuloy na pangingitlog."
+
+msgid "This is the flock's most valuable production window. Focus on good feeding, comfortable housing, and cleanliness now, since problems now have the biggest effect on total egg output for the whole laying cycle."
+msgstr "Ito ang pinakamahalagang panahon ng produksyon ng kawan. Magtuon ngayon sa maayos na pagpapakain, komportableng kulungan, at kalinisan, dahil ang mga problema ngayon ang may pinakamalaking epekto sa kabuuang itlog sa buong siklo ng pangingitlog."
+
+msgid "Check if your ducks started laying on time (around week 22–23). If they are clearly late, check their recent feeding and health."
+msgstr "Suriin kung nagsimulang mangitlog sa tamang oras ang iyong mga itik (mga linggo 22–23). Kung halatang huli sila, suriin ang kanilang kamakailang pagpapakain at kalusugan."
+
+msgid "Starting to lay on time is a good health sign. A flock that starts late often had a feeding problem or health problem earlier while growing. If they're late, check your records — it's not always something to worry a lot about."
+msgstr "Magandang tanda ng kalusugan ang pagsisimulang mangitlog sa tamang oras. Ang kawang nahuhuli ay kadalasang nagkaproblema sa pagpapakain o kalusugan noong lumalaki pa. Kung huli sila, suriin ang iyong mga tala — hindi ito laging dapat ikabahala nang husto."
+
+msgid "No need for retirement or replacement action yet. The flock is still growing and not ready to lay eggs."
+msgstr "Hindi pa kailangan ang pagreretiro o pagpapalit. Lumalaki pa ang kawan at hindi pa handang mangitlog."
+
+msgid "Ducklings need to finish growing first before their body can make eggs. At this stage, focus on feeding and growth, not on planning egg production."
+msgstr "Kailangan munang matapos lumaki ang mga sisiw bago makagawa ng itlog ang kanilang katawan. Sa yugtong ito, magtuon sa pagpapakain at paglaki, hindi sa pagpaplano ng produksyon ng itlog."
+
+msgid "Danger — very high risk of heat stress. Turn on more fans right away. Make sure there is shade and cool water for drinking and bathing. Think about spraying water on the roof. The ducks will eat less and lay fewer eggs until it gets cooler."
+msgstr "Panganib — napakataas ng panganib ng heat stress. Magbukas agad ng mas maraming bentilador. Tiyaking may lilim at malamig na tubig na mainom at mapaliguan. Pag-isipang wisikan ng tubig ang bubong. Kakaunti ang kakainin at itlog ng mga itik hanggang lumamig."
+
+msgid "Ducks cool down mostly by panting and using water, since they can't sweat. Studies on laying ducks show that once heat stress starts, feed intake, egg number, and egg size all drop within days, and can stay low even after the temperature goes back to normal."
+msgstr "Karamihang nagpapalamig ang mga itik sa pamamagitan ng paghingal at paggamit ng tubig, dahil hindi sila pinapawisan. Ipinakikita ng mga pag-aaral sa nangingitlog na itik na kapag nagsimula ang heat stress, bumababa sa loob ng ilang araw ang kain, dami ng itlog, at laki ng itlog, at maaaring manatiling mababa kahit bumalik na sa normal ang temperatura."
+
+msgid "Warning — heat stress is starting to rise. Improve airflow, make sure shade and water are enough for the flock size, and watch how much they're eating."
+msgstr "Babala — nagsisimulang tumaas ang heat stress. Pagandahin ang daloy ng hangin, tiyaking sapat ang lilim at tubig para sa laki ng kawan, at bantayan kung gaano karami ang kanilang kinakain."
+
+msgid "At this level, heat is already quietly hurting the ducks' appetite and comfort, even before you see heavy panting. Fixing it early with better airflow and water can stop it from becoming worse."
+msgstr "Sa antas na ito, tahimik nang naaapektuhan ng init ang gana at ginhawa ng mga itik, kahit bago mo pa makita ang matinding paghingal. Ang maagang pag-aayos sa pamamagitan ng mas maayos na daloy ng hangin at tubig ay makapipigil sa paglala nito."
+
+msgid "This is a comfortable temperature. Keep the current ventilation and shade the same."
+msgstr "Komportable ang temperaturang ito. Panatilihing pareho ang kasalukuyang bentilasyon at lilim."
+
+msgid "This is usually the comfortable temperature for laying ducks. They don't need extra energy to stay warm or cool. Egg production is most stable in this range."
+msgstr "Ito ang karaniwang komportableng temperatura para sa nangingitlog na itik. Hindi nila kailangan ng dagdag na lakas para manatiling mainit o malamig. Pinakamatatag ang produksyon ng itlog sa saklaw na ito."
+
+msgid "Mild risk of cold stress. Reduce drafts (wind coming through gaps). Check windbreaks. Ducklings may need extra heat."
+msgstr "Bahagyang panganib ng cold stress. Bawasan ang hanging pumapasok sa mga siwang. Suriin ang mga pananggalang sa hangin. Maaaring kailanganin ng mga sisiw ng dagdag na init."
+
+msgid "Young ducklings lose body heat faster than adult ducks. A small drop in temperature that adult ducks are fine with can already be dangerous for baby ducks."
+msgstr "Mas mabilis mawalan ng init ng katawan ang mga batang sisiw kaysa sa malalaking itik. Ang maliit na pagbaba ng temperatura na ayos lang sa malalaking itik ay maaaring mapanganib na para sa mga sisiw."
+
+msgid "Risk of cold stress. Give housing with no drafts (wind coming through gaps), good insulation, and extra heat — especially for ducklings."
+msgstr "Panganib ng cold stress. Magbigay ng kulungang walang hanging pumapasok sa mga siwang, may maayos na insulation, at dagdag na init — lalo na para sa mga sisiw."
+
+msgid "Cold makes ducks use more energy just to stay warm. That's why they eat more in cold weather, even while eggs become fewer and lower quality. Ducklings are at higher risk than adults because they can't regulate their own body temperature well yet."
+msgstr "Dahil sa lamig, mas maraming lakas ang ginagamit ng mga itik para lang manatiling mainit. Kaya mas marami silang kinakain kapag malamig, kahit kumakaunti at bumababa ang kalidad ng itlog. Mas mataas ang panganib sa mga sisiw kaysa sa malalaki dahil hindi pa nila kayang kontrolin nang maayos ang sariling temperatura ng katawan."
+
+msgid "Danger — too much moisture. Improve ventilation right away. Clean out wet litter (bedding), check the drainage, and think about lowering the number of birds per space."
+msgstr "Panganib — sobra ang halumigmig. Pagandahin agad ang bentilasyon. Linisin ang basang sapin (bedding), suriin ang daluyan ng tubig, at pag-isipang bawasan ang bilang ng itik bawat espasyo."
+
+msgid "Wet litter turns into ammonia gas, which irritates ducks' airways and makes them more likely to get respiratory infections. Wet, humid places also let bad bacteria and mold grow faster. Act fast to protect the flock's health."
+msgstr "Ang basang sapin ay naglalabas ng ammonia gas, na nakaiirita sa daanan ng hangin ng mga itik at nagpapataas ng tsansang magkaroon sila ng impeksyon sa paghinga. Sa basa at maalinsangang lugar, mas mabilis ding dumami ang masamang bakterya at amag. Kumilos agad para maprotektahan ang kalusugan ng kawan."
+
+msgid "Humidity is getting high. Improve ventilation, check the litter condition, and watch for signs of breathing trouble."
+msgstr "Tumataas ang halumigmig. Pagandahin ang bentilasyon, suriin ang kalagayan ng sapin, at bantayan ang mga senyales ng hirap sa paghinga."
+
+msgid "Litter that stays too wet for too long starts making ammonia before you can even smell it. Check the litter (bedding) often so you can fix wet spots early, before it becomes a big breathing problem for the whole flock. Watch your ducks for coughing, sneezing, or hard breathing."
+msgstr "Ang sapin na matagal nang sobrang basa ay nagsisimulang maglabas ng ammonia bago mo pa ito maamoy. Madalas na suriin ang sapin (bedding) para maagang maayos ang mga basang bahagi, bago ito maging malaking problema sa paghinga ng buong kawan. Bantayan kung umuubo, bumabahing, o hirap huminga ang iyong mga itik."
+
+msgid "This is an acceptable range. Keep the current housing ventilation."
+msgstr "Katanggap-tanggap ang saklaw na ito. Panatilihin ang kasalukuyang bentilasyon ng kulungan."
+
+msgid "This range keeps litter (bedding) dry enough to limit ammonia buildup, but not too dry to cause dust and dehydration problems. Most of the research behind this comes from closed broiler houses; semi-open duck housing common in the Philippines usually gets more natural airflow and outdoor access, so it may handle the higher end of this range a bit better. Either way, if you smell ammonia or see uncomfortable birds, improve ventilation no matter what type of housing you have."
+msgstr "Sa saklaw na ito, sapat na tuyo ang sapin (bedding) para limitahan ang pag-ipon ng ammonia, pero hindi sobrang tuyo na magdudulot ng alikabok at dehydration. Karamihan sa pananaliksik tungkol dito ay mula sa saradong kulungan ng broiler; ang semi-open na kulungan ng itik na karaniwan sa Pilipinas ay kadalasang may mas natural na daloy ng hangin at nakalalabas ang mga itik, kaya maaaring mas kaya nito ang mas mataas na bahagi ng saklaw na ito. Anuman ang uri ng iyong kulungan, kapag nakaamoy ka ng ammonia o nakakita ng hindi komportableng itik, pagandahin ang bentilasyon."
+
+msgid "A bit dry, but usually not harmful. Just make sure water is always available, especially if it's also hot."
+msgstr "Medyo tuyo, pero kadalasang hindi nakasasama. Tiyakin lang na laging may tubig, lalo na kung mainit din."
+
+msgid "A little dryness only becomes a problem when combined with heat, because dry air makes ducks lose body water faster from panting. On its own, at normal temperatures, this level of dryness has little effect on the flock."
+msgstr "Nagiging problema lang ang bahagyang pagkatuyo kapag may kasamang init, dahil sa tuyong hangin ay mas mabilis mawalan ng tubig sa katawan ang mga itik dahil sa paghingal. Kung ito lang, sa normal na temperatura, maliit lang ang epekto ng ganitong pagkatuyo sa kawan."
+
+msgid "Very dry. Watch their water intake if it's also hot."
+msgstr "Napakatuyo. Bantayan ang kanilang pag-inom ng tubig kung mainit din."
+
+msgid "Very dry air causes more dust and the ducks need a bit more water. But ducks are usually fine with this unless it's also very hot. Just make sure water is always there."
+msgstr "Ang napakatuyong hangin ay nagdudulot ng mas maraming alikabok at kailangan ng mga itik ng kaunting dagdag na tubig. Pero kadalasang ayos lang ito sa mga itik maliban kung napakainit din. Tiyakin lang na laging may tubig."
+
+
+# ----------------------------------------------------------------------
+# Month names (Django date formatting)
+# ----------------------------------------------------------------------
+
+msgid "January"
+msgstr "Enero"
+
+msgid "February"
+msgstr "Pebrero"
+
+msgid "March"
+msgstr "Marso"
+
+msgid "April"
+msgstr "Abril"
+
+msgid "May"
+msgstr "Mayo"
+
+msgid "June"
+msgstr "Hunyo"
+
+msgid "July"
+msgstr "Hulyo"
+
+msgid "August"
+msgstr "Agosto"
+
+msgid "September"
+msgstr "Setyembre"
+
+msgid "October"
+msgstr "Oktubre"
+
+msgid "November"
+msgstr "Nobyembre"
+
+msgid "December"
+msgstr "Disyembre"
+
+msgid "jan"
+msgstr "ene"
+
+msgid "feb"
+msgstr "peb"
+
+msgid "mar"
+msgstr "mar"
+
+msgid "apr"
+msgstr "abr"
+
+msgid "may"
+msgstr "may"
+
+msgid "jun"
+msgstr "hun"
+
+msgid "jul"
+msgstr "hul"
+
+msgid "aug"
+msgstr "ago"
+
+msgid "sep"
+msgstr "set"
+
+msgid "oct"
+msgstr "okt"
+
+msgid "nov"
+msgstr "nob"
+
+msgid "dec"
+msgstr "dis"
+
+msgctxt "abbrev. month"
+msgid "Jan."
+msgstr "Ene."
+
+msgctxt "abbrev. month"
+msgid "Feb."
+msgstr "Peb."
+
+msgctxt "abbrev. month"
+msgid "March"
+msgstr "Marso"
+
+msgctxt "abbrev. month"
+msgid "April"
+msgstr "Abril"
+
+msgctxt "abbrev. month"
+msgid "May"
+msgstr "Mayo"
+
+msgctxt "abbrev. month"
+msgid "June"
+msgstr "Hunyo"
+
+msgctxt "abbrev. month"
+msgid "July"
+msgstr "Hulyo"
+
+msgctxt "abbrev. month"
+msgid "Aug."
+msgstr "Ago."
+
+msgctxt "abbrev. month"
+msgid "Sept."
+msgstr "Set."
+
+msgctxt "abbrev. month"
+msgid "Oct."
+msgstr "Okt."
+
+msgctxt "abbrev. month"
+msgid "Nov."
+msgstr "Nob."
+
+msgctxt "abbrev. month"
+msgid "Dec."
+msgstr "Dis."

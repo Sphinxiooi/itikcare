@@ -1,4 +1,4 @@
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from decimal import Decimal
 from unittest.mock import patch
 
@@ -22,6 +22,28 @@ class DashboardIndexTests(TestCase):
         self.client = Client()
         self.client.login(username="farmer1", password="pw12345")
 
+    def _log(self, flock, log_date):
+        return DailyLog.objects.create(
+            flock=flock, date=log_date, flock_size=240, caging_period=1,
+            flock_age_weeks=25, egg_count=150, feed_intake_kg="40.0",
+            temperature_c="28.0", humidity_pct="75.0", recorded_by=self.user,
+        )
+
+    def test_new_farm_first_week_shows_warmup_notice_instead_of_prediction(self):
+        flock = Flock.objects.create(owner=self.user, generation_number=1, started_on=date(2024, 1, 1))
+        for days_ago in range(2, -1, -1):
+            log = self._log(flock, date.today() - timedelta(days=days_ago))
+        forecast = Forecast.objects.create(
+            flock=flock, forecast_date=date.today(), feature_importances={"temperature_c": 0.4},
+            model_version="rf-test",
+        )
+        forecast.source_logs.set([log])
+
+        response = self.client.get("/")
+        self.assertContains(response, "3/7 days logged")
+        self.assertNotContains(response, "Tomorrow")
+        self.assertEqual(response.context["next_day_forecasts"], [])
+
     def test_no_active_flock_shows_no_forecast_placeholder(self):
         response = self.client.get("/")
         self.assertContains(response, "No forecasts generated yet.")
@@ -40,11 +62,10 @@ class DashboardIndexTests(TestCase):
 
     def test_shows_three_next_day_forecasts(self):
         flock = Flock.objects.create(owner=self.user, generation_number=1, started_on=date(2024, 1, 1))
-        log = DailyLog.objects.create(
-            flock=flock, date=date.today(), flock_size=240, caging_period=1,
-            flock_age_weeks=25, egg_count=150, feed_intake_kg="40.0",
-            temperature_c="28.0", humidity_pct="75.0", recorded_by=self.user,
-        )
+        # A full week of history, so the flock is past the forecast warm-up.
+        for days_ago in range(7, 0, -1):
+            self._log(flock, date.today() - timedelta(days=days_ago))
+        log = self._log(flock, date.today())
         forecast = Forecast.objects.create(
             flock=flock, forecast_date=date.today(),
             predicted_daily_yield=Decimal("152.00"),

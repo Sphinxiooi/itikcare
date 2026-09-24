@@ -107,6 +107,7 @@ INSTALLED_APPS = [
     'forecasting',
     'recommendations',
     'dashboard',
+    'notifications',
 ]
 
 AUTH_USER_MODEL = 'accounts.User'
@@ -126,6 +127,10 @@ MIDDLEWARE = [
     # serve STATIC_ROOT itself -- no separate nginx static-file block needed on the VM.
     'whitenoise.middleware.WhiteNoiseMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
+    # English/Filipino switch (sidebar button -> django.views.i18n.set_language, which
+    # stores the choice in a cookie). Must sit after SessionMiddleware and before
+    # CommonMiddleware, per Django's i18n docs.
+    'django.middleware.locale.LocaleMiddleware',
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
     'django.contrib.auth.middleware.AuthenticationMiddleware',
@@ -143,9 +148,11 @@ TEMPLATES = [
         'OPTIONS': {
             'context_processors': [
                 'django.template.context_processors.request',
+                'django.template.context_processors.i18n',
                 'django.contrib.auth.context_processors.auth',
                 'django.contrib.messages.context_processors.messages',
                 'accounts.context_processors.google_oauth_enabled',
+                'notifications.context_processors.notifications',
             ],
         },
     },
@@ -222,7 +229,18 @@ AUTH_PASSWORD_VALIDATORS = [
 # Internationalization
 # https://docs.djangoproject.com/en/5.2/topics/i18n/
 
-LANGUAGE_CODE = 'en-us'
+LANGUAGE_CODE = 'en'
+
+# The UI can be switched between English and Filipino with one click (sidebar button,
+# see templates/includes/language_switch.html). Translations live in
+# locale/fil/LC_MESSAGES/django.po; rebuild the compiled .mo after editing it with
+# `python manage.py compile_translations` (this project's own command -- Django's
+# compilemessages needs GNU gettext, which isn't installed on Windows or Railway).
+LANGUAGES = [
+    ('en', 'English'),
+    ('fil', 'Filipino'),
+]
+LOCALE_PATHS = [BASE_DIR / 'locale']
 
 
 # Single-farm deployment in Libmanan, Camarines Sur, Philippines (UTC+8, no DST) --

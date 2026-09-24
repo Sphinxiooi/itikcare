@@ -14,8 +14,18 @@ class Forecast(models.Model):
     flock = models.ForeignKey(Flock, on_delete=models.PROTECT, related_name="forecasts")
     source_logs = models.ManyToManyField(DailyLog, related_name="forecasts")
     forecast_date = models.DateField(help_text="The date this forecast is predicting for.")
-    predicted_daily_yield = models.DecimalField(max_digits=8, decimal_places=2)
-    predicted_tri_day_yield = models.DecimalField(max_digits=8, decimal_places=2)
+    # Both null while the forecast is withheld during a warm-up period (a brand-new farm's
+    # first week, or the first days back after free-range) -- see
+    # forecasting/services.py's forecast_readiness. The Forecast row itself still exists
+    # then, because Recommendations hang off it and keep working from the logged data.
+    predicted_daily_yield = models.DecimalField(
+        max_digits=8, decimal_places=2, null=True, blank=True,
+        help_text="Null = prediction withheld during the warm-up period (see forecast_readiness).",
+    )
+    predicted_tri_day_yield = models.DecimalField(
+        max_digits=8, decimal_places=2, null=True, blank=True,
+        help_text="Null = prediction withheld during the warm-up period (see forecast_readiness).",
+    )
     predicted_next_day1_yield = models.DecimalField(
         max_digits=8, decimal_places=2, null=True, blank=True,
         help_text="Best-effort forecast for forecast_date + 1 day (tomorrow). Derived by "
@@ -50,3 +60,9 @@ class Forecast(models.Model):
 
     def __str__(self):
         return f"Forecast for {self.forecast_date} ({self.flock})"
+
+    @property
+    def has_prediction(self) -> bool:
+        """False while the yield prediction is withheld for warm-up (see
+        forecasting/services.py's forecast_readiness) -- recommendations still exist."""
+        return self.predicted_daily_yield is not None

@@ -49,6 +49,27 @@ For a one-off production-style build (minified, no watch):
 .\tailwindcss.exe -i .\static\src\input.css -o .\static\dist\output.css --minify
 ```
 
+## Language (English / Filipino) and night mode
+
+The sidebar has an **EN | FIL** switch (also on the login/signup cards) and a
+**Night mode** toggle.
+
+- Filipino text lives in `locale/fil/LC_MESSAGES/django.po`. In templates, wrap new
+  text in `{% translate "..." %}` / `{% blocktranslate %}`; in Python, use `_()` from
+  `django.utils.translation`. Then add the English → Filipino entry to `django.po`
+  and rebuild the compiled file (committed to git, so Railway needs no build step):
+  ```
+  python manage.py compile_translations
+  ```
+  This is the project's own command: Django's `makemessages`/`compilemessages`
+  need GNU gettext, which isn't installed here or on Railway. Two gotchas: a
+  template literal containing `%` is looked up with the `%` doubled (`"Humidity (%%)"`),
+  and recommendation cards translate the stored English rule text, so a wording
+  change in `recommendations/rules.py` must be copied into its `msgid` too.
+- Night mode is one block of CSS in `static/src/input.css` ("Night mode") that
+  re-points Tailwind's colour variables when `<html>` has the `dark` class — no
+  per-template `dark:` classes needed. Rebuild `output.css` after changing it.
+
 ## Project structure
 
 - `accounts` — custom User model (role: farmer/admin); self-service signup

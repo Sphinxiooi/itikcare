@@ -1011,6 +1011,9 @@ class FlockProfileTests(TestCase):
             temperature_c="28.0", humidity_pct="75.0", recorded_by=self.user,
         )
         mock_timezone.localdate.return_value = date(2024, 2, 12)  # exactly 6 weeks (42 days) later
+        # The header notification bell (every page) calls operational_today(), which
+        # reads localtime() off this same patched module.
+        mock_timezone.localtime.return_value = datetime(2024, 2, 12, 12, 0)
         response = self.client.get("/flock/")
         self.assertEqual(response.context["latest_log"].flock_age_weeks, 94)
         self.assertEqual(response.context["current_age_weeks"], 100)
@@ -1052,8 +1055,11 @@ class FlockProfileTests(TestCase):
             temperature_c="28.0", humidity_pct="75.0", recorded_by=self.user,
         )
         self.client.post("/flock/retire/")
+        # operational_today(), not date.today(): between midnight and FARM_DAY_START_HOUR
+        # the farm day is still yesterday, and a log dated the calendar day would be
+        # rejected as a future date.
         self.client.post("/flock/", {
-            "started_on": date.today().isoformat(),
+            "started_on": operational_today().isoformat(),
             "flock_size": 200, "flock_age_weeks": 1, "feed_intake_kg": "30.0",
         })
 
@@ -1066,7 +1072,7 @@ class FlockProfileTests(TestCase):
 
         # Registration set the new flock's started_on to today, so the first live
         # entry for it must be dated today or later too (see date-range test above).
-        response = self.client.post("/log-daily-data/", {**VALID_LOG_POST, "date": date.today().isoformat()})
+        response = self.client.post("/log-daily-data/", {**VALID_LOG_POST, "date": operational_today().isoformat()})
         self.assertRedirects(response, "/")
         new_flock = Flock.objects.get(is_active=True)
         new_flock.refresh_from_db()
@@ -1092,13 +1098,14 @@ class FlockProfileTests(TestCase):
         )
         self.client.post("/flock/retire/")
         self.client.post("/flock/", {
-            "started_on": date.today().isoformat(),
+            "started_on": operational_today().isoformat(),
             "flock_size": 240, "flock_age_weeks": 25, "feed_intake_kg": "40.0",
         })
 
         # Registration set the new flock's started_on to today, so the first live
         # entry for it must be dated today or later too (see date-range test above).
-        today = date.today()
+        # operational_today() keeps this passing between midnight and FARM_DAY_START_HOUR.
+        today = operational_today()
         response = self.client.post("/log-daily-data/", {**VALID_LOG_POST, "date": today.isoformat()})
         self.assertRedirects(response, "/")
         new_log = DailyLog.objects.get(date=today)

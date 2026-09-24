@@ -154,6 +154,15 @@ Implication for the model: treat each caged period as its own contiguous segment
 
 **Male ratio:** `Number of Flocks` is a total bird count and includes males — standard practice caps males at no more than ~10% of the flock (needed for fertilization, but males don't lay eggs). This is not recorded as a separate column in the dataset. It partly explains why `Yield_Per_Bird` never approaches 1.0 even in healthy periods — the denominator includes some non-laying birds. Don't assume a fixed 90/10 split when interpreting the data; the actual male ratio varies day to day and isn't logged. If a more precise laying-female count becomes available later, revisit `Yield_Per_Bird` to use it as the denominator instead of total flock size.
 
+**Forecast warm-up (added 2026-09-25):** the egg-yield prediction is withheld until there's enough of the farm's own data behind it. Recommendations still run the whole time, because they only use the logged inputs and the RF feature importances. The rule is in `forecasting/services.py::forecast_readiness`:
+
+| Situation | Prediction starts on |
+|---|---|
+| New farm (fewer than 7 logs of their own) | the 7th log (1 full week) |
+| New caging period (back from free-range, or a new flock generation) | the 4th log in that period, the first with a full 3-day lag1/roll3 history |
+
+Why: a new farmer's model is bootstrapped from the foundation farm only, and a Random Forest can't predict outside the yield range it was trained on. For example, a 50-duck flock got a forecast of 154 eggs. The first days of a new caging period would otherwise have imputed lag features. Logs are counted, not calendar days, so backfilled days count. None of this changes the RF split, retraining, or acceptance thresholds. **Known limitation:** after the first week, a farm far smaller or larger than the foundation farm can still be biased toward its scale until a retrain includes the farm's own data.
+
 **Flock size jumps:** flock size (Number of Flocks) sometimes jumps upward mid-cycle. This is usually legitimate — the farmer periodically adds ducks to the flock (often similar-aged birds, or additional males for breeding). Don't assume every increase is an error, but unusually large or fast jumps are still worth a quick sanity check with the farm owner before training, since a data-entry mistake and a real bulk restocking event can look similar in the raw numbers.
 
 ## 11. Notes for whoever (Claude) is building this

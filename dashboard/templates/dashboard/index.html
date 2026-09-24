@@ -1,7 +1,7 @@
 {% extends "base.html" %}
-{% load itik_icons %}
+{% load i18n itik_icons %}
 
-{% block title %}Dashboard — ItikCare{% endblock %}
+{% block title %}{% translate "Dashboard" %} — ItikCare{% endblock %}
 
 {% block extra_head %}
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
@@ -11,7 +11,7 @@
 <div class="bg-white border border-gray-200 rounded-xl p-6">
     <div class="flex flex-wrap items-start gap-4">
         <div>
-            <h1 class="text-2xl font-bold text-gray-900">Good Day, {{ user.get_full_name|default:user.username }}!</h1>
+            <h1 class="text-2xl font-bold text-gray-900">{% blocktranslate with name=user.get_full_name|default:user.username %}Good Day, {{ name }}!{% endblocktranslate %}</h1>
             {% if user.address %}
             <p class="text-sm text-gray-500 mt-1 flex items-center gap-1">{% icon "map-pin" "w-4 h-4" %} {{ user.address }}</p>
             {% endif %}
@@ -19,33 +19,40 @@
         </div>
         {% if current_weather %}
         <div class="ml-auto text-right text-sm text-gray-600">
-            <p>Temperature <span class="font-semibold text-gray-900">{{ current_weather.temperature_c }}°C</span></p>
-            <p>Humidity <span class="font-semibold text-gray-900">{{ current_weather.humidity_pct }}%</span></p>
-            <p class="text-xs text-gray-400 mt-1">current weather in your area</p>
+            <p>{% translate "Temperature" %} <span class="font-semibold text-gray-900">{{ current_weather.temperature_c }}°C</span></p>
+            <p>{% translate "Humidity" %} <span class="font-semibold text-gray-900">{{ current_weather.humidity_pct }}%</span></p>
+            <p class="text-xs text-gray-400 mt-1">{% translate "current weather in your area" %}</p>
         </div>
         {% endif %}
     </div>
 
     {% if not active_flock %}
     <div class="bg-amber-50 border border-amber-200 text-amber-800 text-sm rounded-md p-4 mt-6">
+        {% url 'flock_profile' as flock_profile_url %}
+        {% blocktranslate trimmed %}
         No flock registered yet.
-        <a href="{% url 'flock_profile' %}" class="underline font-medium">Register a flock</a>
+        <a href="{{ flock_profile_url }}" class="underline font-medium">Register a flock</a>
         to start logging daily data and see forecasts and recommendations here.
+        {% endblocktranslate %}
     </div>
     {% elif not flock_is_caged %}
     <div class="bg-amber-50 border border-amber-200 text-amber-800 text-sm rounded-md p-4 mt-6">
-        {% icon "wheat" "w-4 h-4 inline -mt-0.5" %} This flock is currently <strong>free-range in the field</strong>. Daily logging, forecasts, and the
+        {% icon "wheat" "w-4 h-4 inline -mt-0.5" %}
+        {% url 'flock_profile' as flock_profile_url %}
+        {% blocktranslate trimmed %}
+        This flock is currently <strong>free-range in the field</strong>. Daily logging, forecasts, and the
         data summary are paused until it's caged again.
-        <a href="{% url 'flock_profile' %}" class="underline font-medium">Mark it as caged from Flock Profile</a>
+        <a href="{{ flock_profile_url }}" class="underline font-medium">Mark it as caged from Flock Profile</a>
         once logging resumes.
+        {% endblocktranslate %}
     </div>
     {% endif %}
 
     {% if active_flock and flock_is_caged and not logged_today %}
     <div class="bg-amber-50 border border-amber-200 text-amber-800 text-sm rounded-md p-4 mt-6 flex flex-wrap items-center justify-between gap-3">
-        <span class="flex items-center gap-1">{% icon "clock" "w-4 h-4" %} You haven't logged today's data yet.</span>
+        <span class="flex items-center gap-1">{% icon "clock" "w-4 h-4" %} {% translate "You haven't logged today's data yet." %}</span>
         <a href="{% url 'log_daily_data' %}" class="inline-block text-xs font-medium bg-amber-700 text-white rounded-md px-3 py-1.5 hover:bg-amber-800">
-            Record Today's Data
+            {% translate "Record Today's Data" %}
         </a>
     </div>
     {% endif %}
@@ -53,62 +60,58 @@
     {% if not active_flock or flock_is_caged %}
     <div class="grid grid-cols-1 sm:grid-cols-3 gap-4 mt-6 pt-6 border-t border-gray-100">
         <div class="bg-emerald-50 border border-emerald-200 rounded-xl p-4">
-            <p class="font-bold text-gray-900">Flocks Status</p>
-            {% if feed_intake_display %}<p class="text-sm text-gray-500">Feed Intake: {{ feed_intake_display }}kg</p>{% endif %}
+            <p class="font-bold text-gray-900">{% translate "Flocks Status" %}</p>
+            {% if feed_intake_display %}<p class="text-sm text-gray-500">{% blocktranslate %}Feed Intake: {{ feed_intake_display }}kg{% endblocktranslate %}</p>{% endif %}
             <p class="text-3xl font-bold text-emerald-700 mt-2">{{ flock_size_display|default:"—" }}</p>
-            <p class="text-sm text-gray-500">Ducks</p>
+            <p class="text-sm text-gray-500">{% translate "Ducks" %}</p>
         </div>
         <div class="bg-emerald-50 border border-emerald-200 rounded-xl p-4">
-            <p class="font-bold text-gray-900">Flocks Age</p>
-            {% if current_age_weeks %}<p class="text-sm text-gray-500">Avg. Age: {{ current_age_weeks }} weeks</p>{% endif %}
+            <p class="font-bold text-gray-900">{% translate "Flocks Age" %}</p>
+            {% if current_age_weeks %}<p class="text-sm text-gray-500">{% blocktranslate %}Avg. Age: {{ current_age_weeks }} weeks{% endblocktranslate %}</p>{% endif %}
             <p class="text-3xl font-bold text-emerald-700 mt-2">{{ current_age_weeks|default:"—" }}</p>
-            <p class="text-sm text-gray-500">Weeks</p>
+            <p class="text-sm text-gray-500">{% translate "Weeks" %}</p>
         </div>
         <div class="bg-emerald-50 border border-emerald-200 rounded-xl p-4">
-            <p class="font-bold text-gray-900">Today's Egg Yield</p>
+            <p class="font-bold text-gray-900">{% translate "Today's Egg Yield" %}</p>
             <a href="{% url 'log_daily_data' %}" class="inline-block mt-2 text-xs font-medium bg-emerald-700 text-white rounded-md px-3 py-1.5 hover:bg-emerald-800">
-                Record Today's Data
+                {% translate "Record Today's Data" %}
             </a>
             <p class="text-3xl font-bold text-emerald-700 mt-2">
                 {% if logged_today %}{{ logged_today.egg_count }}{% else %}—{% endif %}
             </p>
-            <p class="text-sm text-gray-500">Eggs</p>
+            <p class="text-sm text-gray-500">{% translate "Eggs" %}</p>
         </div>
     </div>
 
     <div class="bg-emerald-50 border border-emerald-200 rounded-xl p-4 mt-6">
         <div class="flex justify-between items-center mb-4">
-            <h2 class="text-lg font-bold text-gray-900">Next 3-Day Forecast</h2>
+            <h2 class="text-lg font-bold text-gray-900">{% translate "Next 3-Day Forecast" %}</h2>
         </div>
-        {% if forecast_low_confidence %}
-        <div class="bg-blue-50 border border-blue-200 text-blue-800 text-sm rounded-md p-3 mb-4">
-            {% icon "info-circle" "w-4 h-4 inline -mt-0.5" %} Logging just resumed ({{ forecast_history_days }}/3 days so far) — forecasts may be less accurate
-            until more history builds up.
-        </div>
-        {% endif %}
-        {% if next_day_forecasts %}
+        {% if forecast_warmup %}
+        {% include "includes/forecast_warmup_notice.html" %}
+        {% elif next_day_forecasts %}
         <div class="flex divide-x divide-emerald-200 text-center">
             {% for day in next_day_forecasts %}
             <div class="flex-1 px-4 first:pl-0 last:pr-0">
                 <p class="text-sm text-gray-600">
-                    {{ day.date|date:"M j" }}{% if day.is_tomorrow %} | Tomorrow{% endif %}
+                    {{ day.date|date:"M j" }}{% if day.is_tomorrow %} | {% translate "Tomorrow" %}{% endif %}
                 </p>
                 <p class="text-3xl font-bold text-emerald-700 mt-2">{{ day.value|floatformat:0|default:"—" }}</p>
-                <p class="text-sm text-gray-500">Eggs</p>
+                <p class="text-sm text-gray-500">{% translate "Eggs" %}</p>
             </div>
             {% endfor %}
         </div>
         {% else %}
-        <p class="text-sm text-gray-500">No forecasts generated yet.</p>
+        <p class="text-sm text-gray-500">{% translate "No forecasts generated yet." %}</p>
         {% endif %}
     </div>
 
     <div class="grid grid-cols-1 lg:grid-cols-3 gap-6 mt-6 pt-6 border-t border-gray-100">
         <div class="lg:col-span-2 bg-blue-50 border border-blue-200 rounded-xl p-4">
             <div class="flex flex-wrap justify-between items-center gap-2 mb-1">
-                <h2 class="text-lg font-bold text-gray-900">Egg Yield Trend</h2>
+                <h2 class="text-lg font-bold text-gray-900">{% translate "Egg Yield Trend" %}</h2>
                 <form method="get" class="flex items-center gap-2">
-                    <label for="trend_range" class="text-sm text-gray-500">Range</label>
+                    <label for="trend_range" class="text-sm text-gray-500">{% translate "Range" %}</label>
                     <select id="trend_range" name="trend_range" onchange="this.form.submit()"
                             class="text-sm border border-gray-300 rounded-md px-2 py-1 text-gray-700 bg-white">
                         {% for value, label in trend_range_choices %}
@@ -118,19 +121,19 @@
                 </form>
             </div>
             <p class="text-sm text-gray-500 mb-4">
-                {{ trend_range_label }}: actual vs. predicted{% if trend_has_future_forecast %} (dashed = upcoming forecast, not yet logged){% endif %}
+                {{ trend_range_label }}: {% translate "actual vs. predicted" %}{% if trend_has_future_forecast %} {% translate "(dashed = upcoming forecast, not yet logged)" %}{% endif %}
             </p>
             {% if trend_logs %}
             <canvas id="trendChart" height="220"></canvas>
             {% else %}
-            <p class="text-sm text-gray-500">No farm records yet — log daily data to see the trend here.</p>
+            <p class="text-sm text-gray-500">{% translate "No farm records yet — log daily data to see the trend here." %}</p>
             {% endif %}
         </div>
 
         <div class="bg-amber-50 border border-amber-200 rounded-xl p-4">
             <div class="flex justify-between items-center mb-3">
-                <h2 class="text-lg font-bold text-gray-900 flex items-center gap-1.5">{% icon "lightbulb" "w-5 h-5" %} Top Recommendation</h2>
-                <a href="{% url 'forecast_recommendations' %}" class="text-sm font-medium text-emerald-700 hover:underline">View all</a>
+                <h2 class="text-lg font-bold text-gray-900 flex items-center gap-1.5">{% icon "lightbulb" "w-5 h-5" %} {% translate "Top Recommendation" %}</h2>
+                <a href="{% url 'forecast_recommendations' %}" class="text-sm font-medium text-emerald-700 hover:underline">{% translate "View all" %}</a>
             </div>
             {% if top_recommendation %}
             <p class="rounded-lg p-3 text-sm
@@ -138,15 +141,15 @@
                 {% else %}bg-orange-50{% endif %}">
                 <span class="font-bold uppercase text-xs tracking-wide
                     {% if top_recommendation.priority == 'high' %}text-red-700
-                    {% else %}text-orange-600{% endif %}">{{ top_recommendation.status }}</span>
-                — {{ top_recommendation.message }}
+                    {% else %}text-orange-600{% endif %}">{% translate top_recommendation.status %}</span>
+                — {% translate top_recommendation.message %}
             </p>
             {% elif has_calm_recommendations %}
             <p class="rounded-lg p-3 text-sm bg-emerald-50">
-                {% icon "check-circle" "w-4 h-4 inline -mt-0.5" %} Everything looks good — no urgent action needed right now.
+                {% icon "check-circle" "w-4 h-4 inline -mt-0.5" %} {% translate "Everything looks good — no urgent action needed right now." %}
             </p>
             {% else %}
-            <p class="text-sm text-gray-500">No recommendations yet.</p>
+            <p class="text-sm text-gray-500">{% translate "No recommendations yet." %}</p>
             {% endif %}
         </div>
     </div>
@@ -154,10 +157,10 @@
     <div class="bg-gray-50 border border-gray-200 rounded-xl p-4 mt-6">
         <div class="flex justify-between items-center mb-4">
             <div>
-                <h2 class="text-lg font-bold text-gray-900">Recent Farm Records</h2>
-                <p class="text-sm text-gray-500">Last 5 daily entries</p>
+                <h2 class="text-lg font-bold text-gray-900">{% translate "Recent Farm Records" %}</h2>
+                <p class="text-sm text-gray-500">{% translate "Last 5 daily entries" %}</p>
             </div>
-            <a href="{% url 'farm_records' %}" class="text-sm font-medium text-emerald-700 hover:underline">View all</a>
+            <a href="{% url 'farm_records' %}" class="text-sm font-medium text-emerald-700 hover:underline">{% translate "View all" %}</a>
         </div>
         {% if recent_records %}
         {% comment %}
@@ -172,23 +175,23 @@
                 <p class="font-semibold text-gray-900 mb-3">{{ log.date }}</p>
                 <dl class="grid grid-cols-2 gap-x-3 gap-y-2.5 text-sm">
                     <div>
-                        <dt class="text-xs text-gray-500">Egg Count</dt>
+                        <dt class="text-xs text-gray-500">{% translate "Egg Count" %}</dt>
                         <dd class="font-medium text-gray-900">{{ log.egg_count }}</dd>
                     </div>
                     <div>
-                        <dt class="text-xs text-gray-500">Feed (kg)</dt>
+                        <dt class="text-xs text-gray-500">{% translate "Feed (kg)" %}</dt>
                         <dd class="font-medium text-gray-900">{{ log.feed_intake_kg }}</dd>
                     </div>
                     <div>
-                        <dt class="text-xs text-gray-500">Temp / Humidity</dt>
+                        <dt class="text-xs text-gray-500">{% translate "Temp / Humidity" %}</dt>
                         <dd class="font-medium text-gray-900">{{ log.temperature_c }}°C / {{ log.humidity_pct }}%</dd>
                     </div>
                     <div>
-                        <dt class="text-xs text-gray-500">Flock Count</dt>
+                        <dt class="text-xs text-gray-500">{% translate "Flock Count" %}</dt>
                         <dd class="font-medium text-gray-900">{{ log.flock_size }}</dd>
                     </div>
                     <div>
-                        <dt class="text-xs text-gray-500">Avg. Age (wk)</dt>
+                        <dt class="text-xs text-gray-500">{% translate "Avg. Age (wk)" %}</dt>
                         <dd class="font-medium text-gray-900">{{ log.flock_age_weeks }}</dd>
                     </div>
                 </dl>
@@ -200,12 +203,12 @@
             <table class="w-full text-sm text-left">
                 <thead class="bg-emerald-700 text-white">
                     <tr>
-                        <th class="py-2.5 px-3 rounded-l-md">Date</th>
-                        <th class="py-2.5 px-3">Egg Count</th>
-                        <th class="py-2.5 px-3">Feed (kg)</th>
-                        <th class="py-2.5 px-3">Temp / Humidity</th>
-                        <th class="py-2.5 px-3">Flock Count</th>
-                        <th class="py-2.5 px-3 rounded-r-md">Avg. Age (wk)</th>
+                        <th class="py-2.5 px-3 rounded-l-md">{% translate "Date" %}</th>
+                        <th class="py-2.5 px-3">{% translate "Egg Count" %}</th>
+                        <th class="py-2.5 px-3">{% translate "Feed (kg)" %}</th>
+                        <th class="py-2.5 px-3">{% translate "Temp / Humidity" %}</th>
+                        <th class="py-2.5 px-3">{% translate "Flock Count" %}</th>
+                        <th class="py-2.5 px-3 rounded-r-md">{% translate "Avg. Age (wk)" %}</th>
                     </tr>
                 </thead>
                 <tbody class="bg-white">
@@ -223,7 +226,7 @@
             </table>
         </div>
         {% else %}
-        <p class="text-sm text-gray-500">No farm records yet.</p>
+        <p class="text-sm text-gray-500">{% translate "No farm records yet." %}</p>
         {% endif %}
     </div>
     {% endif %}
@@ -243,7 +246,7 @@
             labels: trendLabels,
             datasets: [
                 {
-                    label: "Actual egg yield",
+                    label: "{{ _("Actual egg yield")|escapejs }}",
                     data: {{ trend_actual_json|safe }},
                     borderColor: "#047857",
                     backgroundColor: "#047857",
@@ -254,7 +257,7 @@
                     spanGaps: false,
                 },
                 {
-                    label: "Predicted egg yield",
+                    label: "{{ _("Predicted egg yield")|escapejs }}",
                     data: {{ trend_predicted_json|safe }},
                     borderColor: "#2a78d6",
                     backgroundColor: "#2a78d6",

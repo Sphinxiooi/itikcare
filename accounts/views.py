@@ -24,14 +24,17 @@ from farm.views import flock_profile_context
 from farm.weather import geocode_address
 
 from . import google_oauth
+from .auth_backends import find_user_by_login_identifier
+from .contact import generate_unique_username
 from .forms import (
     AccountDeletionForm,
+    AccountLookupForm,
     AccountSettingsForm,
     SignupForm,
-    UsernameLookupForm,
     VerifyResetCodeForm,
 )
 from .models import PasswordResetCode, User
+from django.utils.translation import gettext as _
 
 logger = logging.getLogger(__name__)
 
@@ -65,9 +68,9 @@ def _bootstrap_train(request, user):
         logger.exception("Bootstrap training failed for new user id=%s", user.id)
         messages.warning(
             request,
-            "Your account is ready, but your starter forecasting model is "
+            _("Your account is ready, but your starter forecasting model is "
             "still warming up — try logging your first daily entry again "
-            "shortly if no forecast appears.",
+            "shortly if no forecast appears."),
         )
 
 
@@ -101,6 +104,9 @@ def signup(request):
         form = SignupForm(request.POST)
         if form.is_valid():
             user = form.save(commit=False)
+            # SignupForm.privacy_consent is required, so reaching here means the
+            # farmer ticked the Privacy Notice box on this very submission.
+            user.privacy_consented_at = timezone.now()
             if user.address:
                 coordinates = geocode_address(user.address)
                 if coordinates is not None:
@@ -108,8 +114,8 @@ def signup(request):
                 else:
                     messages.info(
                         request,
-                        "We couldn't find that farm address, so weather suggestions "
-                        "will use the default location for now.",
+                        _("We couldn't find that farm address, so weather suggestions "
+                        "will use the default location for now."),
                     )
             user.save()
             # Skips authenticate() (the password was just set, not typed in to be
@@ -120,7 +126,7 @@ def signup(request):
             _bootstrap_train(request, user)
             # A brand-new account has no Flock, and nothing can be logged or forecast
             # without one -- send them straight to the Register Flock form.
-            messages.warning(request, "Welcome! Register your flock to start logging daily data.")
+            messages.warning(request, _("Welcome! Register your flock to start logging daily data."))
             return redirect("flock_profile")
     else:
         form = SignupForm()
@@ -167,8 +173,8 @@ def account_settings(request):
                     else:
                         messages.info(
                             request,
-                            "We couldn't find that farm address, so weather "
-                            "suggestions will use the default location for now.",
+                            _("We couldn't find that farm address, so weather "
+                            "suggestions will use the default location for now."),
                         )
                 else:
                     user.latitude, user.longitude = None, None
@@ -177,7 +183,7 @@ def account_settings(request):
                 just_saved = True
                 form = AccountSettingsForm(instance=request.user)
             else:
-                messages.success(request, "Account settings updated.")
+                messages.success(request, _("Account settings updated."))
                 return redirect("account_settings")
     else:
         form = AccountSettingsForm(instance=request.user)
@@ -213,8 +219,8 @@ def delete_account(request):
     render a working delete button for that account at all -- this check is the
     real gate.
 
-    Beyond the fields a farmer would recognize as "their info" (email, name,
-    avatar, address, coordinates), this also clears google_sub and blanks the
+    Beyond the fields a farmer would recognize as "their info" (email, phone,
+    name, avatar, address, coordinates), this also clears google_sub and blanks the
     password. Without that, a deactivated Google-linked account could still sign
     back in: google_callback resolves a user by google_sub and calls login()
     directly, bypassing the is_active check that authenticate() would normally
@@ -225,8 +231,8 @@ def delete_account(request):
     if user.is_foundation_farmer:
         messages.error(
             request,
-            "This account can't be deleted — it seeds every new farmer's starter "
-            "forecasting model.",
+            _("This account can't be deleted — it seeds every new farmer's starter "
+            "forecasting model."),
         )
         return redirect("account_settings")
 
@@ -239,6 +245,7 @@ def delete_account(request):
         if user.avatar:
             user.avatar.delete(save=False)
         user.email = ""
+        user.phone_number = None
         user.first_name = ""
         user.last_name = ""
         user.avatar = None
@@ -251,7 +258,7 @@ def delete_account(request):
         user.save()
 
     logout(request)
-    messages.info(request, "Your account has been deleted.")
+    messages.info(request, _("Your account has been deleted."))
     return redirect("login")
 
 
@@ -273,37 +280,39 @@ def _mask_email(email):
 
 @ratelimit(key="ip", rate="10/h", method="POST", block=True)
 def request_reset_code(request):
-    """Step 1 of the password-reset flow: the farmer enters their username, not an
-    email address -- many won't remember which one (if any) they signed up with, since
-    email is optional at signup (see SignupForm's docstring above). If the account has
+    """Step 1 of the password-reset flow: the farmer enters their name, email, or
+    phone number -- anything the login form accepts, resolved through the same
+    accounts.auth_backends.find_user_by_login_identifier lookup. (Signup no longer asks
+    for a username, so most farmers won't know theirs.) If the account has
     an email on file, emails it a fresh 6-digit code and hands off to verify_reset_code.
 
     Replaces Django's built-in tokenized-link reset, which breaks in practice here: the
     link points at whatever host served the request (localhost in dev), meaningless
     once the farmer opens the email on a different device.
 
-    Deliberately gives the same "if that username exists..." message for both an
-    unknown username and one with no email on file, so neither response alone confirms
+    Deliberately gives the same "if that account exists..." message for both an
+    unknown account and one with no email on file, so neither response alone confirms
     an account exists -- reaching step 2 is the only signal that it does, which is the
     accepted trade-off recorded in this feature's plan doc.
     """
     if request.method == "POST":
-        form = UsernameLookupForm(request.POST)
+        form = AccountLookupForm(request.POST)
         if form.is_valid():
-            username = form.cleaned_data["username"]
-            user = User.objects.filter(username=username, is_active=True).first()
+            user = find_user_by_login_identifier(form.cleaned_data["username"])
+            if user is not None and not user.is_active:
+                user = None
             if user is None:
                 messages.info(
                     request,
-                    "If that username exists and has an email on file, "
-                    "we've sent it a verification code.",
+                    _("If that account exists and has an email on file, "
+                    "we've sent it a verification code."),
                 )
             elif not user.email:
                 messages.info(
                     request,
-                    "That account doesn't have an email on file, so it can't "
+                    _("That account doesn't have an email on file, so it can't "
                     "self-service a reset — ask an admin to reset your password "
-                    "from /admin/ instead.",
+                    "from /admin/ instead."),
                 )
             else:
                 with transaction.atomic():
@@ -336,13 +345,13 @@ def request_reset_code(request):
                         )
                         messages.warning(
                             request,
-                            "We couldn't confirm the email sent just now — if no code "
-                            "arrives shortly, request a new one.",
+                            _("We couldn't confirm the email sent just now — if no code "
+                            "arrives shortly, request a new one."),
                         )
                 request.session["password_reset_username"] = user.username
                 return redirect("password_reset_verify")
     else:
-        form = UsernameLookupForm()
+        form = AccountLookupForm()
     return render(request, "registration/password_reset_form.html", {"form": form})
 
 
@@ -355,7 +364,7 @@ def verify_reset_code(request):
     user = User.objects.filter(username=username, is_active=True).first() if username else None
     if user is None:
         request.session.pop("password_reset_username", None)
-        messages.info(request, "Start the password reset process again.")
+        messages.info(request, _("Start the password reset process again."))
         return redirect("password_reset")
 
     masked_email = _mask_email(user.email)
@@ -373,7 +382,7 @@ def verify_reset_code(request):
                 )
                 if reset_code is None:
                     request.session.pop("password_reset_username", None)
-                    messages.error(request, "That code has expired — request a new one.")
+                    messages.error(request, _("That code has expired — request a new one."))
                     return redirect("password_reset")
 
                 if check_password(form.cleaned_data["code"], reset_code.code_hash):
@@ -388,12 +397,12 @@ def verify_reset_code(request):
                         reset_code.delete()
                         request.session.pop("password_reset_username", None)
                         messages.error(
-                            request, "Too many incorrect attempts — request a new code."
+                            request, _("Too many incorrect attempts — request a new code.")
                         )
                         return redirect("password_reset")
                     reset_code.save(update_fields=["attempts"])
                     remaining = RESET_CODE_MAX_ATTEMPTS - reset_code.attempts
-                    form.add_error("code", f"Incorrect code — {remaining} attempt(s) left.")
+                    form.add_error("code", _("Incorrect code — %(remaining)s attempt(s) left.") % {"remaining": remaining})
         if reset_succeeded:
             return redirect("password_reset_complete")
     else:
@@ -403,19 +412,6 @@ def verify_reset_code(request):
         "registration/password_reset_confirm.html",
         {"form": form, "masked_email": masked_email},
     )
-
-
-def _generate_unique_username(base):
-    """Turn a Google account's email local-part into a free username, appending a
-    numeric suffix if it's already taken — two farmers signing in with Google can share
-    an email local-part (e.g. juan.delacruz@gmail.com vs juan.delacruz@yahoo.com)."""
-    username = base or "farmer"
-    candidate = username
-    suffix = 1
-    while User.objects.filter(username=candidate).exists():
-        suffix += 1
-        candidate = f"{username}{suffix}"
-    return candidate
 
 
 def google_login(request):
@@ -436,7 +432,7 @@ def google_login(request):
     open redirect.
     """
     if not settings.GOOGLE_OAUTH_CLIENT_ID:
-        messages.error(request, "Google sign-in isn't available right now.")
+        messages.error(request, _("Google sign-in isn't available right now."))
         return redirect("login")
 
     state = secrets.token_urlsafe(32)
@@ -495,13 +491,13 @@ def google_callback(request):
             "state_matches=%s",
             bool(code), bool(state), state == expected_state,
         )
-        messages.error(request, "Google sign-in didn't complete — please try again.")
+        messages.error(request, _("Google sign-in didn't complete — please try again."))
         return redirect("login")
 
     redirect_uri = request.build_absolute_uri(reverse("google_callback"))
     account = google_oauth.fetch_google_account(code, redirect_uri)
     if account is None:
-        messages.error(request, "Google sign-in didn't complete — please try again.")
+        messages.error(request, _("Google sign-in didn't complete — please try again."))
         return redirect("login")
 
     # Not filtered by is_active here -- a match still has to be inspected (and blocked
@@ -519,8 +515,8 @@ def google_callback(request):
         logger.warning("Google sign-in blocked for deactivated user id=%s", user.id)
         messages.error(
             request,
-            "This account has been deactivated. Contact an admin if you believe "
-            "this is a mistake.",
+            _("This account has been deactivated. Contact an admin if you believe "
+            "this is a mistake."),
         )
         return redirect("login")
 
@@ -529,9 +525,12 @@ def google_callback(request):
         with transaction.atomic():
             username_base = (account["email"] or "").split("@")[0]
             user = User(
-                username=_generate_unique_username(username_base),
+                username=generate_unique_username(username_base),
                 email=account["email"] or "",
                 google_sub=account["sub"],
+                # The Google button carries the same Privacy Notice line as the
+                # signup form's consent checkbox (templates/registration/*.html).
+                privacy_consented_at=timezone.now(),
             )
             user.set_unusable_password()
             user.save()
@@ -547,9 +546,9 @@ def google_callback(request):
         # later, instead of the dashboard, so it doesn't stay permanently blank.
         messages.info(
             request,
-            "Welcome! Add your name and farm location so we can personalize your "
-            "dashboard.",
+            _("Welcome! Add your name and farm location so we can personalize your "
+            "dashboard."),
         )
-        messages.warning(request, "You also need to register your flock before you can log daily data.")
+        messages.warning(request, _("You also need to register your flock before you can log daily data."))
         return redirect("account_settings")
     return redirect(next_url) if next_url else redirect("dashboard")

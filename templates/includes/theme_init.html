@@ -1,0 +1,16 @@
+{% comment %}
+Night mode, part 1 of 2 (part 2: includes/theme_toggle.html). Runs synchronously in
+<head>, before the body paints, so a farmer who picked night mode doesn't see a white
+flash on every page load. The saved choice wins; with none saved, follow the phone/PC's
+own dark-mode setting. localStorage can throw (private browsing, blocked storage) --
+then it just falls back to the device setting.
+{% endcomment %}
+<script>
+    (function () {
+        var saved = null;
+        try { saved = localStorage.getItem("itikcare-theme"); } catch (e) {}
+        var dark = saved ? saved === "dark"
+            : window.matchMedia("(prefers-color-scheme: dark)").matches;
+        document.documentElement.classList.toggle("dark", dark);
+    })();
+</script>

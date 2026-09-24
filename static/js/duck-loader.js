@@ -17,7 +17,6 @@
 (function () {
     "use strict";
 
-    const DEFAULT_TEXT = "Loading…";
     // If the page never actually leaves (a hung request, the user pressing the browser's
     // Stop button) don't trap them behind the overlay forever. Deliberately generous: on a
     // slow connection or a cold-starting host a real navigation can take well over 30s,
@@ -28,6 +27,9 @@
     // {% static %} URL is resolved by Django rather than hard-coded here.
     const scriptEl = document.currentScript;
     const LOGO_URL = scriptEl ? scriptEl.dataset.logo : "";
+    // Default caption, also handed over by the include so it follows the English/
+    // Filipino language switch.
+    const DEFAULT_TEXT = (scriptEl && scriptEl.dataset.defaultText) || "Loading…";
 
     // A ring with one bright arc (circumference of r=46 is ~289, arc = quarter of it)
     // spinning around the logo mark, which gently breathes.

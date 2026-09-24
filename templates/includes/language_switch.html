@@ -1,0 +1,37 @@
+{% load i18n %}
+{% comment %}
+One-click English <-> Filipino switch (sidebar in base.html; also on the login/signup
+pages). Posts to Django's built-in set_language view (itikcare/urls.py -> i18n/),
+which saves the choice in a cookie and sends the farmer back to the same page, now
+re-rendered in the other language. Translations: locale/fil/LC_MESSAGES/django.po.
+Pass `compact=True` for the small pill used on the green login/signup cards.
+{% endcomment %}
+{% get_current_language as current_lang %}
+<form method="post" action="{% url 'set_language' %}" data-loader-text="{% if current_lang == 'fil' %}Switching to English…{% else %}Lumilipat sa Filipino…{% endif %}">
+    {% csrf_token %}
+    <input type="hidden" name="next" value="{{ request.get_full_path }}">
+    <input type="hidden" name="language" value="{% if current_lang == 'fil' %}en{% else %}fil{% endif %}">
+    {% if compact %}
+    <button type="submit"
+            class="inline-flex rounded-full border border-emerald-600 text-xs font-semibold overflow-hidden"
+            aria-label="{% if current_lang == 'fil' %}Switch to English{% else %}Lumipat sa Filipino{% endif %}">
+        <span class="px-2.5 py-1 {% if current_lang != 'fil' %}bg-white text-emerald-800{% else %}text-emerald-100{% endif %}">EN</span>
+        <span class="px-2.5 py-1 {% if current_lang == 'fil' %}bg-white text-emerald-800{% else %}text-emerald-100{% endif %}">FIL</span>
+    </button>
+    {% else %}
+    <button type="submit"
+            class="w-full flex items-center justify-between gap-3 px-4 py-2 rounded-full text-sm font-medium text-gray-700 hover:bg-emerald-50 hover:text-emerald-700 transition-colors"
+            {# Each label is written in its own language, so it's readable whichever one is active. #}
+            aria-label="{% if current_lang == 'fil' %}Switch to English{% else %}Lumipat sa Filipino{% endif %}">
+        <span class="flex items-center gap-3">
+            {# Language icon #}
+            <svg class="w-5 h-5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="m10.5 21 5.25-11.25L21 21m-9-3h7.5M3 5.621a48.474 48.474 0 0 1 6-.371m0 0c1.12 0 2.233.038 3.334.114M9 5.25V3m3.334 2.364C11.176 10.658 7.69 15.08 3 17.502m9.334-12.138c.896.061 1.785.147 2.666.257m-4.589 8.495a18.023 18.023 0 0 1-3.827-5.802"/></svg>
+            {% translate "Language" %}
+        </span>
+        <span class="inline-flex rounded-full border border-gray-200 text-xs font-semibold overflow-hidden">
+            <span class="px-2 py-0.5 {% if current_lang != 'fil' %}bg-emerald-700 text-white{% else %}text-gray-500{% endif %}">EN</span>
+            <span class="px-2 py-0.5 {% if current_lang == 'fil' %}bg-emerald-700 text-white{% else %}text-gray-500{% endif %}">FIL</span>
+        </span>
+    </button>
+    {% endif %}
+</form>

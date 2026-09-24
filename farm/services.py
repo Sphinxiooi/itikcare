@@ -12,6 +12,9 @@ from datetime import timedelta
 
 from django.db.models import Max
 from django.utils import timezone
+from django.utils.formats import date_format
+from django.utils.translation import gettext as _
+from django.utils.translation import gettext_lazy
 
 from .models import DailyLog, Flock
 
@@ -19,7 +22,11 @@ from .models import DailyLog, Flock
 # page (see build_trend_chart_data below) -- kept as one definition so the two pages'
 # dropdowns can never drift out of sync with each other. trend_range_choices_for appends
 # one option per real calendar month on top of these three.
-TREND_RANGE_OPTIONS = (("7", "Last 7 days"), ("30", "Last 1 month"), ("all", "All data"))
+TREND_RANGE_OPTIONS = (
+    ("7", gettext_lazy("Last 7 days")),
+    ("30", gettext_lazy("Last 1 month")),
+    ("all", gettext_lazy("All data")),
+)
 
 # A specific-month trend_range value looks like "2026-09" -- distinguishes it from the
 # day-count ("7"/"30") and "all" options above wherever the two need different handling
@@ -36,7 +43,7 @@ def trend_range_choices_for(flock):
     if flock is None:
         return TREND_RANGE_OPTIONS
     month_values = DailyLog.objects.filter(flock=flock).dates("date", "month", order="DESC")
-    month_options = tuple((d.strftime("%Y-%m"), d.strftime("%B %Y")) for d in month_values)
+    month_options = tuple((d.strftime("%Y-%m"), date_format(d, "F Y")) for d in month_values)
     return TREND_RANGE_OPTIONS + month_options
 
 # A live entry more than this many days after the flock's previous log is treated as
@@ -61,11 +68,11 @@ ANOMALY_STDEV_MULTIPLIER = 2.5
 # (DailyLog field, label for the warning text) pairs checked against this flock's own
 # history. Deliberately mirrors the model's manually-entered fields, not derived ones.
 ANOMALY_CHECK_FIELDS = [
-    ("egg_count", "Egg count"),
-    ("feed_intake_kg", "Feed intake"),
-    ("flock_size", "Flock size"),
-    ("temperature_c", "Temperature"),
-    ("humidity_pct", "Humidity"),
+    ("egg_count", gettext_lazy("Egg count")),
+    ("feed_intake_kg", gettext_lazy("Feed intake")),
+    ("flock_size", gettext_lazy("Flock size")),
+    ("temperature_c", gettext_lazy("Temperature")),
+    ("humidity_pct", gettext_lazy("Humidity")),
 ]
 
 
@@ -223,9 +230,10 @@ def detect_daily_log_anomalies(active_flock, cleaned_data):
     # entry (before ANOMALY_MIN_HISTORY worth of logs exist to compare against below).
     if cleaned_data["egg_count"] > cleaned_data["flock_size"]:
         warnings.append(
-            f"You entered {cleaned_data['egg_count']} eggs, but only "
-            f"{cleaned_data['flock_size']} ducks. That's more eggs than ducks, which "
-            "isn't normally possible — please check for a typo."
+            _(
+                "You entered %(eggs)s eggs, but only %(ducks)s ducks. That's more eggs "
+                "than ducks, which isn't normally possible — please check for a typo."
+            ) % {"eggs": cleaned_data["egg_count"], "ducks": cleaned_data["flock_size"]}
         )
 
     history = DailyLog.objects.filter(flock=active_flock)
@@ -240,8 +248,8 @@ def detect_daily_log_anomalies(active_flock, cleaned_data):
         new_value = float(cleaned_data[field_name])
         if threshold > 0 and abs(new_value - mean) > threshold:
             warnings.append(
-                f"{label} of {cleaned_data[field_name]} is unusual for this flock — "
-                f"your average so far is about {mean:.1f}."
+                _("%(label)s of %(value)s is unusual for this flock — your average so far is about %(mean)s.")
+                % {"label": label, "value": cleaned_data[field_name], "mean": f"{mean:.1f}"}
             )
     return warnings
 
@@ -256,9 +264,10 @@ def resolve_trend_range(raw_value, choices=TREND_RANGE_OPTIONS):
 def build_next_day_forecasts(latest_forecast):
     """The Next 3-Day Forecast panel's 3 distinct day-by-day numbers (forecast_date +
     1/2/3), not the single predicted_tri_day_yield sum -- see forecasting/services.py's
-    _predict_next_days for how these are derived. Returns [] if latest_forecast is None.
+    _predict_next_days for how these are derived. Returns [] if latest_forecast is None
+    or its prediction was withheld during warm-up (see forecasting.services.forecast_readiness).
     """
-    if latest_forecast is None:
+    if latest_forecast is None or not latest_forecast.has_prediction:
         return []
     return [
         {
@@ -332,13 +341,16 @@ def build_trend_chart_data(active_flock, flock_is_caged, trend_range, next_day_f
         predicted_by_date = {
             f.forecast_date: float(f.predicted_daily_yield)
             for f in Forecast.objects.filter(
-                flock=active_flock, forecast_date__range=(min(trend_dates), max(trend_dates))
+                flock=active_flock,
+                forecast_date__range=(min(trend_dates), max(trend_dates)),
+                # Warm-up forecasts carry recommendations but no prediction.
+                predicted_daily_yield__isnull=False,
             )
         }
     trend_dates = sorted(trend_dates)
     # (strftime's day-without-zero-padding directive isn't portable across platforms,
     # so the day number is appended manually instead of using "%-d"/"%#d".)
-    trend_labels = [f"{d.strftime('%b')} {d.day}" for d in trend_dates]
+    trend_labels = [date_format(d, "M j") for d in trend_dates]
     trend_actual = [actual_by_date.get(d) for d in trend_dates]
     trend_predicted = [predicted_by_date.get(d) for d in trend_dates]
 
@@ -348,7 +360,7 @@ def build_trend_chart_data(active_flock, flock_is_caged, trend_range, next_day_f
             continue
         if trend_future_start_index is None:
             trend_future_start_index = len(trend_labels)
-        trend_labels.append(f"{day['date'].strftime('%b')} {day['date'].day}")
+        trend_labels.append(date_format(day["date"], "M j"))
         trend_actual.append(None)
         trend_predicted.append(float(day["value"]))
 
@@ -386,7 +398,7 @@ def build_records_chart_data(logs):
     Caller is expected to only invoke this once len(logs) >= RECORDS_CHART_MIN_LOGS.
     """
     ordered_logs = sorted(logs, key=lambda log: log.date)
-    labels = [f"{log.date.strftime('%b')} {log.date.day}" for log in ordered_logs]
+    labels = [date_format(log.date, "M j") for log in ordered_logs]
 
     return {
         "records_chart_labels_json": json.dumps(labels),
