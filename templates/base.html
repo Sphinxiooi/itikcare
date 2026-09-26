@@ -75,7 +75,8 @@
             </div>
             <div class="flex items-center gap-1">
             {% if user.is_authenticated %}{% include 'includes/notification_bell.html' %}{% endif %}
-            <a href="{% url 'account_settings' %}" id="profile-avatar-link" aria-haspopup="dialog" aria-expanded="false" class="flex items-center gap-2.5 px-2.5 py-1.5 rounded-full hover:bg-gray-100 transition-colors">
+            <a href="{% url 'account_settings' %}" id="profile-avatar-link"{% if active_nav == 'account_settings' %} aria-current="page"{% endif %}
+               class="flex items-center gap-2.5 px-2.5 py-1.5 rounded-full transition-colors {% if active_nav == 'account_settings' %}bg-emerald-50 ring-1 ring-emerald-200{% else %}hover:bg-gray-100{% endif %}">
                 <span class="hidden sm:inline text-sm font-medium text-gray-800">{{ user.get_full_name|default:user.username }}</span>
                 {% if user.avatar %}
                 <img src="{{ user.avatar.url }}" alt="" class="w-9 h-9 rounded-full object-cover">
@@ -90,22 +91,8 @@
     </header>
 
     {% comment %}
-    Floating Account Settings modal (personal info + flock status boxes): no
-    dedicated close button — a floating circle in the corner used to sit on top of
-    the settings panel's own Edit button, so this closes only via backdrop click or
-    Esc (both standard <dialog> affordances, wired up below).
-    {% endcomment %}
-    <dialog id="profile-modal" class="fixed top-1/2 left-1/2 m-0 p-0 border-0 rounded-xl bg-transparent w-[90vw] max-w-2xl max-h-[85vh]">
-        <div class="relative max-h-[85vh] overflow-y-auto no-scrollbar">
-            <div id="profile-modal-content" class="p-1">
-                <p class="bg-white border border-gray-200 rounded-xl p-6 text-sm text-gray-500">{% translate "Loading…" %}</p>
-            </div>
-        </div>
-    </dialog>
-
-    {% comment %}
     Generic "are you sure?" confirmation dialog. Any form anywhere in the app
-    (including partials fetched into the flock-profile modal above) can opt in by
+    (including content swapped in after an AJAX save) can opt in by
     adding a data-confirm="<message>" attribute — no per-page markup needed. See
     the delegated submit listener at the bottom of this file.
     {% endcomment %}
@@ -129,9 +116,8 @@
     {% comment %}
     Delete-account confirmation dialog. Its trigger button (#delete-account-open,
     templates/account/_settings_panel.html's Danger Zone disclosure) lives inside
-    content that gets fetched via innerHTML into the profile-modal above and swapped
-    via outerHTML after an AJAX save — this dialog is declared here instead, outside
-    either of those regions, so it's never itself destroyed/replaced, and is opened
+    content that gets swapped via outerHTML after an AJAX save — this dialog is
+    declared here instead, outside that region, so it's never itself replaced, and is opened
     via a delegated click listener (see the script block below) rather than a
     listener bound to a trigger element that might not exist yet at page load.
     {% endcomment %}
@@ -285,99 +271,8 @@
                 });
             }
 
-            // Floating Account Settings modal: progressive enhancement over the
-            // avatar link's normal href. If <dialog> isn't supported, or the fetch
-            // fails, the click falls through to a normal navigation to
-            // /account/settings/. There's no dedicated close button (see the
-            // dialog markup's comment above for why) — backdrop click and Esc are
-            // the only close paths.
-            var avatarLink = document.getElementById("profile-avatar-link");
-            var modal = document.getElementById("profile-modal");
-            var modalContent = document.getElementById("profile-modal-content");
-
-            if (avatarLink && modal && modalContent && typeof modal.showModal === "function") {
-                var prefersReducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-
-                function openModal() {
-                    modal.showModal();
-                    avatarLink.setAttribute("aria-expanded", "true");
-                    if (prefersReducedMotion) {
-                        modal.classList.add("is-open");
-                        return;
-                    }
-                    // Double rAF: showModal() and the class add must land in separate
-                    // paints, or the browser has nothing to transition *from* and the
-                    // dialog just snaps straight to its open state.
-                    requestAnimationFrame(function () {
-                        requestAnimationFrame(function () {
-                            modal.classList.add("is-open");
-                        });
-                    });
-                }
-
-                function closeModal() {
-                    avatarLink.setAttribute("aria-expanded", "false");
-                    if (prefersReducedMotion) {
-                        modal.classList.remove("is-open");
-                        modal.close();
-                        return;
-                    }
-                    modal.classList.remove("is-open");
-                    modal.addEventListener("transitionend", function onEnd(event) {
-                        if (event.target === modal) {
-                            modal.removeEventListener("transitionend", onEnd);
-                            modal.close();
-                        }
-                    });
-                }
-
-                avatarLink.addEventListener("click", function (event) {
-                    event.preventDefault();
-                    var separator = avatarLink.href.indexOf("?") === -1 ? "?" : "&";
-                    // Fetch-based, so no page navigation for the duck loader to catch.
-                    if (window.ItikDuckLoader) {
-                        window.ItikDuckLoader.show("{{ _("Loading your profile…")|escapejs }}");
-                    }
-                    fetch(avatarLink.href + separator + "partial=1", {
-                        headers: { "X-Requested-With": "XMLHttpRequest" },
-                    })
-                        .then(function (response) {
-                            if (!response.ok) {
-                                throw new Error("Flock profile fetch failed");
-                            }
-                            return response.text();
-                        })
-                        .then(function (html) {
-                            modalContent.innerHTML = html;
-                            if (window.ItikDuckLoader) {
-                                window.ItikDuckLoader.hide();
-                            }
-                            openModal();
-                        })
-                        .catch(function () {
-                            window.location.href = avatarLink.href;
-                        });
-                });
-
-                // Clicking the backdrop (the dialog element itself, outside its content)
-                // closes it — clicks on the content div are separate elements and don't
-                // bubble up as the dialog's own click target.
-                modal.addEventListener("click", function (event) {
-                    if (event.target === modal) {
-                        closeModal();
-                    }
-                });
-                // Esc fires "cancel" and closes the dialog immediately by default —
-                // intercept it so Esc fades out the same way the other close paths do.
-                modal.addEventListener("cancel", function (event) {
-                    event.preventDefault();
-                    closeModal();
-                });
-            }
-
-            // Generic confirmation dialog for any form on the page (or on a partial
-            // fetched into the flock-profile modal above, e.g. the caging-status
-            // toggle) carrying a `data-confirm` attribute — see the dialog markup
+            // Generic confirmation dialog for any form on the page carrying a
+            // `data-confirm` attribute — see the dialog markup
             // near the top of <body>.
             var confirmModal = document.getElementById("confirm-modal");
             if (confirmModal && typeof confirmModal.showModal === "function") {
@@ -470,9 +365,9 @@
 
             // Delete-account confirmation dialog (base.html's own #delete-account-modal,
             // see that markup's comment above for why it lives here rather than inside
-            // the Danger Zone disclosure it's triggered from). Its trigger button can be
-            // fetched into the page later (via the profile-modal fetch below, or an AJAX
-            // settings save), so the open listener is delegated on `document` the same
+            // the Danger Zone disclosure it's triggered from). Its trigger button gets
+            // re-rendered by an AJAX settings save (see below), so the open listener is
+            // delegated on `document` the same
             // way #account-edit-toggle is further down -- a listener bound directly to
             // the button at page-load time would miss a copy of that button injected
             // afterward, or go stale if the original one is swapped away.
@@ -482,16 +377,6 @@
                 var deletePrefersReducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
                 function openDeleteModal() {
-                    // The trigger can be clicked from inside the still-open profile
-                    // popup (#profile-modal) -- close it first so its own backdrop
-                    // doesn't stack under this dialog's. .close() on an already-closed
-                    // dialog is a harmless no-op per spec, so this is safe even when
-                    // the trigger was clicked from the full settings page instead.
-                    var profileModal = document.getElementById("profile-modal");
-                    if (profileModal) {
-                        profileModal.classList.remove("is-open");
-                        profileModal.close();
-                    }
                     deleteModal.showModal();
                     if (deletePrefersReducedMotion) {
                         deleteModal.classList.add("is-open");
@@ -541,23 +426,17 @@
             // Account Settings' Personal Information card (templates/account/
             // _settings_panel.html) opens in a read-only "view" state with an Edit
             // button, swapping to the form on click. Delegated on `document` (rather
-            // than binding directly to #account-edit-toggle) because this partial is
-            // also fetched via innerHTML into the header avatar's modal above, and
-            // innerHTML-inserted <script> tags never execute -- a listener attached
-            // here still fires no matter which way the partial reached the page.
+            // than binding directly to #account-edit-toggle) because an AJAX save
+            // (below) replaces the whole partial via outerHTML, and inserted <script>
+            // tags never execute -- a listener attached here survives that swap.
             document.addEventListener("click", function (event) {
                 var opensForm = event.target.closest("#account-edit-toggle");
                 var cancels = event.target.closest("#account-edit-cancel");
                 if (!opensForm && !cancels) {
                     return;
                 }
-                // Look up the parts inside the *clicked* copy of the partial, not via
-                // document.getElementById: once the header avatar's modal has been
-                // opened on /account/settings/, the page holds two copies with the
-                // same ids (the closed modal keeps its fetched content), and the
-                // modal's copy comes first in the DOM -- so a global lookup would
-                // toggle the hidden modal's form and the page's Edit button would
-                // appear to do nothing.
+                // Scoped to the clicked copy of the partial (rather than
+                // document.getElementById) so a stale lookup can't grab the wrong node.
                 var panel = (opensForm || cancels).closest("#account-settings-content");
                 if (!panel) {
                     return;
@@ -582,19 +461,16 @@
 
             // Account Settings' edit form (see the click-delegation block above for
             // why this is delegated rather than bound directly): submitting it
-            // normally would redirect to /account/settings/, which is fine on the
-            // full settings page but blows the header avatar's modal away with a
-            // full-page navigation. Posting via fetch instead lets the response (the
-            // same "#account-settings-content" partial, saved or re-showing errors)
-            // get swapped in wherever the form currently lives, no navigation either
-            // way.
+            // normally would redirect back to /account/settings/ with a full page
+            // reload. Posting via fetch instead lets the response (the same
+            // "#account-settings-content" partial, saved or re-showing errors) get
+            // swapped in place, with an inline "Saved" banner and no reload.
             document.addEventListener("submit", function (event) {
                 var form = event.target;
                 if (!form.matches || form.id !== "account-edit-form") {
                     return;
                 }
-                // The form's own container, not a global id lookup (see the
-                // click-delegation block above: two copies can coexist).
+                // The form's own container (see the click-delegation block above).
                 var container = form.closest("#account-settings-content");
                 if (!container) {
                     return;
@@ -824,11 +700,11 @@
             // (GET requests). Spam-clicking one -- or clicking a second nav link
             // right after the first -- would fire another request at the server
             // for a page the browser is about to leave anyway. Once the first
-            // click is under way, ignore further clicks on these links; the
-            // profile-avatar link is excluded since it has its own fetch-based
-            // flow above rather than a plain navigation.
+            // click is under way, ignore further clicks on these links (the
+            // profile-avatar link included -- it's a plain link to the Account
+            // Settings page now, no longer a fetch-based popup).
             var navigating = false;
-            document.querySelectorAll('header a[href]:not(#profile-avatar-link), #sidebar nav a[href]').forEach(function (link) {
+            document.querySelectorAll('header a[href], #sidebar nav a[href]').forEach(function (link) {
                 link.addEventListener("click", function (event) {
                     if (navigating) {
                         event.preventDefault();

@@ -1,9 +1,30 @@
-Hi {{ user.get_full_name|default:user.username }},
+{% extends "email/base_email.html" %}
+{% block preheader %}A quick log keeps your egg-yield forecasts accurate.{% endblock %}
+{% block heading %}Time for today's flock log{% endblock %}
+{% block content %}
+<p style="margin:0 0 16px 0;">Good day, {{ user.get_full_name|default:user.username }}!</p>
+<p style="margin:0 0 24px 0;">Today's entry for <strong style="color:#111827;">{{ flock }}</strong> hasn't been recorded yet. It only takes a minute, and it keeps your egg-yield forecasts and recommendations accurate.</p>
 
-Ready to log for today! {{ flock }}.
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin:0 0 24px 0;">
+  <tr>
+    <td style="padding:18px 20px; background-color:#ecfdf5; border:1px solid #a7f3d0; border-radius:10px; font-size:14px; line-height:26px; color:#065f46;">
+      <div style="font-size:12px; letter-spacing:1.5px; text-transform:uppercase; color:#047857; margin:0 0 6px 0;">What to record</div>
+      &#10003;&nbsp; Egg count<br>
+      &#10003;&nbsp; Feed intake<br>
+      &#10003;&nbsp; Temperature and humidity
+    </td>
+  </tr>
+</table>
 
-Log in to ItikCare and record today's egg count, feed intake, temperature, and humidity so your forecasts stay accurate and up to date.
+{% if log_url %}
+<table role="presentation" cellpadding="0" cellspacing="0" border="0" align="center" style="margin:0 auto 24px auto;">
+  <tr>
+    <td align="center" style="border-radius:8px; background-color:#047857;">
+      <a href="{{ log_url }}" style="display:inline-block; padding:13px 28px; font-size:15px; font-weight:600; color:#ffffff; text-decoration:none; border-radius:8px;">Log today's data</a>
+    </td>
+  </tr>
+</table>
+{% endif %}
 
-If you've already logged it since this email was sent, you can ignore this message.
-
-— ItikCare
+<p style="margin:0; font-size:13px; line-height:20px; color:#6b7280;">Already logged since this email was sent? Thank you &mdash; no further action is needed.</p>
+{% endblock %}

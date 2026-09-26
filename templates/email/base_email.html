@@ -1,0 +1,63 @@
+{% comment %}
+Shared layout for every HTML email ItikCare sends (password reset, daily-log reminder).
+Email clients ignore <style> blocks and external CSS inconsistently (Gmail strips most
+of it, Outlook renders with Word's engine), so everything here is table-based with
+inline styles -- no Tailwind, no web fonts, no images that could show up broken.
+Colors mirror the app's emerald palette (emerald-700 #047857 is the brand fill).
+
+Child templates fill: preheader (inbox preview line), heading, content.
+Each email also ships a plain-text .txt twin, sent as the text/plain part.
+{% endcomment %}<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light">
+<title>ItikCare</title>
+</head>
+<body style="margin:0; padding:0; background-color:#f0f5f3;">
+  <div style="display:none; max-height:0; overflow:hidden; opacity:0; color:transparent;">{% block preheader %}{% endblock %}</div>
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color:#f0f5f3;">
+    <tr>
+      <td align="center" style="padding:32px 16px;">
+        <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="max-width:520px;">
+
+          <tr>
+            <td align="center" style="padding:0 0 20px 0; font-family:Georgia, 'Times New Roman', serif; font-size:24px; font-weight:bold; letter-spacing:0.5px; color:#065f46;">
+              ItikCare
+            </td>
+          </tr>
+
+          <tr>
+            <td style="background-color:#ffffff; border:1px solid #d9e6e1; border-radius:14px; overflow:hidden;">
+              <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
+                <tr>
+                  <td style="height:5px; line-height:5px; font-size:0; background-color:#047857;">&nbsp;</td>
+                </tr>
+                <tr>
+                  <td style="padding:36px 36px 32px 36px; font-family:-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; font-size:15px; line-height:24px; color:#374151;">
+                    <h1 style="margin:0 0 20px 0; font-family:Georgia, 'Times New Roman', serif; font-size:22px; line-height:30px; font-weight:normal; color:#111827;">{% block heading %}{% endblock %}</h1>
+                    {% block content %}{% endblock %}
+                    <p style="margin:28px 0 0 0; color:#374151;">
+                      Warm regards,<br>
+                      <span style="color:#065f46; font-weight:600;">The ItikCare Team</span>
+                    </p>
+                  </td>
+                </tr>
+              </table>
+            </td>
+          </tr>
+
+          <tr>
+            <td align="center" style="padding:20px 24px 0 24px; font-family:-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; font-size:12px; line-height:18px; color:#6b7280;">
+              Egg-yield forecasting and farm guidance for itik raisers.<br>
+              This is an automated message &mdash; replies to it aren't monitored.
+            </td>
+          </tr>
+
+        </table>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>

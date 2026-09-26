@@ -143,7 +143,7 @@ class PasswordResetFlowTests(TestCase):
 
     def _extract_code(self, message):
         # The email body is "Your verification code is: 123456" (see
-        # templates/registration/password_reset_email.html) -- pull the 6 digits out.
+        # templates/registration/password_reset_email.txt) -- pull the 6 digits out.
         for line in message.body.splitlines():
             if "verification code is" in line:
                 return line.strip().split()[-1]
@@ -158,6 +158,10 @@ class PasswordResetFlowTests(TestCase):
         code = self._extract_code(mail.outbox[0])
         self.assertEqual(len(code), 6)
         self.assertTrue(code.isdigit())
+        # The styled HTML alternative carries the same code as the plain-text body.
+        html_body, mimetype = mail.outbox[0].alternatives[0]
+        self.assertEqual(mimetype, "text/html")
+        self.assertIn(code, html_body)
 
         response = self.client.post(
             reverse("password_reset_verify"),

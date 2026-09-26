@@ -18,6 +18,7 @@ from django.core import mail
 from django.core.exceptions import ValidationError
 from django.core.management import call_command
 from django.test import Client, TestCase, override_settings
+from django.urls import reverse
 from django.utils import timezone
 
 from forecasting.models import Forecast
@@ -1912,9 +1913,18 @@ class SendDailyLogRemindersCommandTests(TestCase):
         call_command("send_daily_log_reminders")
         self.assertEqual(len(mail.outbox), 1)
         self.assertEqual(mail.outbox[0].to, [owner.email])
+        self.assertEqual(mail.outbox[0].alternatives[0][1], "text/html")
         reminders = DailyLogReminder.objects.filter(owner=owner, reminder_date=self.today)
         self.assertEqual(reminders.count(), 1)
         self.assertEqual(reminders.first().flock, flock)
+
+    @override_settings(SITE_URL="https://itikcare.example.com")
+    def test_reminder_links_to_log_page_when_site_url_set(self):
+        self._make_owner("linkfarmer")
+        call_command("send_daily_log_reminders")
+        log_url = "https://itikcare.example.com" + reverse("log_daily_data")
+        self.assertIn(log_url, mail.outbox[0].body)
+        self.assertIn(log_url, mail.outbox[0].alternatives[0][0])
 
     def test_no_reminder_when_owner_has_no_flock(self):
         User.objects.create_user(username="noflockfarmer", password="pw12345", email="noflock@example.com")

@@ -14,10 +14,12 @@ Run as:
 
 import logging
 
+from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.core.mail import send_mail
 from django.core.management.base import BaseCommand
 from django.template.loader import render_to_string
+from django.urls import reverse
 
 from farm.models import DailyLog, DailyLogReminder, Flock
 from farm.services import get_active_flock, operational_today
@@ -80,5 +82,14 @@ class Command(BaseCommand):
         subject = "".join(
             render_to_string("farm/daily_log_reminder_subject.txt").splitlines()
         )
-        body = render_to_string("farm/daily_log_reminder_email.html", {"user": owner, "flock": flock})
-        send_mail(subject, body, None, [owner.email])
+        # No request here (this runs from a timer), so the button's absolute URL is
+        # built from settings.SITE_URL; if that's unset the email simply omits it.
+        log_url = f"{settings.SITE_URL}{reverse('log_daily_data')}" if settings.SITE_URL else ""
+        context = {"user": owner, "flock": flock, "log_url": log_url}
+        send_mail(
+            subject,
+            render_to_string("farm/daily_log_reminder_email.txt", context),
+            None,
+            [owner.email],
+            html_message=render_to_string("farm/daily_log_reminder_email.html", context),
+        )

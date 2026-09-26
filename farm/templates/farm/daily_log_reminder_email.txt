@@ -1,0 +1,15 @@
+Good day, {{ user.get_full_name|default:user.username }}!
+
+Today's entry for {{ flock }} hasn't been recorded yet. It only takes a minute, and it keeps your egg-yield forecasts and recommendations accurate.
+
+What to record:
+  - Egg count
+  - Feed intake
+  - Temperature and humidity
+{% if log_url %}
+Log today's data: {{ log_url }}
+{% endif %}
+Already logged since this email was sent? Thank you — no further action is needed.
+
+Warm regards,
+The ItikCare Team

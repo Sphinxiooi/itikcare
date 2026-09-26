@@ -2,8 +2,7 @@
 {% comment %}
 Wrapped in a single id'd container so the AJAX submit handler (templates/base.html)
 can swap this whole thing -- personal-info card plus the included flock panel --
-back in after a save, wherever it currently lives (the full /account/settings/ page
-or the header avatar's modal).
+back in after a save on the /account/settings/ page (reached from the header avatar).
 {% endcomment %}
 <div id="account-settings-content">
 <div class="bg-white border border-gray-200 rounded-xl p-6 max-w-3xl mb-6">
@@ -22,8 +21,8 @@ or the header avatar's modal).
             Hidden (not just visually swapped) whenever the form has errors, so a failed
             save reopens straight into the edit form instead of behind another click.
             See templates/base.html's delegated click listener for the show/hide toggle —
-            this partial is also fetched into the header avatar's modal via innerHTML,
-            which never executes a <script> tag placed here.
+            this partial is swapped in via outerHTML after an AJAX save, which never
+            executes a <script> tag placed here.
             {% endcomment %}
             <button type="button" id="account-edit-toggle"
                     class="{% if account_form.errors %}hidden{% endif %} inline-flex items-center gap-1.5 text-sm font-medium text-emerald-700 hover:text-emerald-800">
@@ -150,13 +149,10 @@ or the header avatar's modal).
     {% comment %}
     Danger Zone: nested inside the Personal Information card itself (not a sibling
     card) as a native <details> disclosure, not a JS-driven dialog — this partial is
-    fetched via innerHTML into the header avatar's popup (templates/base.html) and
-    also swapped wholesale via outerHTML after an AJAX personal-info save, and
-    neither path ever executes a <script> tag placed here (per-spec for inserted
-    script elements). A plain <details>/<summary> needs no JS to expand/collapse, so
-    it works correctly in both the compact popup and the full /account/settings/
-    page without any extra wiring, and survives the outerHTML swap since it's just
-    re-rendered markup.
+    swapped wholesale via outerHTML after an AJAX personal-info save, which never
+    executes a <script> tag placed here (per-spec for inserted script elements). A
+    plain <details>/<summary> needs no JS to expand/collapse, and survives the
+    outerHTML swap since it's just re-rendered markup.
 
     The actual delete confirmation (password or username input) is NOT inline here —
     it's the #delete-account-modal dialog defined once in base.html, outside any

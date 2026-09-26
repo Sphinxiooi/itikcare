@@ -141,23 +141,19 @@ def account_settings(request):
     to finish setting up their account (see google_callback below), since that flow
     creates a User with no name or address at all.
 
-    Same "full page vs ?partial=1" split as farm.views.flock_profile, whose flock-
-    context this view also gathers (via flock_profile_context) so the same
-    "farm/_flock_profile_panel.html" partial can render as this page's second box —
-    see templates/account/_settings_panel.html.
+    Gathers farm.views.flock_profile's flock context (via flock_profile_context) so
+    the same "farm/_flock_profile_panel.html" partial can render as this page's
+    second box — see templates/account/_settings_panel.html.
 
-    The edit form's own submit is intercepted client-side (templates/base.html) via
-    the same X-Requested-With header the header avatar's modal already fetches with
-    -- a normal redirect-on-save would otherwise blow away the modal with a full-page
-    navigation. On an AJAX save this re-renders the partial in place (with a fresh,
+    The edit form's own submit is intercepted client-side (templates/base.html) and
+    sent with an X-Requested-With header, so a save doesn't need a full-page reload.
+    On an AJAX save this re-renders the partial in place (with a fresh,
     unbound form so it collapses back to view mode) and a just_saved flag the partial
     turns into a self-dismissing banner, instead of going through messages.success +
     redirect, which only ever surfaces on the next full-page render.
     """
     is_ajax = request.headers.get("X-Requested-With") == "XMLHttpRequest"
-    template_name = (
-        "account/_settings_panel.html" if request.GET.get("partial") == "1" or is_ajax else "account/settings.html"
-    )
+    template_name = "account/_settings_panel.html" if is_ajax else "account/settings.html"
 
     just_saved = False
     if request.method == "POST":
@@ -191,8 +187,8 @@ def account_settings(request):
     context = {
         "active_nav": "account_settings",
         "account_form": form,
-        # Settings is a personal-info page (and the header avatar's quick-access
-        # modal, templates/base.html) -- flock lifecycle actions (retire, toggle
+        # Settings is a personal-info page (reached from the header avatar,
+        # templates/base.html) -- flock lifecycle actions (retire, toggle
         # caging, register) belong on the dedicated /flock/ page, not duplicated
         # here, so the shared partial renders a read-only summary + link instead.
         "compact": True,
@@ -330,14 +326,17 @@ def request_reset_code(request):
                         subject = "".join(
                             render_to_string("registration/password_reset_subject.txt").splitlines()
                         )
+                        # Plain-text body plus a styled HTML alternative -- clients
+                        # that can't render HTML fall back to the .txt version.
+                        email_context = {"user": user, "code": code}
                         send_mail(
                             subject,
-                            render_to_string(
-                                "registration/password_reset_email.html",
-                                {"user": user, "code": code},
-                            ),
+                            render_to_string("registration/password_reset_email.txt", email_context),
                             None,
                             [user.email],
+                            html_message=render_to_string(
+                                "registration/password_reset_email.html", email_context
+                            ),
                         )
                     except Exception:
                         logger.exception(

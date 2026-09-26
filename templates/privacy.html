@@ -22,10 +22,25 @@
                     <span class="block text-xs font-semibold text-emerald-700 -mt-1">Egg Yield Forecasting</span>
                 </span>
             </a>
-            <a href="javascript:history.back()"
+            {# The signup page opens this notice in a new tab (target="_blank"), so there is #}
+            {# no history to go back to. Back therefore closes this tab when it was opened as #}
+            {# a new tab -- returning the farmer to their half-filled signup form -- and #}
+            {# otherwise just goes to the account creation page. #}
+            <a href="{% url 'signup' %}" id="privacy-back"
                class="inline-flex items-center gap-2 text-sm font-semibold text-emerald-700 hover:text-emerald-800 transition-colors duration-200">
                 <span aria-hidden="true">←</span> Back
             </a>
+            <script>
+                document.getElementById("privacy-back").addEventListener("click", function (event) {
+                    if (window.history.length <= 1) {
+                        event.preventDefault();
+                        window.close();
+                        // If the browser refused to close the tab, fall back to the signup page.
+                        var signupUrl = this.href;
+                        setTimeout(function () { window.location.href = signupUrl; }, 150);
+                    }
+                });
+            </script>
         </div>
     </header>
 

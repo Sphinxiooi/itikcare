@@ -48,6 +48,14 @@ CSRF_TRUSTED_ORIGINS = [
     origin for origin in os.environ.get('DJANGO_CSRF_TRUSTED_ORIGINS', '').split(',') if origin
 ]
 
+# Public base URL (e.g. https://itikcare.example.com) for links in emails sent outside
+# a request, like the daily-log reminder cron job, where build_absolute_uri() isn't
+# available. Falls back to the first CSRF-trusted origin, which production already
+# sets; empty in local dev, in which case emails just omit the link.
+SITE_URL = os.environ.get(
+    'DJANGO_SITE_URL', CSRF_TRUSTED_ORIGINS[0] if CSRF_TRUSTED_ORIGINS else ''
+).rstrip('/')
+
 # The next four settings hardcode-safe-by-default (off) and are meant to be flipped on
 # one at a time during VM deployment, in this order: get the app running over plain
 # HTTP first, put it behind an HTTPS-terminating reverse proxy (nginx) and set
