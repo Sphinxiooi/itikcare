@@ -7,6 +7,7 @@ spec-section-10 rules the model's defensibility rests on.
 """
 
 import json
+import os
 import random
 import sys
 import tempfile
@@ -21,7 +22,7 @@ import pandas as pd
 from django.contrib.auth import get_user_model
 from django.core.management import call_command
 from django.core.management.base import CommandError
-from django.test import Client, SimpleTestCase, TestCase
+from django.test import Client, SimpleTestCase, TestCase, override_settings
 
 from farm.models import DailyLog, Flock
 from farm.services import operational_today
@@ -304,6 +305,19 @@ class GenerateForecastTests(TestCase):
         self.addCleanup(self.tmpdir.cleanup)
         self.model_path = Path(self.tmpdir.name) / "forecast_model.joblib"
         _write_stub_artifact(self.model_path)
+
+    def test_cached_model_gives_the_same_forecast_as_a_fresh_load(self):
+        """With PERFORMANCE_CACHES_ENABLED on, the second save reuses the loaded model
+        (one joblib.load, not two) and predicts exactly what the first one did."""
+        services._artifact_cache.update(key=None, artifact=None)
+        self.addCleanup(services._artifact_cache.update, key=None, artifact=None)
+        with override_settings(PERFORMANCE_CACHES_ENABLED=True),                 patch("forecasting.services.joblib.load", wraps=joblib.load) as load:
+            first = services.generate_forecast(self.logs[3], model_path=self.model_path)
+            second = services.generate_forecast(self.logs[3], model_path=self.model_path)
+        self.assertEqual(load.call_count, 1)
+        self.assertEqual(second.predicted_daily_yield, first.predicted_daily_yield)
+        self.assertEqual(second.predicted_tri_day_yield, first.predicted_tri_day_yield)
+        self.assertEqual(second.feature_importances, first.feature_importances)
 
     def test_generates_forecast_and_recommendations_from_flock_history(self):
         day4 = self.logs[3]
@@ -797,3 +811,51 @@ class ForecastRecommendationsViewTests(TestCase):
         self.assertNotContains(response, "Predicted Egg Yield Tomorrow")
         self.assertEqual(response.context["next_day_forecasts"], [])
         self.assertContains(response, "Add shade.")
+
+
+@override_settings(PERFORMANCE_CACHES_ENABLED=True)
+class ModelArtifactCacheTests(SimpleTestCase):
+    """services._load_artifact keeps the last loaded model in memory while its file is
+    unchanged, and picks up a retrained model as soon as the file is replaced."""
+
+    def setUp(self):
+        self.tmpdir = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmpdir.cleanup)
+        self.model_path = Path(self.tmpdir.name) / "forecast_model_1.joblib"
+        services._artifact_cache.update(key=None, artifact=None)
+        self.addCleanup(services._artifact_cache.update, key=None, artifact=None)
+
+    def _replace_like_training_does(self, daily_importances):
+        """Write a new artifact the way train_forecast_model.py does: to a temp file,
+        then os.replace() it over the old one."""
+        tmp_path = self.model_path.with_suffix(".tmp")
+        _write_stub_artifact(tmp_path, daily_importances=daily_importances)
+        os.replace(tmp_path, self.model_path)
+
+    def test_unchanged_file_is_loaded_once(self):
+        _write_stub_artifact(self.model_path)
+        with patch("forecasting.services.joblib.load", wraps=joblib.load) as load:
+            first = services._load_artifact(self.model_path)
+            second = services._load_artifact(self.model_path)
+        self.assertIs(second, first)
+        self.assertEqual(load.call_count, 1)
+
+    def test_retrained_model_is_picked_up(self):
+        old = {feature: 1 / len(ml.MODEL_FEATURES) for feature in ml.MODEL_FEATURES}
+        new = {feature: (1.0 if feature == "lag1" else 0.0) for feature in ml.MODEL_FEATURES}
+        self._replace_like_training_does(old)
+        self.assertEqual(services._load_artifact(self.model_path)["feature_importances"]["daily"], old)
+        self._replace_like_training_does(new)
+        self.assertEqual(services._load_artifact(self.model_path)["feature_importances"]["daily"], new)
+
+    def test_missing_model_still_raises(self):
+        with self.assertRaises(services.ModelNotTrainedError):
+            services._load_artifact(Path(self.tmpdir.name) / "does-not-exist.joblib")
+
+    @override_settings(PERFORMANCE_CACHES_ENABLED=False)
+    def test_disabled_caching_reads_the_file_every_time(self):
+        _write_stub_artifact(self.model_path)
+        with patch("forecasting.services.joblib.load", wraps=joblib.load) as load:
+            services._load_artifact(self.model_path)
+            services._load_artifact(self.model_path)
+        self.assertEqual(load.call_count, 2)

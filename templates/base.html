@@ -8,17 +8,19 @@
     {% include 'includes/theme_init.html' %}
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{% block title %}ItikCare{% endblock %}</title>
-    <link rel="stylesheet" href="{% static 'dist/output.css' %}?v={% now 'U' %}">
+    <link rel="stylesheet" href="{% static 'dist/output.css' %}{% if not use_hashed_static %}?v={% now 'U' %}{% endif %}">
     {% include 'includes/duck_loader.html' %}
     <style>
         /* Subtle page-load entrance so navigating between pages doesn't feel like
            a hard cut -- header/sidebar stay put (they're fixed chrome shared
            across pages) and only the page content fades/rises in. */
+        /* Kept short (and a small offset) so it reads as polish rather than making every
+           page feel like it's arriving late. */
         @keyframes main-rise-in {
-            from { opacity: 0; transform: translateY(10px); }
+            from { opacity: 0; transform: translateY(6px); }
             to { opacity: 1; transform: translateY(0); }
         }
-        main { animation: main-rise-in 350ms ease-out both; }
+        main { animation: main-rise-in 180ms ease-out both; }
 
         @media (prefers-reduced-motion: reduce) {
             main { animation: none; }

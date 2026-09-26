@@ -11,6 +11,7 @@ https://docs.djangoproject.com/en/5.2/ref/settings/
 """
 
 import os
+import sys
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -37,6 +38,18 @@ SECRET_KEY = os.environ['DJANGO_SECRET_KEY']
 
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = os.environ.get('DJANGO_DEBUG', 'False') == 'True'
+
+# The manage.py subcommand this process is running ('' under gunicorn) -- a few settings
+# below behave differently for `test` and `collectstatic`.
+_MANAGE_COMMAND = sys.argv[1] if len(sys.argv) > 1 else ''
+
+# Speed-ups that reuse a recent result instead of redoing slow work on every request:
+# Open-Meteo weather lookups (farm/weather.py) and the loaded forecasting model
+# (forecasting/services.py::_load_artifact). Off under the test runner, where tests fake
+# the weather API / rewrite model files per test and a result carried over from an
+# earlier test would hide that; the caching itself has its own dedicated tests, which
+# switch this back on with override_settings.
+PERFORMANCE_CACHES_ENABLED = _MANAGE_COMMAND != 'test'
 
 ALLOWED_HOSTS = os.environ.get('DJANGO_ALLOWED_HOSTS', '').split(',')
 
@@ -109,7 +122,9 @@ INSTALLED_APPS = [
     'django.contrib.contenttypes',
     'django.contrib.sessions',
     'django.contrib.messages',
-    'django.contrib.staticfiles',
+    # django.contrib.staticfiles, plus skipping the Tailwind source folder in
+    # collectstatic -- see itikcare/apps.py.
+    'itikcare.apps.ItikCareStaticFilesConfig',
     'accounts',
     'farm',
     'forecasting',
@@ -161,6 +176,7 @@ TEMPLATES = [
                 'django.contrib.messages.context_processors.messages',
                 'accounts.context_processors.google_oauth_enabled',
                 'notifications.context_processors.notifications',
+                'itikcare.context_processors.static_files',
             ],
         },
     },
@@ -193,6 +209,12 @@ else:
             'PASSWORD': os.environ['DB_PASSWORD'],
             'HOST': os.environ['DB_HOST'],
             'PORT': os.environ['DB_PORT'],
+            # Keep each gunicorn worker's connection open for reuse across requests
+            # instead of connecting (and authenticating) again on every page view.
+            # Health checks make Django quietly replace a connection the database
+            # side has dropped, rather than failing that request.
+            'CONN_MAX_AGE': 60,
+            'CONN_HEALTH_CHECKS': True,
         }
     }
     # Only needed for an external managed Postgres reached over the public internet
@@ -279,20 +301,35 @@ STATIC_ROOT = BASE_DIR / 'staticfiles'
 MEDIA_URL = 'media/'
 MEDIA_ROOT = DATA_DIR / 'media'
 
+# Static file storage. The manifest variant gives every file a content-hashed name
+# (dist/output.3f9a1c2b.css), which lets WhiteNoise tell browsers to cache CSS/JS/images
+# for a year -- any edit produces a new filename, so a stale copy is never served. The
+# plain variant can only allow a 60-second cache, so pages keep re-checking every asset.
+#
+# The catch: the manifest variant resolves each {% static %} tag through the
+# staticfiles.json that `collectstatic` writes, and with DEBUG=False a page 500s if that
+# file is missing. So it's only used where the manifest is guaranteed to exist:
+#   - while `collectstatic` itself runs (that's what writes the manifest), and
+#   - any later process once STATIC_ROOT/staticfiles.json exists -- i.e. the Railway web
+#     service, whose start command runs collectstatic before gunicorn (railway.toml).
+# Everything else keeps the plain variant exactly as before: local dev, the Railway cron
+# service (never runs collectstatic), and always the test runner -- Django forces
+# DEBUG=False there, and a leftover local manifest could be stale.
+USE_HASHED_STATIC = _MANAGE_COMMAND != 'test' and (
+    _MANAGE_COMMAND == 'collectstatic' or (STATIC_ROOT / 'staticfiles.json').exists()
+)
+
 STORAGES = {
     'default': {
         'BACKEND': 'django.core.files.storage.FileSystemStorage',
     },
     'staticfiles': {
-        # Deliberately the non-manifest variant: ManifestStaticFilesStorage resolves
-        # every {% static %} tag through a staticfiles.json built by `collectstatic`,
-        # which doesn't exist yet in local dev/tests (and Django's test runner forces
-        # DEBUG=False, so gating this on DEBUG wouldn't help) -- every page using
-        # {% static %} would 500 until collectstatic had been run at least once. This
-        # variant still gets gzip/brotli precompression and correct cache headers from
-        # WhiteNoiseMiddleware, just without content-hashed cache-busting filenames --
-        # an acceptable trade for a small, infrequently-redeployed app.
-        'BACKEND': 'whitenoise.storage.CompressedStaticFilesStorage',
+        # Both variants get gzip/brotli precompression from WhiteNoise.
+        'BACKEND': (
+            'whitenoise.storage.CompressedManifestStaticFilesStorage'
+            if USE_HASHED_STATIC
+            else 'whitenoise.storage.CompressedStaticFilesStorage'
+        ),
     },
 }
 

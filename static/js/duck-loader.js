@@ -23,6 +23,13 @@
     // and hiding the overlay mid-request would make the page look frozen.
     const SAFETY_TIMEOUT_MS = 120000;
 
+    // Link clicks wait this long before showing the overlay, so a page that arrives
+    // quickly just appears instead of flashing a spinner first -- the overlay only
+    // shows up when a navigation is genuinely slow. Form submits still show it at once
+    // on purpose: covering the page immediately is also what stops a double-click from
+    // submitting the same form twice.
+    const LINK_SHOW_DELAY_MS = 300;
+
     // The logo <img> src comes from the include (data-logo on this script tag) so the
     // {% static %} URL is resolved by Django rather than hard-coded here.
     const scriptEl = document.currentScript;
@@ -47,6 +54,7 @@
     let textEl = null;
     let safetyTimer = null;
     let hideTimer = null;
+    let pendingShowTimer = null;
 
     function build() {
         if (overlay) {
@@ -90,6 +98,7 @@
 
     function show(text) {
         build();
+        window.clearTimeout(pendingShowTimer);
         window.clearTimeout(hideTimer);
         textEl.textContent = text || DEFAULT_TEXT;
         overlay.setAttribute("aria-hidden", "false");
@@ -103,6 +112,8 @@
     }
 
     function hide() {
+        // Also cancels a link's delayed show that hasn't fired yet.
+        window.clearTimeout(pendingShowTimer);
         window.clearTimeout(safetyTimer);
         if (!overlay) {
             return;
@@ -172,7 +183,10 @@
         }
         window.setTimeout(function () {
             if (!event.defaultPrevented && isNavigatingLink(link)) {
-                show(link.dataset.loaderText);
+                window.clearTimeout(pendingShowTimer);
+                pendingShowTimer = window.setTimeout(function () {
+                    show(link.dataset.loaderText);
+                }, LINK_SHOW_DELAY_MS);
             }
         }, 0);
     });

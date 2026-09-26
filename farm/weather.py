@@ -34,6 +34,8 @@ from datetime import date as date_cls
 
 import requests
 from django.conf import settings
+from django.core.cache import cache
+from django.utils import timezone
 
 logger = logging.getLogger(__name__)
 
@@ -41,6 +43,46 @@ OPEN_METEO_URL = "https://api.open-meteo.com/v1/forecast"
 OPEN_METEO_ARCHIVE_URL = "https://archive-api.open-meteo.com/v1/archive"
 OPEN_METEO_GEOCODING_URL = "https://geocoding-api.open-meteo.com/v1/search"
 REQUEST_TIMEOUT_SECONDS = 5
+
+# Each Open-Meteo request takes about a second, and the dashboard makes one on every
+# visit -- so a successful result is reused for a while instead (see _cached below):
+#   - current conditions: Open-Meteo itself only refreshes them every 15 minutes;
+#   - the few-day forecast: refreshed roughly hourly, and also keyed by today's date so
+#     a result from before midnight is never reused for the new day;
+#   - one past date's average: the past doesn't change.
+CURRENT_WEATHER_CACHE_SECONDS = 10 * 60
+FORECAST_WEATHER_CACHE_SECONDS = 60 * 60
+HISTORICAL_WEATHER_CACHE_SECONDS = 6 * 60 * 60
+
+
+def _cached(key, timeout, fetch):
+    """Return the cached result under `key`, or call fetch() and cache what it returns.
+
+    Only a successful lookup is cached: a failure (None, or {} from the forecast lookup)
+    is returned as-is and retried on the next call, so one network blip can't leave the
+    weather blank for the whole cache period. A problem with the cache itself (e.g. its
+    database table missing) is logged and treated as a cache miss -- the lookup still
+    works, just uncached -- keeping this module's "never raises" contract. Bypassed
+    entirely when settings.PERFORMANCE_CACHES_ENABLED is off (the test runner).
+    """
+    if not settings.PERFORMANCE_CACHES_ENABLED:
+        return fetch()
+
+    try:
+        cached = cache.get(key)
+    except Exception:
+        logger.warning("Weather cache read failed for key=%s", key, exc_info=True)
+        cached = None
+    if cached is not None:
+        return cached
+
+    result = fetch()
+    if result:
+        try:
+            cache.set(key, result, timeout)
+        except Exception:
+            logger.warning("Weather cache write failed for key=%s", key, exc_info=True)
+    return result
 
 
 def fetch_current_weather(latitude=None, longitude=None):
@@ -62,6 +104,15 @@ def fetch_current_weather(latitude=None, longitude=None):
     if not latitude or not longitude:
         return None
 
+    return _cached(
+        f"weather:current:{latitude}:{longitude}",
+        CURRENT_WEATHER_CACHE_SECONDS,
+        lambda: _request_current_weather(latitude, longitude),
+    )
+
+
+def _request_current_weather(latitude, longitude):
+    """The uncached Open-Meteo request behind fetch_current_weather (same return value)."""
     try:
         response = requests.get(
             OPEN_METEO_URL,
@@ -115,6 +166,17 @@ def fetch_forecast_weather(latitude=None, longitude=None) -> dict:
     if not latitude or not longitude:
         return {}
 
+    # timezone.localdate() is the farm's own calendar day (TIME_ZONE = Asia/Manila), the
+    # same day boundary timezone=auto gives Open-Meteo's response below.
+    return _cached(
+        f"weather:forecast:{latitude}:{longitude}:{timezone.localdate().isoformat()}",
+        FORECAST_WEATHER_CACHE_SECONDS,
+        lambda: _request_forecast_weather(latitude, longitude),
+    )
+
+
+def _request_forecast_weather(latitude, longitude) -> dict:
+    """The uncached Open-Meteo request behind fetch_forecast_weather (same return value)."""
     try:
         response = requests.get(
             OPEN_METEO_URL,
@@ -187,10 +249,17 @@ def fetch_historical_weather(target_date, latitude=None, longitude=None):
     if not latitude or not longitude or target_date >= date_cls.today():
         return None
 
-    result = _fetch_daily_average(OPEN_METEO_ARCHIVE_URL, latitude, longitude, target_date)
-    if result is None:
-        result = _fetch_daily_average(OPEN_METEO_URL, latitude, longitude, target_date)
-    return result
+    def request_both_tiers():
+        result = _fetch_daily_average(OPEN_METEO_ARCHIVE_URL, latitude, longitude, target_date)
+        if result is None:
+            result = _fetch_daily_average(OPEN_METEO_URL, latitude, longitude, target_date)
+        return result
+
+    return _cached(
+        f"weather:historical:{latitude}:{longitude}:{target_date.isoformat()}",
+        HISTORICAL_WEATHER_CACHE_SECONDS,
+        request_both_tiers,
+    )
 
 
 def _fetch_daily_average(url, latitude, longitude, target_date):

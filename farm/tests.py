@@ -15,6 +15,7 @@ from unittest.mock import Mock, patch
 import requests
 from django.contrib.auth import get_user_model
 from django.core import mail
+from django.core.cache import cache
 from django.core.exceptions import ValidationError
 from django.core.management import call_command
 from django.test import Client, TestCase, override_settings
@@ -39,7 +40,7 @@ from .services import (
     resolve_trend_range,
     trend_range_choices_for,
 )
-from .weather import fetch_current_weather, fetch_historical_weather, geocode_address
+from .weather import fetch_current_weather, fetch_forecast_weather, fetch_historical_weather, geocode_address
 
 User = get_user_model()
 
@@ -2007,3 +2008,90 @@ class ExportFarmDataCommandTests(TestCase):
 
         with self.assertRaises(CommandError):
             self._export([999999])
+
+
+@override_settings(PERFORMANCE_CACHES_ENABLED=True, FARM_LATITUDE=14.1, FARM_LONGITUDE=122.9)
+class WeatherCachingTests(TestCase):
+    """farm.weather reuses a successful Open-Meteo result for a while instead of making
+    the same ~1s request on every dashboard visit / daily-log save (see _cached). Every
+    other test runs with PERFORMANCE_CACHES_ENABLED off; this class switches it on."""
+
+    CURRENT_PAYLOAD = {"current": {"temperature_2m": 29.34, "relative_humidity_2m": 81.6}}
+
+    def setUp(self):
+        cache.clear()
+        self.addCleanup(cache.clear)
+
+    @patch("farm.weather.requests.get")
+    def test_current_weather_is_fetched_once_then_reused(self, mock_get):
+        mock_get.return_value.json.return_value = self.CURRENT_PAYLOAD
+        first = fetch_current_weather()
+        second = fetch_current_weather()
+        self.assertEqual(first, {"temperature_c": 29.3, "humidity_pct": 81.6})
+        self.assertEqual(second, first)
+        self.assertEqual(mock_get.call_count, 1)
+
+    @patch("farm.weather.requests.get")
+    def test_a_failed_lookup_is_not_cached(self, mock_get):
+        success = Mock()
+        success.json.return_value = self.CURRENT_PAYLOAD
+        mock_get.side_effect = [requests.exceptions.Timeout, success]
+        self.assertIsNone(fetch_current_weather())
+        # The next call tries again rather than serving the failure from the cache.
+        self.assertEqual(fetch_current_weather(), {"temperature_c": 29.3, "humidity_pct": 81.6})
+        self.assertEqual(mock_get.call_count, 2)
+
+    @patch("farm.weather.requests.get")
+    def test_each_location_is_cached_separately(self, mock_get):
+        mock_get.return_value.json.return_value = self.CURRENT_PAYLOAD
+        fetch_current_weather(latitude=13.5, longitude=123.2)
+        fetch_current_weather(latitude=14.1, longitude=122.9)
+        self.assertEqual(mock_get.call_count, 2)
+
+    @patch("farm.weather.requests.get")
+    def test_forecast_is_fetched_once_then_reused(self, mock_get):
+        today = timezone.localdate()
+        mock_get.return_value.json.return_value = {
+            "hourly": {
+                "time": [f"{today.isoformat()}T00:00", f"{today.isoformat()}T01:00"],
+                "temperature_2m": [30.0, 32.0],
+                "relative_humidity_2m": [70.0, 80.0],
+            }
+        }
+        first = fetch_forecast_weather()
+        self.assertEqual(first, {today: {"temperature_c": 31.0, "humidity_pct": 75.0}})
+        self.assertEqual(fetch_forecast_weather(), first)
+        self.assertEqual(mock_get.call_count, 1)
+
+    @patch("farm.weather.requests.get")
+    def test_an_empty_forecast_is_not_cached(self, mock_get):
+        mock_get.side_effect = requests.exceptions.ConnectionError
+        self.assertEqual(fetch_forecast_weather(), {})
+        self.assertEqual(fetch_forecast_weather(), {})
+        self.assertEqual(mock_get.call_count, 2)
+
+    @patch("farm.weather.requests.get")
+    def test_historical_weather_is_cached_per_date(self, mock_get):
+        mock_get.return_value.json.return_value = {
+            "hourly": {"temperature_2m": [28.0, 30.0], "relative_humidity_2m": [80.0, 90.0]}
+        }
+        day = date.today() - timedelta(days=10)
+        self.assertEqual(fetch_historical_weather(day), {"temperature_c": 29.0, "humidity_pct": 85.0})
+        fetch_historical_weather(day)
+        self.assertEqual(mock_get.call_count, 1)
+        fetch_historical_weather(day - timedelta(days=1))
+        self.assertEqual(mock_get.call_count, 2)
+
+    @patch("farm.weather.cache.get", side_effect=Exception("cache table missing"))
+    @patch("farm.weather.requests.get")
+    def test_a_broken_cache_falls_back_to_a_live_lookup(self, mock_get, mock_cache_get):
+        mock_get.return_value.json.return_value = self.CURRENT_PAYLOAD
+        self.assertEqual(fetch_current_weather(), {"temperature_c": 29.3, "humidity_pct": 81.6})
+
+    @override_settings(PERFORMANCE_CACHES_ENABLED=False)
+    @patch("farm.weather.requests.get")
+    def test_disabled_caching_fetches_every_time(self, mock_get):
+        mock_get.return_value.json.return_value = self.CURRENT_PAYLOAD
+        fetch_current_weather()
+        fetch_current_weather()
+        self.assertEqual(mock_get.call_count, 2)

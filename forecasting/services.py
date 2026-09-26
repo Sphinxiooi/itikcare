@@ -106,13 +106,39 @@ def model_path_for(owner_id: int):
     return MODEL_DIR / f"forecast_model_{owner_id}.joblib"
 
 
+# The most recently loaded model artifact in this worker process, reused while its file on
+# disk is unchanged. Reading one back from disk takes ~0.1-0.2s on every daily-log save
+# otherwise. Only one is kept, so memory stays bounded to one model per gunicorn worker
+# (this is a single-farm app -- in practice every save uses the same farm's model).
+_artifact_cache = {"key": None, "artifact": None}
+
+
 def _load_artifact(model_path) -> dict:
+    """Load the model artifact at model_path, reusing this process's cached copy when the
+    file hasn't changed since it was loaded.
+
+    "Unchanged" means same path, modification time, size and inode. Retraining
+    (train_forecast_model.py) writes a new file and os.replace()s it into place, which
+    changes all of those, so the very next forecast after a retrain loads the new model.
+    Loading never changes what the model predicts -- the cached copy is the same object
+    joblib.load would return, and prediction doesn't modify it. Always reads from disk
+    when settings.PERFORMANCE_CACHES_ENABLED is off (the test runner).
+    """
     if not model_path.exists():
         raise ModelNotTrainedError(
             f"No trained model at {model_path}. Run "
             f"`python manage.py train_forecast_model --owner-id <id>` first."
         )
-    return joblib.load(model_path)
+    if not settings.PERFORMANCE_CACHES_ENABLED:
+        return joblib.load(model_path)
+
+    stat = model_path.stat()
+    key = (str(model_path), stat.st_mtime_ns, stat.st_size, stat.st_ino)
+    if _artifact_cache["key"] != key:
+        artifact = joblib.load(model_path)
+        _artifact_cache["artifact"] = artifact
+        _artifact_cache["key"] = key
+    return _artifact_cache["artifact"]
 
 
 def current_forecast_warmup(active_flock):
@@ -281,7 +307,9 @@ def generate_forecast(daily_log: DailyLog, model_path=None) -> Forecast:
             forecast_date=daily_log.date,
             defaults={
                 **predictions,
-                "feature_importances": artifact["feature_importances"]["daily"],
+                # A copy, so nothing done to the saved Forecast's dict can ever reach
+                # the cached artifact (see _load_artifact).
+                "feature_importances": dict(artifact["feature_importances"]["daily"]),
                 "model_version": artifact["model_version"],
             },
         )

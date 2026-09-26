@@ -264,8 +264,11 @@ def farm_records(request):
     selected_flock = flocks_by_id.get(request.GET.get("flock"), default_flock)
     selected_flock_id = str(selected_flock.id) if selected_flock else ""
 
+    # select_related("flock"): the template checks log.flock.is_active on every row, which
+    # would otherwise cost one extra query per log.
     logs = (
-        DailyLog.objects.filter(flock=selected_flock).order_by("-date").prefetch_related("edits")
+        DailyLog.objects.filter(flock=selected_flock).order_by("-date")
+        .select_related("flock").prefetch_related("edits")
         if selected_flock else DailyLog.objects.none()
     )
 
