@@ -8,13 +8,14 @@ requesting farmer now that more than one farm's data lives in the same tables.
 import json
 import re
 import statistics
-from datetime import timedelta
+from bisect import bisect_right
+from datetime import date, timedelta
 
 from django.db.models import Max
 from django.utils import timezone
 from django.utils.formats import date_format
 from django.utils.translation import gettext as _
-from django.utils.translation import gettext_lazy
+from django.utils.translation import gettext_lazy, ngettext
 
 from .models import DailyLog, Flock
 
@@ -45,13 +46,6 @@ def trend_range_choices_for(flock):
     month_values = DailyLog.objects.filter(flock=flock).dates("date", "month", order="DESC")
     month_options = tuple((d.strftime("%Y-%m"), date_format(d, "F Y")) for d in month_values)
     return TREND_RANGE_OPTIONS + month_options
-
-# A live entry more than this many days after the flock's previous log is treated as
-# the start of a new caging period (i.e. the flock was free-ranged in between and has
-# just been re-caged — itikcare-spec.md section 10). Chosen from the historical CSV
-# import: every gap that stayed within one caging_period was <= 5 days, and every real
-# caging-period boundary was >= 43 days, so 14 sits safely in between either reading.
-CAGING_PERIOD_GAP_DAYS = 14
 
 # Below this many prior logs for a flock, its own mean/spread isn't trustworthy enough
 # to judge a new entry against — a brand-new flock's first few days have no baseline.
@@ -138,73 +132,61 @@ def current_flock_age_weeks(daily_log):
     return daily_log.flock_age_weeks + weeks_elapsed
 
 
-def assign_caging_periods(active_flock, owner, new_dates_sorted):
-    """Caging-period numbers for a batch of new DailyLog dates for active_flock.
+def caging_period_for_new_log(active_flock, owner):
+    """The caging_period number for the next DailyLog of active_flock.
 
-    ``new_dates_sorted`` must already be sorted ascending. Returns a list of ints, one
-    per date, in the same order — the identical rule views.log_daily_data applies to a
-    single new entry, just walked across a whole batch (so a CSV bulk import and a
-    farmer typing rows in one at a time can never disagree on where a caging period
-    boundary falls).
+    A new caging period starts only when the flock has actually been out free-range and
+    come back (itikcare-spec.md section 10): resume_caging / toggle_caging_status set
+    Flock.starts_new_caging_period, and log_daily_data clears it once this log is saved.
+    A plain gap in logging while the flock stayed caged -- the farmer just didn't log
+    for a while -- continues the same period. The ducks were caged and laying the whole
+    time, so it's the same operational segment, only with unrecorded days; the forecast
+    shows a "may be less accurate" caution for it instead (see
+    forecasting.services.current_logging_gap_caution).
 
-    Bridges from whatever history already exists for this flock: if the flock has no
-    DailyLog yet, the first date in the batch continues this *owner's* overall
-    caging_period counter (Max across all their flocks — see log_daily_data's docstring
-    on why a flock-retirement reset must continue the counter, not restart at 1)
-    unconditionally, with no gap check possible since there's no prior date to compare
-    against. Otherwise it bridges from the flock's own most recent existing log. Every
-    date after the first in the batch is compared to the *previous date in the batch*
-    (not always the pre-existing history), so an internal gap partway through an
-    imported file is detected exactly like a live gap would be.
+    A flock's very first log always starts a new period, continuing this *owner's*
+    overall caging_period counter (Max across all their flocks) rather than restarting
+    at 1 -- a flock-generation reset is a segment boundary too.
     """
     previous_log = DailyLog.objects.filter(flock=active_flock).order_by("-date").first()
     if previous_log is None:
         max_caging_period = DailyLog.objects.filter(flock__owner=owner).aggregate(
             Max("caging_period")
         )["caging_period__max"]
-        prev_date, prev_period = None, max_caging_period or 0
-    else:
-        prev_date, prev_period = previous_log.date, previous_log.caging_period
-
-    periods = []
-    for new_date in new_dates_sorted:
-        if prev_date is None:
-            new_period = prev_period + 1
-        else:
-            gap_days = (new_date - prev_date).days
-            new_period = prev_period + 1 if gap_days > CAGING_PERIOD_GAP_DAYS else prev_period
-        periods.append(new_period)
-        prev_date, prev_period = new_date, new_period
-    return periods
+        return (max_caging_period or 0) + 1
+    if active_flock.starts_new_caging_period:
+        return previous_log.caging_period + 1
+    return previous_log.caging_period
 
 
 def recompute_caging_period(daily_log):
     """Re-derive one DailyLog's caging_period after an edit moved its date.
 
-    caging_period is assigned once, when the row is first logged (assign_caging_periods
-    above), from the day-gap to the log immediately before it. farm_record_edit audits
-    a date change but that stored period can then be wrong — e.g. a date edited across
-    a >CAGING_PERIOD_GAP_DAYS gap now belongs to a different free-range/caging segment.
-    This recomputes just this row, from the log now immediately before it, using the
-    identical gap rule.
+    caging_period is assigned once, when the row is first logged (caging_period_for_new_log
+    above). farm_record_edit audits a date change, but the stored period can then be out
+    of order with its new neighbours -- e.g. a date moved from after a free-range return
+    back to before it.
 
-    It deliberately does NOT cascade to later rows: a one- or two-day date correction
-    is the normal case and doesn't reshuffle the series, and a farmer can't move a date
-    far without the change being obvious in Farm Records. A bulk re-segmentation, if it
+    Periods only ever increase with date, so the log's period is clamped between the
+    periods of the logs now immediately before and after it:
+    * a small date correction inside a period changes nothing;
+    * the first log of a period moved slightly earlier (still after the previous
+      period's last log) keeps its own, newer period;
+    * a log moved deep into another period takes that period.
+
+    It deliberately does NOT cascade to other rows: a farmer can't move a date far
+    without the change being obvious in Farm Records, and a bulk re-segmentation, if it
     were ever needed, belongs in a management command, not a request cycle.
     """
-    previous_log = (
-        DailyLog.objects.filter(flock=daily_log.flock, date__lt=daily_log.date)
-        .exclude(pk=daily_log.pk)
-        .order_by("-date")
-        .first()
-    )
-    if previous_log is None:
-        return  # now the flock's earliest entry — nothing before it to bridge from
-    gap_days = (daily_log.date - previous_log.date).days
-    new_period = (
-        previous_log.caging_period + 1 if gap_days > CAGING_PERIOD_GAP_DAYS else previous_log.caging_period
-    )
+    other_logs = DailyLog.objects.filter(flock=daily_log.flock).exclude(pk=daily_log.pk)
+    previous_log = other_logs.filter(date__lt=daily_log.date).order_by("-date").first()
+    next_log = other_logs.filter(date__gt=daily_log.date).order_by("date").first()
+
+    new_period = daily_log.caging_period
+    if previous_log is not None:
+        new_period = max(new_period, previous_log.caging_period)
+    if next_log is not None:
+        new_period = min(new_period, next_log.caging_period)
     if new_period != daily_log.caging_period:
         daily_log.caging_period = new_period
         daily_log.save(update_fields=["caging_period"])
@@ -261,36 +243,153 @@ def resolve_trend_range(raw_value, choices=TREND_RANGE_OPTIONS):
     return raw_value if raw_value in dict(choices) else "7"
 
 
-def build_next_day_forecasts(latest_forecast):
-    """The Next 3-Day Forecast panel's 3 distinct day-by-day numbers (forecast_date +
-    1/2/3), not the single predicted_tri_day_yield sum -- see forecasting/services.py's
-    _predict_next_days for how these are derived. Returns [] if latest_forecast is None
-    or its prediction was withheld during warm-up (see forecasting.services.forecast_readiness).
+# How many days past its own date one Forecast still predicts (its
+# predicted_next_day1/2/3_yield -- see forecasting/services.py::_predict_next_days).
+FORECAST_HORIZON_DAYS = 3
+
+# Which Forecast field predicts the day `horizon` days after its forecast_date. Horizon 0
+# is the same-day prediction made from that day's own DailyLog.
+FORECAST_FIELD_BY_HORIZON = {
+    0: "predicted_daily_yield",
+    1: "predicted_next_day1_yield",
+    2: "predicted_next_day2_yield",
+    3: "predicted_next_day3_yield",
+}
+
+
+def predictions_by_date(flock, start, end):
+    """The newest available prediction for every date in [start, end] that has one.
+
+    Every logged day produces a Forecast covering 4 dates: its own date (horizon 0, the
+    same-day prediction) and the next 3 days (horizons 1-3). So a date can be predicted by
+    up to 4 different Forecasts. The rule used everywhere a prediction is displayed (the
+    Next 3-Day Forecast panel and the Egg Yield Trend chart) is simply: **the newest
+    Forecast wins**. A logged day shows its own same-day prediction; a day that isn't
+    logged (yet) shows yesterday's day+1, else the day before's day+2, else day+3. This
+    is what keeps the predicted line and the panel from disappearing when the farmer
+    hasn't logged today yet, or skipped a day.
+
+    Returns {date: {"value", "forecast_date", "horizon"}} -- forecast_date/horizon are
+    kept so every displayed number can be traced back to the Forecast that produced it.
+    Warm-up Forecasts (no prediction -- see forecasting.services.forecast_readiness) are
+    skipped, so an older real prediction is used instead if one covers that date.
     """
-    if latest_forecast is None or not latest_forecast.has_prediction:
+    # Local import: see build_trend_chart_data below for why.
+    from forecasting.models import Forecast
+
+    forecasts = Forecast.objects.filter(
+        flock=flock,
+        forecast_date__range=(start - timedelta(days=FORECAST_HORIZON_DAYS), end),
+        predicted_daily_yield__isnull=False,
+    ).order_by("forecast_date")
+
+    predictions = {}
+    # Oldest first, so a newer Forecast's value for the same date overwrites an older one.
+    for forecast in forecasts:
+        for horizon, field in FORECAST_FIELD_BY_HORIZON.items():
+            target_date = forecast.forecast_date + timedelta(days=horizon)
+            value = getattr(forecast, field)
+            if start <= target_date <= end and value is not None:
+                predictions[target_date] = {
+                    "value": value,
+                    "forecast_date": forecast.forecast_date,
+                    "horizon": horizon,
+                }
+    return predictions
+
+
+def build_next_day_forecasts(flock, today):
+    """The Next 3-Day Forecast panel: the newest prediction (see predictions_by_date) for
+    each upcoming day that hasn't been logged yet, from today through today + 3.
+
+    Before today is logged, that is yesterday's forecast: Today / Tomorrow / day after.
+    Once today is logged, today's own forecast takes over: Tomorrow / +2 / +3. If the
+    farmer skipped a day or two, fewer days are still covered (e.g. a forecast from 2
+    days ago only reaches Today and Tomorrow), and once the newest forecast is more than
+    3 days old there's nothing left to show -- [] is returned.
+
+    These are 3 distinct day-by-day numbers, not the single predicted_tri_day_yield sum
+    -- see forecasting/services.py's _predict_next_days for how they're derived.
+    """
+    if flock is None:
         return []
+    end = today + timedelta(days=FORECAST_HORIZON_DAYS)
+    predictions = predictions_by_date(flock, today, end)
+    logged_dates = set(DailyLog.objects.filter(flock=flock, date__range=(today, end)).values_list("date", flat=True))
     return [
         {
-            "date": latest_forecast.forecast_date + timedelta(days=n),
-            "value": value,
-            "is_tomorrow": n == 1,
+            "date": day,
+            "value": prediction["value"],
+            "is_today": day == today,
+            "is_tomorrow": day == today + timedelta(days=1),
+            "forecast_date": prediction["forecast_date"],
+            "horizon": prediction["horizon"],
         }
-        for n, value in enumerate(
-            [
-                latest_forecast.predicted_next_day1_yield,
-                latest_forecast.predicted_next_day2_yield,
-                latest_forecast.predicted_next_day3_yield,
-            ],
-            start=1,
-        )
+        for day, prediction in sorted(predictions.items())
+        if day not in logged_dates
     ]
 
 
-def build_trend_chart_data(active_flock, flock_is_caged, trend_range, next_day_forecasts):
+# How many days one Tri-day Yield Model prediction covers: its Forecast's own date plus
+# the next 2 days (forecasting/pipeline.py::add_tri_day_target).
+TRI_DAY_WINDOW_DAYS = 3
+
+
+def build_tri_day_forecast(flock, today):
+    """The Tri-day Yield Model's 3-day total for the Forecast & Recommendations page, or
+    None when there's none to show.
+
+    Uses the newest Forecast with a tri-day prediction whose window still reaches today.
+    The tri-day model predicts the total for its forecast_date plus the next 2 days, so a
+    forecast from up to 2 days ago still covers today. start/end are returned so the page
+    labels the exact dates the total covers -- this window starts on the forecast date
+    itself, so it isn't the same 3 dates as the Next 3-Day panel's cards, which come from
+    the Daily Yield Model (forecasting/services.py::_predict_next_days).
+
+    None while the flock has just been re-caged and hasn't logged yet
+    (Flock.starts_new_caging_period): any recent Forecast then belongs to the previous
+    caging period, and a projection must never cross that boundary (itikcare-spec.md
+    section 10). After the first new log, the warm-up notice hides it instead.
+    """
+    # Local import: see build_trend_chart_data below for why.
+    from forecasting.models import Forecast
+
+    if flock is None or flock.starts_new_caging_period:
+        return None
+    forecast = (
+        Forecast.objects.filter(
+            flock=flock,
+            forecast_date__range=(today - timedelta(days=TRI_DAY_WINDOW_DAYS - 1), today),
+            predicted_tri_day_yield__isnull=False,
+        )
+        .order_by("-forecast_date")
+        .first()
+    )
+    if forecast is None:
+        return None
+    return {
+        "value": forecast.predicted_tri_day_yield,
+        "start": forecast.forecast_date,
+        "end": forecast.forecast_date + timedelta(days=TRI_DAY_WINDOW_DAYS - 1),
+        "forecast_date": forecast.forecast_date,
+    }
+
+
+def _prediction_source_label(prediction):
+    """Tooltip text naming which Forecast a trend-chart point came from (traceability)."""
+    if prediction["horizon"] == 0:
+        return _("Same-day prediction")
+    return ngettext(
+        "Forecast from %(date)s (%(days)s day ahead)",
+        "Forecast from %(date)s (%(days)s days ahead)",
+        prediction["horizon"],
+    ) % {"date": date_format(prediction["forecast_date"], "M j"), "days": prediction["horizon"]}
+
+
+def build_trend_chart_data(active_flock, flock_is_caged, trend_range):
     """Chart.js-ready trend data shared by the dashboard and the Forecast & Recommendations
-    page: oldest-to-newest across the selected range of logged days, showing "actual" (from
-    DailyLog) and "predicted" (from Forecast) side by side, extended with next_day_forecasts'
-    dashed forward-looking tail (see build_next_day_forecasts).
+    page: oldest-to-newest, "actual" (from DailyLog) and "predicted" (from Forecast) side by
+    side.
 
     trend_range must already be validated (see resolve_trend_range). "all" has no calendar
     cutoff -- every logged day for the flock. "7"/"30" are calendar-day cutoffs, not a
@@ -300,77 +399,96 @@ def build_trend_chart_data(active_flock, flock_is_caged, trend_range, next_day_f
     "YYYY-MM" value (see trend_range_choices_for/MONTH_TREND_RANGE_RE) instead pins the
     chart to one specific calendar month, same convention as farm_records' month filter.
 
-    Every Forecast is a same-day nowcast, so there is no genuinely future-dated Forecast row
-    to pull "predicted" from beyond the logged range -- that's what next_day_forecasts
-    supplies instead. trend_actual stays None for those extension points -- no DailyLog
-    exists yet for a day that hasn't happened -- and the returned trend_future_start_index
-    tells the caller's template where to start dashing the predicted line, so a forecast is
-    never visually mistaken for a nowcast tied to a real log. A specific past month is never
-    extended with this tail (see is_month_view below) -- next_day_forecasts is always
-    relative to *today*, so appending it to e.g. April's chart would jump straight from a
-    logged month to several months in the future with nothing in between.
-    """
-    # Local import: forecasting.models only imports farm.models (not farm.services), so this
-    # has no cycle, but keeping it local avoids forcing every farm.services import to also
-    # resolve the forecasting app's models.
-    from forecasting.models import Forecast
+    "Predicted" for each date is the newest prediction available for it (see
+    predictions_by_date): a logged day's own same-day prediction, otherwise the most recent
+    earlier forecast that covers it. So the predicted line doesn't break on a day the
+    farmer skipped, and it keeps running up to 3 days past the last log -- including today
+    before today has been logged. Each point's value updates in place when a newer
+    prediction for that date arrives.
 
+    The x-axis is every logged date in range plus every *unlogged* date that has a
+    prediction, subject to one guard (itikcare-spec.md section 10): an unlogged date is only
+    shown while the farm is still in the same caging period as the forecast that predicted
+    it. So the last log before a free-range gap never trails 3 projected days into the gap.
+    trend_actual is None on unlogged dates (a real missing log stays a visible break in the
+    actual line), and trend_projected marks them so the template can dash the predicted
+    line there -- a projection is never visually mistaken for a prediction tied to a real
+    log. A specific month view is clipped to that month and to today at the latest, so it
+    never grows a future tail.
+    """
+    today = operational_today()
     is_month_view = bool(MONTH_TREND_RANGE_RE.match(trend_range))
+    flock_logs = DailyLog.objects.filter(flock=active_flock)
 
     if trend_range == "all":
-        trend_logs = list(DailyLog.objects.filter(flock=active_flock).order_by("-date")) if flock_is_caged else []
+        trend_logs = list(flock_logs.order_by("-date")) if flock_is_caged else []
+        start = trend_logs[-1].date if trend_logs else None
+        end = today + timedelta(days=FORECAST_HORIZON_DAYS)
     elif is_month_view:
         year, month = (int(part) for part in trend_range.split("-"))
-        trend_logs = (
-            list(DailyLog.objects.filter(flock=active_flock, date__year=year, date__month=month).order_by("-date"))
-            if flock_is_caged
-            else []
-        )
+        start = date(year, month, 1)
+        next_month_start = (start + timedelta(days=32)).replace(day=1)
+        end = min(next_month_start - timedelta(days=1), today)
+        trend_logs = list(flock_logs.filter(date__range=(start, end)).order_by("-date")) if flock_is_caged else []
     else:
-        trend_cutoff = timezone.localdate() - timedelta(days=int(trend_range) - 1)
-        trend_logs = (
-            list(DailyLog.objects.filter(flock=active_flock, date__gte=trend_cutoff).order_by("-date"))
-            if flock_is_caged
-            else []
-        )
+        start = today - timedelta(days=int(trend_range) - 1)
+        end = today + timedelta(days=FORECAST_HORIZON_DAYS)
+        trend_logs = list(flock_logs.filter(date__gte=start).order_by("-date")) if flock_is_caged else []
 
     actual_by_date = {log.date: float(log.egg_count) for log in trend_logs}
-    trend_dates = set(actual_by_date)
+
     predicted_by_date = {}
-    if trend_dates:
+    if trend_logs:
+        # Caging period of every log a shown prediction could depend on: the forecast's own
+        # source log (up to FORECAST_HORIZON_DAYS before start) and the next log after an
+        # unlogged date (which may fall after `end`, e.g. early next month in a month view).
+        period_by_date = dict(
+            flock_logs.filter(date__gte=start - timedelta(days=FORECAST_HORIZON_DAYS))
+            .order_by("date")
+            .values_list("date", "caging_period")
+        )
+        log_dates = sorted(period_by_date)
+
+        def projection_is_shown(day, prediction):
+            next_log_index = bisect_right(log_dates, day)
+            if next_log_index < len(log_dates):
+                # Logged again afterwards: show it only if that was still the same caging
+                # period as the forecast's own log -- not a return from free-range.
+                next_log_date = log_dates[next_log_index]
+                return period_by_date[next_log_date] == period_by_date.get(prediction["forecast_date"])
+            # Nothing logged since: this is the live tail, shown while the forecast is still
+            # recent enough to cover today onward (same window as build_next_day_forecasts).
+            return prediction["forecast_date"] >= today - timedelta(days=FORECAST_HORIZON_DAYS)
+
         predicted_by_date = {
-            f.forecast_date: float(f.predicted_daily_yield)
-            for f in Forecast.objects.filter(
-                flock=active_flock,
-                forecast_date__range=(min(trend_dates), max(trend_dates)),
-                # Warm-up forecasts carry recommendations but no prediction.
-                predicted_daily_yield__isnull=False,
-            )
+            day: prediction
+            for day, prediction in predictions_by_date(active_flock, start, end).items()
+            if day in actual_by_date or projection_is_shown(day, prediction)
         }
-    trend_dates = sorted(trend_dates)
+
+    trend_dates = sorted(set(actual_by_date) | set(predicted_by_date))
     # (strftime's day-without-zero-padding directive isn't portable across platforms,
     # so the day number is appended manually instead of using "%-d"/"%#d".)
     trend_labels = [date_format(d, "M j") for d in trend_dates]
     trend_actual = [actual_by_date.get(d) for d in trend_dates]
-    trend_predicted = [predicted_by_date.get(d) for d in trend_dates]
-
-    trend_future_start_index = None
-    for day in [] if is_month_view else next_day_forecasts:
-        if day["value"] is None:
-            continue
-        if trend_future_start_index is None:
-            trend_future_start_index = len(trend_labels)
-        trend_labels.append(date_format(day["date"], "M j"))
-        trend_actual.append(None)
-        trend_predicted.append(float(day["value"]))
+    trend_predicted = [
+        float(predicted_by_date[d]["value"]) if d in predicted_by_date else None for d in trend_dates
+    ]
+    # True where the date has no log yet, so its prediction is a projection from an earlier
+    # day's forecast -- drawn dashed.
+    trend_projected = [d not in actual_by_date for d in trend_dates]
+    trend_predicted_source = [
+        _prediction_source_label(predicted_by_date[d]) if d in predicted_by_date else None for d in trend_dates
+    ]
 
     return {
         "trend_logs": trend_logs,
         "trend_labels_json": json.dumps(trend_labels),
         "trend_actual_json": json.dumps(trend_actual),
         "trend_predicted_json": json.dumps(trend_predicted),
-        "trend_future_start_index": trend_future_start_index,
-        "trend_has_future_forecast": trend_future_start_index is not None,
+        "trend_projected_json": json.dumps(trend_projected),
+        "trend_predicted_source_json": json.dumps(trend_predicted_source),
+        "trend_has_future_forecast": any(trend_projected),
     }
 
 

@@ -15,7 +15,7 @@ from farm.services import (
 )
 from farm.weather import fetch_current_weather
 from forecasting.models import Forecast
-from forecasting.services import current_forecast_warmup
+from forecasting.services import current_forecast_warmup, current_logging_gap_caution
 from recommendations.services import ACTIONABLE_PRIORITIES, most_urgent_recommendation
 
 
@@ -103,9 +103,11 @@ def index(request):
 
     # "Latest" here means the soonest still-actionable forecast (today or the nearest
     # upcoming date), not the furthest-out one — that's the prediction the farmer
-    # actually needs recommendations for right now. Every Forecast is a same-day
-    # nowcast (see forecasting/services.py), so in practice this is today's forecast
-    # or none — there's no genuinely future-dated Forecast row to prefer instead.
+    # actually needs recommendations for right now. Every Forecast is dated by the log
+    # it was made from (see forecasting/services.py), so in practice this is today's
+    # forecast or none — it drives the Quick Recommendation card only. The Next 3-Day
+    # panel and trend chart below don't use it: they fall back to yesterday's forecast
+    # until today is logged (see farm.services.predictions_by_date).
     latest_forecast = (
         Forecast.objects.filter(flock=active_flock, forecast_date__gte=operational_today())
         .order_by("forecast_date")
@@ -134,11 +136,16 @@ def index(request):
     # after free-range, has its yield prediction withheld (recommendations still show) --
     # see forecasting.services.forecast_readiness for the rule and why.
     forecast_warmup = current_forecast_warmup(active_flock)
+    # Prediction shown, but with a "may be less accurate" caution: the farmer skipped a
+    # week or more of logs while the flock stayed caged, so the prediction's recent
+    # laying history is old (forecasting.services.logging_gap_caution_for_log).
+    logging_gap_caution = None if forecast_warmup else current_logging_gap_caution(active_flock)
 
-    # Next 3-Day Forecast panel: 3 distinct day-by-day numbers (forecast_date + 1/2/3),
-    # not the single predicted_tri_day_yield sum -- see farm.services.build_next_day_forecasts
-    # (shared with the Forecast & Recommendations page's trend chart, see below).
-    next_day_forecasts = build_next_day_forecasts(latest_forecast)
+    # Next 3-Day Forecast panel: the newest prediction for each upcoming day not yet
+    # logged -- yesterday's forecast (Today/Tomorrow/+2) until today is logged, then
+    # today's (+1/+2/+3). See farm.services.build_next_day_forecasts, shared with the
+    # Forecast & Recommendations page.
+    next_day_forecasts = build_next_day_forecasts(active_flock, operational_today()) if flock_is_caged else []
 
     recent_logs = (
         list(DailyLog.objects.filter(flock=active_flock).order_by("-date")[:10])
@@ -163,7 +170,7 @@ def index(request):
     # the Forecast & Recommendations page's own trend chart -- see farm.services.
     trend_range_choices = trend_range_choices_for(active_flock)
     trend_range = resolve_trend_range(request.GET.get("trend_range", "7"), trend_range_choices)
-    trend_data = build_trend_chart_data(active_flock, flock_is_caged, trend_range, next_day_forecasts)
+    trend_data = build_trend_chart_data(active_flock, flock_is_caged, trend_range)
 
     context = {
         "active_nav": "dashboard",
@@ -184,6 +191,7 @@ def index(request):
         "latest_forecast": latest_forecast,
         "next_day_forecasts": next_day_forecasts,
         "forecast_warmup": forecast_warmup,
+        "logging_gap_caution": logging_gap_caution,
         "top_recommendation": top_recommendation,
         "has_calm_recommendations": has_calm_recommendations,
         "recent_logs": recent_logs,

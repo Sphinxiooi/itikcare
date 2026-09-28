@@ -12,7 +12,9 @@ class NotificationReceipt(models.Model):
     *reaction* to a notification, keyed by that notification's `key`:
 
     * read_at -- set when the bell's dropdown is opened; clears the unread badge.
-    * dismissed_at -- set by the item's dismiss button; hides it from the list.
+    * dismissed_at -- set by the item's dismiss button; hides it from the list for
+      a while (services.DISMISS_SNOOZE, or until the next login). If the issue is
+      still unfixed after that, the notification comes back.
 
     Keys embed the date/object they're about (e.g. "log_today_missing:2026-09-24"), so
     reading or dismissing today's reminder never silences tomorrow's.

@@ -30,11 +30,12 @@ from .services import (
     FARM_DAY_START_HOUR,
     RECORDS_CHART_MIN_LOGS,
     TREND_RANGE_OPTIONS,
-    assign_caging_periods,
     build_next_day_forecasts,
+    caging_period_for_new_log,
     build_records_chart_data,
     build_records_summary,
     build_trend_chart_data,
+    build_tri_day_forecast,
     get_effective_coordinates,
     operational_today,
     resolve_trend_range,
@@ -204,7 +205,7 @@ class LogDailyDataTests(TestCase):
             flock_age_weeks=25, egg_count=150, feed_intake_kg="40.0",
             temperature_c="28.0", humidity_pct="75.0", recorded_by=self.user,
         )
-        # 5-day gap: below the threshold, same caging period continues.
+        # 5-day gap, flock never left the cage: same caging period continues.
         self.client.post("/log-daily-data/", {**VALID_LOG_POST, "date": "2024-01-06"})
         log = DailyLog.objects.get(date=date(2024, 1, 6))
         self.assertEqual(log.caging_period, 3)
@@ -212,19 +213,43 @@ class LogDailyDataTests(TestCase):
         mock_trigger_retrain.assert_not_called()
 
     @patch("farm.views.trigger_retrain")
-    def test_large_gap_starts_a_new_caging_period(self, mock_trigger_retrain):
+    def test_long_gap_while_caged_still_continues_the_same_caging_period(self, mock_trigger_retrain):
+        """Only a return from free-range starts a new period -- a farmer who just didn't
+        log for two months while the flock stayed caged keeps the same one."""
         flock = Flock.objects.create(owner=self.user, generation_number=1, started_on=date(2024, 1, 1))
         DailyLog.objects.create(
             flock=flock, date=date(2024, 1, 1), flock_size=240, caging_period=3,
             flock_age_weeks=25, egg_count=150, feed_intake_kg="40.0",
             temperature_c="28.0", humidity_pct="75.0", recorded_by=self.user,
         )
-        # 60-day gap: implies a free-range-then-recage cycle happened in between.
-        self.client.post("/log-daily-data/", {**VALID_LOG_POST, "date": "2024-03-01"})
+        response = self.client.post("/log-daily-data/", {**VALID_LOG_POST, "date": "2024-03-01"}, follow=True)
         log = DailyLog.objects.get(date=date(2024, 3, 1))
+        self.assertEqual(log.caging_period, 3)
+        mock_trigger_retrain.assert_not_called()
+        self.assertNotIn("New caging period detected", response.content.decode())
+
+    @patch("farm.views.trigger_retrain")
+    def test_first_log_after_free_range_starts_a_new_caging_period(self, mock_trigger_retrain):
+        flock = Flock.objects.create(owner=self.user, generation_number=1, started_on=date(2024, 1, 1))
+        DailyLog.objects.create(
+            flock=flock, date=date(2024, 1, 1), flock_size=240, caging_period=3,
+            flock_age_weeks=25, egg_count=150, feed_intake_kg="40.0",
+            temperature_c="28.0", humidity_pct="75.0", recorded_by=self.user,
+        )
+        # Out to free-range and back, then log the very next day: the gap length doesn't
+        # matter, the free-range return does.
+        self.client.post("/flock/toggle-caging/")
+        self.client.post("/flock/resume-caging/", {"flock_size": 240})
+        self.client.post("/log-daily-data/", {**VALID_LOG_POST, "date": "2024-01-02"})
+        log = DailyLog.objects.get(date=date(2024, 1, 2))
         self.assertEqual(log.caging_period, 4)
         # The previous caging period just closed -> a retrain is triggered.
         mock_trigger_retrain.assert_called_once_with("caging_period_closed", self.user.id)
+        # The free-range return is consumed: the next log continues period 4.
+        flock.refresh_from_db()
+        self.assertFalse(flock.starts_new_caging_period)
+        self.client.post("/log-daily-data/", {**VALID_LOG_POST, "date": "2024-01-03"})
+        self.assertEqual(DailyLog.objects.get(date=date(2024, 1, 3)).caging_period, 4)
 
     def test_extreme_temperature_above_range_is_rejected(self):
         Flock.objects.create(owner=self.user, generation_number=1, started_on=date(2024, 1, 1))
@@ -826,20 +851,47 @@ class FarmRecordEditTests(TestCase):
         self.assertEqual(self.log.date, date(2024, 1, 1))
         self.assertEqual(DailyLogEdit.objects.filter(daily_log=self.log).count(), 0)
 
-    def test_editing_date_across_a_gap_recomputes_caging_period(self):
-        """If an edit moves a date across a >CAGING_PERIOD_GAP_DAYS gap, the stored
-        caging_period (derived from the gap to the previous log) is recomputed to match."""
+    def test_editing_date_into_an_earlier_caging_period_takes_that_period(self):
+        """caging_period is clamped between its new neighbours' periods after a date
+        edit (services.recompute_caging_period): moved deep into period 1, it's period 1."""
+        # self.log sits at 2024-01-01; make it period 2 and surround a new position
+        # (2024-01-03) with period-1 logs on both sides.
+        self.log.caging_period = 2
+        self.log.save()
+        for day in (2, 5):
+            DailyLog.objects.create(
+                flock=self.flock, date=date(2024, 1, day), flock_size=240, caging_period=1,
+                flock_age_weeks=25, egg_count=160, feed_intake_kg="40.0",
+                temperature_c="28.0", humidity_pct="75.0", recorded_by=self.user,
+            )
+        self._edit_post(date="2024-01-03")
+        self.log.refresh_from_db()
+        self.assertEqual(self.log.date, date(2024, 1, 3))
+        self.assertEqual(self.log.caging_period, 1)
+
+    def test_editing_date_after_a_later_period_takes_that_period(self):
+        """A date moved past the start of a newer period (free-range return) joins it --
+        periods never go backwards in time, however long the day gap."""
         DailyLog.objects.create(
-            flock=self.flock, date=date(2024, 1, 3), flock_size=240, caging_period=1,
+            flock=self.flock, date=date(2024, 1, 3), flock_size=240, caging_period=2,
             flock_age_weeks=25, egg_count=160, feed_intake_kg="40.0",
             temperature_c="28.0", humidity_pct="75.0", recorded_by=self.user,
         )
-        # self.log sits at 2024-01-01 in caging_period 1. Move it 40 days out, well past
-        # the 14-day boundary from the 2024-01-03 log, so it lands in a new period.
-        self._edit_post(date="2024-02-12")
+        # self.log (period 1) moves from before to after the period-2 log.
+        self._edit_post(date="2024-01-04")
         self.log.refresh_from_db()
-        self.assertEqual(self.log.date, date(2024, 2, 12))
         self.assertEqual(self.log.caging_period, 2)
+
+    def test_small_date_edit_keeps_caging_period(self):
+        DailyLog.objects.create(
+            flock=self.flock, date=date(2024, 1, 10), flock_size=240, caging_period=1,
+            flock_age_weeks=25, egg_count=160, feed_intake_kg="40.0",
+            temperature_c="28.0", humidity_pct="75.0", recorded_by=self.user,
+        )
+        # A long day gap alone never changes the period any more.
+        self._edit_post(date="2024-02-20")
+        self.log.refresh_from_db()
+        self.assertEqual(self.log.caging_period, 1)
 
 
 class FarmRecordDeleteTests(TestCase):
@@ -1128,6 +1180,14 @@ class FlockProfileTests(TestCase):
         self.client.post("/flock/toggle-caging/")
         flock.refresh_from_db()
         self.assertTrue(flock.is_caged)
+        # Back from free-range: the next DailyLog opens a new caging period.
+        self.assertTrue(flock.starts_new_caging_period)
+
+    def test_toggle_caging_status_to_free_range_does_not_mark_a_new_period(self):
+        flock = Flock.objects.create(owner=self.user, generation_number=1, started_on=date(2024, 1, 1))
+        self.client.post("/flock/toggle-caging/")
+        flock.refresh_from_db()
+        self.assertFalse(flock.starts_new_caging_period)
 
     def test_toggle_caging_status_with_no_active_flock_shows_error(self):
         response = self.client.post("/flock/toggle-caging/", follow=True)
@@ -1153,6 +1213,7 @@ class FlockProfileTests(TestCase):
         flock.refresh_from_db()
         self.assertTrue(flock.is_caged)
         self.assertEqual(flock.pending_flock_size, 210)
+        self.assertTrue(flock.starts_new_caging_period)
         messages = list(response.context["messages"])
         self.assertTrue(any("210 ducks" in str(m) for m in messages))
 
@@ -1169,6 +1230,7 @@ class FlockProfileTests(TestCase):
         self.assertRedirects(response, "/flock/")
         flock.refresh_from_db()
         self.assertIsNone(flock.pending_flock_size)
+        self.assertFalse(flock.starts_new_caging_period)
 
     def test_resume_caging_rejects_invalid_flock_size(self):
         flock = Flock.objects.create(owner=self.user, generation_number=1, started_on=date(2024, 1, 1), is_caged=False)
@@ -1446,56 +1508,80 @@ class OperationalTodayTests(TestCase):
         self.assertEqual(FARM_DAY_START_HOUR, 6)
 
 
-class AssignCagingPeriodsTests(TestCase):
-    """Covers services.assign_caging_periods in isolation — the single source of truth
-    shared by log_daily_data's single-row path and the CSV import's whole-batch path."""
+class CagingPeriodForNewLogTests(TestCase):
+    """Covers services.caging_period_for_new_log in isolation: a new caging period
+    starts only for a flock's first log or on return from free-range, never from a
+    gap in logging alone."""
 
     def setUp(self):
         self.user = User.objects.create_user(username="farmer1", password="pw12345")
         self.flock = Flock.objects.create(owner=self.user, generation_number=1, started_on=date(2024, 1, 1))
 
-    def test_first_ever_import_for_a_fresh_flock_starts_at_one(self):
-        dates = [date(2024, 1, 1), date(2024, 1, 2), date(2024, 1, 3)]
-        periods = assign_caging_periods(self.flock, self.user, dates)
-        self.assertEqual(periods, [1, 1, 1])
-
-    def test_first_ever_import_continues_the_owners_overall_max(self):
-        other_flock = Flock.objects.create(owner=self.user, generation_number=2, started_on=date(2023, 1, 1))
+    def _log(self, flock, day, caging_period):
         DailyLog.objects.create(
-            flock=other_flock, date=date(2023, 6, 1), flock_size=200, caging_period=5,
-            flock_age_weeks=50, egg_count=140, feed_intake_kg="35.0",
-            temperature_c="27.0", humidity_pct="70.0", recorded_by=self.user,
-        )
-        periods = assign_caging_periods(self.flock, self.user, [date(2024, 1, 1)])
-        self.assertEqual(periods, [6])
-
-    def test_internal_gap_within_the_batch_splits_into_two_periods(self):
-        dates = [date(2024, 1, 1), date(2024, 1, 2), date(2024, 6, 1), date(2024, 6, 2)]
-        periods = assign_caging_periods(self.flock, self.user, dates)
-        self.assertEqual(periods, [1, 1, 2, 2])
-
-    def test_batch_bridges_from_the_flocks_existing_last_log(self):
-        DailyLog.objects.create(
-            flock=self.flock, date=date(2024, 1, 1), flock_size=240, caging_period=3,
+            flock=flock, date=day, flock_size=240, caging_period=caging_period,
             flock_age_weeks=25, egg_count=150, feed_intake_kg="40.0",
             temperature_c="28.0", humidity_pct="75.0", recorded_by=self.user,
         )
-        # Small gap: continues period 3.
-        periods = assign_caging_periods(self.flock, self.user, [date(2024, 1, 5)])
-        self.assertEqual(periods, [3])
-        # Large gap: starts period 4.
-        periods = assign_caging_periods(self.flock, self.user, [date(2024, 6, 1)])
-        self.assertEqual(periods, [4])
+
+    def test_first_ever_log_for_a_fresh_owner_starts_at_one(self):
+        self.assertEqual(caging_period_for_new_log(self.flock, self.user), 1)
+
+    def test_first_log_of_a_new_flock_continues_the_owners_overall_max(self):
+        other_flock = Flock.objects.create(owner=self.user, generation_number=2, started_on=date(2023, 1, 1))
+        self._log(other_flock, date(2023, 6, 1), caging_period=5)
+        self.assertEqual(caging_period_for_new_log(self.flock, self.user), 6)
+
+    def test_later_log_continues_the_previous_period(self):
+        self._log(self.flock, date(2024, 1, 1), caging_period=3)
+        self.assertEqual(caging_period_for_new_log(self.flock, self.user), 3)
+
+    def test_return_from_free_range_starts_the_next_period(self):
+        self._log(self.flock, date(2024, 1, 1), caging_period=3)
+        self.flock.starts_new_caging_period = True
+        self.assertEqual(caging_period_for_new_log(self.flock, self.user), 4)
 
 
 class TrendChartHelpersTests(TestCase):
-    """Covers services.build_trend_chart_data/build_next_day_forecasts/resolve_trend_range
-    — the implementation shared by the dashboard and the Forecast & Recommendations page's
-    Egg Yield Trend chart (dashboard/views.py, forecasting/views.py)."""
+    """Covers services.build_trend_chart_data/build_next_day_forecasts/predictions_by_date/
+    resolve_trend_range — the implementation shared by the dashboard and the Forecast &
+    Recommendations page's Egg Yield Trend chart and Next 3-Day panel (dashboard/views.py,
+    forecasting/views.py). The core rule under test: each date shows its *newest*
+    prediction, so the predicted line and panel never vanish before today is logged or
+    across a skipped day."""
 
     def setUp(self):
         self.user = User.objects.create_user(username="farmer1", password="pw12345")
         self.flock = Flock.objects.create(owner=self.user, generation_number=1, started_on=date(2024, 1, 1))
+
+    def _log(self, day, egg_count, caging_period=1):
+        return DailyLog.objects.create(
+            flock=self.flock, date=day, flock_size=240, caging_period=caging_period,
+            flock_age_weeks=25, egg_count=egg_count, feed_intake_kg="40.0",
+            temperature_c="28.0", humidity_pct="75.0", recorded_by=self.user,
+        )
+
+    def _forecast(self, day, same_day, next1, next2, next3):
+        """A ready Forecast for `day`: its same-day prediction plus day+1/+2/+3."""
+        return Forecast.objects.create(
+            flock=self.flock, forecast_date=day,
+            predicted_daily_yield=Decimal(same_day), predicted_tri_day_yield=Decimal("450.00"),
+            predicted_next_day1_yield=Decimal(next1), predicted_next_day2_yield=Decimal(next2),
+            predicted_next_day3_yield=Decimal(next3),
+            feature_importances={"temperature_c": 0.4}, model_version="rf-test",
+        )
+
+    def _chart(self, trend_range, today):
+        with patch("farm.services.operational_today", return_value=today):
+            data = build_trend_chart_data(self.flock, True, trend_range)
+        return {
+            "labels": json.loads(data["trend_labels_json"]),
+            "actual": json.loads(data["trend_actual_json"]),
+            "predicted": json.loads(data["trend_predicted_json"]),
+            "projected": json.loads(data["trend_projected_json"]),
+            "source": json.loads(data["trend_predicted_source_json"]),
+            "has_future": data["trend_has_future_forecast"],
+        }
 
     def test_resolve_trend_range_falls_back_to_seven_on_invalid_value(self):
         self.assertEqual(resolve_trend_range("30"), "30")
@@ -1530,86 +1616,198 @@ class TrendChartHelpersTests(TestCase):
         self.assertEqual(resolve_trend_range("2024-03"), "7")
 
     def test_build_trend_chart_data_month_view_filters_to_that_month_only(self):
-        DailyLog.objects.create(
-            flock=self.flock, date=date(2024, 1, 31), flock_size=240, caging_period=1,
-            flock_age_weeks=25, egg_count=150, feed_intake_kg="40.0",
-            temperature_c="28.0", humidity_pct="75.0", recorded_by=self.user,
-        )
-        DailyLog.objects.create(
-            flock=self.flock, date=date(2024, 2, 1), flock_size=240, caging_period=1,
-            flock_age_weeks=25, egg_count=160, feed_intake_kg="40.0",
-            temperature_c="28.0", humidity_pct="75.0", recorded_by=self.user,
-        )
-        data = build_trend_chart_data(self.flock, True, "2024-02", [])
-        self.assertEqual(json.loads(data["trend_labels_json"]), ["Feb 1"])
-        self.assertEqual(json.loads(data["trend_actual_json"]), [160.0])
+        self._log(date(2024, 1, 31), 150)
+        self._log(date(2024, 2, 1), 160)
+        chart = self._chart("2024-02", today=date(2024, 6, 1))
+        self.assertEqual(chart["labels"], ["Feb 1"])
+        self.assertEqual(chart["actual"], [160.0])
 
-    def test_build_trend_chart_data_month_view_never_appends_future_forecast_tail(self):
-        DailyLog.objects.create(
-            flock=self.flock, date=date(2024, 1, 15), flock_size=240, caging_period=1,
-            flock_age_weeks=25, egg_count=150, feed_intake_kg="40.0",
-            temperature_c="28.0", humidity_pct="75.0", recorded_by=self.user,
-        )
-        next_day_forecasts = [{"date": date(2024, 6, 1), "value": 170.0, "is_tomorrow": True}]
-        data = build_trend_chart_data(self.flock, True, "2024-01", next_day_forecasts)
-        self.assertIsNone(data["trend_future_start_index"])
-        self.assertFalse(data["trend_has_future_forecast"])
-        self.assertEqual(json.loads(data["trend_labels_json"]), ["Jan 15"])
+    def test_build_trend_chart_data_month_view_never_extends_past_the_month(self):
+        self._log(date(2024, 1, 30), 150)
+        self._log(date(2024, 1, 31), 155)
+        self._forecast(date(2024, 1, 31), "152.00", "157.00", "158.00", "159.00")
+        chart = self._chart("2024-01", today=date(2024, 2, 1))
+        # Jan 31's day+1..+3 fall in February -- a January view never shows them.
+        self.assertEqual(chart["labels"], ["Jan 30", "Jan 31"])
+        self.assertFalse(chart["has_future"])
 
-    def test_build_next_day_forecasts_returns_empty_list_for_no_forecast(self):
-        self.assertEqual(build_next_day_forecasts(None), [])
+    def test_build_next_day_forecasts_returns_empty_list_for_no_flock_or_no_forecast(self):
+        self.assertEqual(build_next_day_forecasts(None, date(2024, 1, 10)), [])
+        self.assertEqual(build_next_day_forecasts(self.flock, date(2024, 1, 10)), [])
 
-    def test_build_next_day_forecasts_derives_three_distinct_days(self):
-        forecast = Forecast.objects.create(
-            flock=self.flock, forecast_date=date(2024, 1, 10),
-            predicted_daily_yield=Decimal("150.00"), predicted_tri_day_yield=Decimal("450.00"),
-            predicted_next_day1_yield=Decimal("151.00"), predicted_next_day2_yield=Decimal("152.00"),
-            predicted_next_day3_yield=Decimal("153.00"),
-            feature_importances={"temperature_c": 0.4}, model_version="rf-test",
-        )
-        days = build_next_day_forecasts(forecast)
+    def test_build_next_day_forecasts_after_today_is_logged_uses_todays_forecast(self):
+        self._log(date(2024, 1, 10), 150)
+        self._forecast(date(2024, 1, 10), "150.00", "151.00", "152.00", "153.00")
+        days = build_next_day_forecasts(self.flock, date(2024, 1, 10))
         self.assertEqual([d["date"] for d in days], [date(2024, 1, 11), date(2024, 1, 12), date(2024, 1, 13)])
         self.assertEqual([d["value"] for d in days], [Decimal("151.00"), Decimal("152.00"), Decimal("153.00")])
+        self.assertEqual([d["is_today"] for d in days], [False, False, False])
         self.assertEqual([d["is_tomorrow"] for d in days], [True, False, False])
 
-    def test_uncaged_flock_returns_no_trend_data_regardless_of_range(self):
-        DailyLog.objects.create(
-            flock=self.flock, date=date(2024, 1, 1), flock_size=240, caging_period=1,
-            flock_age_weeks=25, egg_count=150, feed_intake_kg="40.0",
-            temperature_c="28.0", humidity_pct="75.0", recorded_by=self.user,
+    def test_build_next_day_forecasts_before_today_is_logged_falls_back_to_yesterdays(self):
+        # Logged Jan 9 only; it's now Jan 10 and today hasn't been logged yet. The panel
+        # must not go blank: yesterday's forecast still covers Today/Tomorrow/day after.
+        self._log(date(2024, 1, 9), 150)
+        self._forecast(date(2024, 1, 9), "149.00", "151.00", "152.00", "153.00")
+        days = build_next_day_forecasts(self.flock, date(2024, 1, 10))
+        self.assertEqual([d["date"] for d in days], [date(2024, 1, 10), date(2024, 1, 11), date(2024, 1, 12)])
+        self.assertEqual([d["value"] for d in days], [Decimal("151.00"), Decimal("152.00"), Decimal("153.00")])
+        self.assertEqual([d["is_today"] for d in days], [True, False, False])
+        self.assertEqual([d["is_tomorrow"] for d in days], [False, True, False])
+        self.assertEqual([d["horizon"] for d in days], [1, 2, 3])
+
+        # Once today is logged, today's own forecast takes over the panel.
+        self._log(date(2024, 1, 10), 155)
+        self._forecast(date(2024, 1, 10), "154.00", "161.00", "162.00", "163.00")
+        days = build_next_day_forecasts(self.flock, date(2024, 1, 10))
+        self.assertEqual([d["date"] for d in days], [date(2024, 1, 11), date(2024, 1, 12), date(2024, 1, 13)])
+        self.assertEqual([d["value"] for d in days], [Decimal("161.00"), Decimal("162.00"), Decimal("163.00")])
+
+    def test_build_next_day_forecasts_shrinks_then_empties_as_the_newest_forecast_ages(self):
+        self._log(date(2024, 1, 8), 150)
+        self._forecast(date(2024, 1, 8), "149.00", "151.00", "152.00", "153.00")
+        # 2 days old: only Today and Tomorrow are still covered.
+        days = build_next_day_forecasts(self.flock, date(2024, 1, 10))
+        self.assertEqual([d["date"] for d in days], [date(2024, 1, 10), date(2024, 1, 11)])
+        # More than 3 days old: nothing left to show.
+        self.assertEqual(build_next_day_forecasts(self.flock, date(2024, 1, 12)), [])
+
+    def test_warm_up_forecast_is_skipped_in_favour_of_an_older_real_prediction(self):
+        self._log(date(2024, 1, 9), 150)
+        self._forecast(date(2024, 1, 9), "149.00", "151.00", "152.00", "153.00")
+        # Today's Forecast row exists but its prediction was withheld (warm-up).
+        Forecast.objects.create(
+            flock=self.flock, forecast_date=date(2024, 1, 10),
+            feature_importances={"temperature_c": 0.4}, model_version="rf-test",
         )
-        data = build_trend_chart_data(self.flock, False, "all", [])
+        days = build_next_day_forecasts(self.flock, date(2024, 1, 10))
+        self.assertEqual([d["value"] for d in days], [Decimal("151.00"), Decimal("152.00"), Decimal("153.00")])
+
+    def test_build_tri_day_forecast_returns_none_for_no_flock_or_no_forecast(self):
+        self.assertIsNone(build_tri_day_forecast(None, date(2024, 1, 10)))
+        self.assertIsNone(build_tri_day_forecast(self.flock, date(2024, 1, 10)))
+
+    def test_build_tri_day_forecast_window_starts_on_the_forecast_date(self):
+        self._log(date(2024, 1, 10), 150)
+        self._forecast(date(2024, 1, 10), "150.00", "151.00", "152.00", "153.00")
+        tri = build_tri_day_forecast(self.flock, date(2024, 1, 10))
+        # Tri-day Yield Model window = forecast date + next 2 days (pipeline.add_tri_day_target).
+        self.assertEqual(tri["value"], Decimal("450.00"))
+        self.assertEqual((tri["start"], tri["end"]), (date(2024, 1, 10), date(2024, 1, 12)))
+
+    def test_build_tri_day_forecast_uses_newest_forecast_still_covering_today(self):
+        self._log(date(2024, 1, 8), 150)
+        self._forecast(date(2024, 1, 8), "149.00", "151.00", "152.00", "153.00")
+        self._log(date(2024, 1, 9), 150)
+        newer = self._forecast(date(2024, 1, 9), "149.00", "151.00", "152.00", "153.00")
+        newer.predicted_tri_day_yield = Decimal("460.00")
+        newer.save()
+        tri = build_tri_day_forecast(self.flock, date(2024, 1, 10))
+        self.assertEqual(tri["value"], Decimal("460.00"))
+        self.assertEqual((tri["start"], tri["end"]), (date(2024, 1, 9), date(2024, 1, 11)))
+
+    def test_build_tri_day_forecast_expires_once_its_window_has_passed(self):
+        self._log(date(2024, 1, 8), 150)
+        self._forecast(date(2024, 1, 8), "149.00", "151.00", "152.00", "153.00")
+        # Jan 8's window is Jan 8-10: still shown on Jan 10, gone on Jan 11.
+        self.assertIsNotNone(build_tri_day_forecast(self.flock, date(2024, 1, 10)))
+        self.assertIsNone(build_tri_day_forecast(self.flock, date(2024, 1, 11)))
+
+    def test_build_tri_day_forecast_skips_warm_up_forecasts(self):
+        self._log(date(2024, 1, 9), 150)
+        self._forecast(date(2024, 1, 9), "149.00", "151.00", "152.00", "153.00")
+        # Today's Forecast row exists but its prediction was withheld (warm-up).
+        Forecast.objects.create(
+            flock=self.flock, forecast_date=date(2024, 1, 10),
+            feature_importances={"temperature_c": 0.4}, model_version="rf-test",
+        )
+        tri = build_tri_day_forecast(self.flock, date(2024, 1, 10))
+        self.assertEqual(tri["forecast_date"], date(2024, 1, 9))
+
+    def test_build_tri_day_forecast_hidden_right_after_recaging(self):
+        # Re-caged but not logged yet: the recent Forecast belongs to the previous
+        # caging period, so its total must not be shown across that boundary.
+        self._log(date(2024, 1, 9), 150)
+        self._forecast(date(2024, 1, 9), "149.00", "151.00", "152.00", "153.00")
+        self.flock.starts_new_caging_period = True
+        self.flock.save()
+        self.assertIsNone(build_tri_day_forecast(self.flock, date(2024, 1, 10)))
+
+    def test_uncaged_flock_returns_no_trend_data_regardless_of_range(self):
+        self._log(date(2024, 1, 1), 150)
+        data = build_trend_chart_data(self.flock, False, "all")
         self.assertEqual(data["trend_logs"], [])
         self.assertEqual(data["trend_actual_json"], "[]")
 
-    def test_actual_and_predicted_align_by_date_and_future_forecast_is_dashed_from_the_right_index(self):
-        log1 = DailyLog.objects.create(
-            flock=self.flock, date=date(2024, 1, 1), flock_size=240, caging_period=1,
-            flock_age_weeks=25, egg_count=150, feed_intake_kg="40.0",
-            temperature_c="28.0", humidity_pct="75.0", recorded_by=self.user,
-        )
-        log2 = DailyLog.objects.create(
-            flock=self.flock, date=date(2024, 1, 2), flock_size=240, caging_period=1,
-            flock_age_weeks=25, egg_count=155, feed_intake_kg="40.0",
-            temperature_c="28.0", humidity_pct="75.0", recorded_by=self.user,
-        )
-        forecast = Forecast.objects.create(
-            flock=self.flock, forecast_date=date(2024, 1, 2),
-            predicted_daily_yield=Decimal("152.00"), predicted_tri_day_yield=Decimal("450.00"),
-            predicted_next_day1_yield=Decimal("157.00"), predicted_next_day2_yield=Decimal("158.00"),
-            predicted_next_day3_yield=Decimal("159.00"),
-            feature_importances={"temperature_c": 0.4}, model_version="rf-test",
-        )
+    def test_actual_and_predicted_align_by_date_and_upcoming_days_are_projected(self):
+        log1 = self._log(date(2024, 1, 1), 150)
+        log2 = self._log(date(2024, 1, 2), 155)
+        forecast = self._forecast(date(2024, 1, 2), "152.00", "157.00", "158.00", "159.00")
         forecast.source_logs.set([log1, log2])
 
-        next_day_forecasts = build_next_day_forecasts(forecast)
-        data = build_trend_chart_data(self.flock, True, "all", next_day_forecasts)
+        chart = self._chart("all", today=date(2024, 1, 2))
 
-        self.assertEqual(json.loads(data["trend_actual_json"]), [150.0, 155.0, None, None, None])
-        self.assertEqual(json.loads(data["trend_predicted_json"]), [None, 152.0, 157.0, 158.0, 159.0])
-        # The 2 real logged days come first (index 0, 1); the dashed forecast tail starts
-        # right after, at index 2.
-        self.assertEqual(data["trend_future_start_index"], 2)
+        self.assertEqual(chart["labels"], ["Jan 1", "Jan 2", "Jan 3", "Jan 4", "Jan 5"])
+        self.assertEqual(chart["actual"], [150.0, 155.0, None, None, None])
+        self.assertEqual(chart["predicted"], [None, 152.0, 157.0, 158.0, 159.0])
+        # The 2 real logged days are solid; the 3 upcoming days are dashed projections.
+        self.assertEqual(chart["projected"], [False, False, True, True, True])
+        self.assertTrue(chart["has_future"])
+        self.assertEqual(chart["source"][1], "Same-day prediction")
+        self.assertEqual(chart["source"][2], "Forecast from Jan 2 (1 day ahead)")
+        self.assertEqual(chart["source"][4], "Forecast from Jan 2 (3 days ahead)")
+
+    def test_predicted_line_keeps_going_before_today_is_logged(self):
+        self._log(date(2024, 1, 9), 150)
+        self._forecast(date(2024, 1, 9), "149.00", "151.00", "152.00", "153.00")
+        # Jan 10, not logged yet: the line runs on from yesterday's forecast, starting today.
+        chart = self._chart("7", today=date(2024, 1, 10))
+        self.assertEqual(chart["labels"], ["Jan 9", "Jan 10", "Jan 11", "Jan 12"])
+        self.assertEqual(chart["predicted"], [149.0, 151.0, 152.0, 153.0])
+        self.assertEqual(chart["projected"], [False, True, True, True])
+
+    def test_skipped_day_keeps_its_earlier_prediction_and_logged_days_update_to_newest(self):
+        """The farmer's scenario: log day 1, skip day 2, log day 3.
+
+        Day 2 keeps day 1's day+1 prediction (no break in the predicted line); day 3 first
+        shows day 1's day+2 prediction, then switches to its own same-day prediction once
+        it's logged; the tail then comes from day 3's forecast.
+        """
+        self._log(date(2024, 1, 1), 150)
+        self._forecast(date(2024, 1, 1), "148.00", "151.00", "152.00", "153.00")
+
+        # Day 3, before logging: days 2 and 3 both come from day 1's forecast.
+        chart = self._chart("all", today=date(2024, 1, 3))
+        self.assertEqual(chart["labels"], ["Jan 1", "Jan 2", "Jan 3", "Jan 4"])
+        self.assertEqual(chart["predicted"], [148.0, 151.0, 152.0, 153.0])
+
+        # Day 3 logged: its point updates to the newer same-day prediction.
+        self._log(date(2024, 1, 3), 158)
+        self._forecast(date(2024, 1, 3), "156.00", "160.00", "161.00", "162.00")
+        chart = self._chart("all", today=date(2024, 1, 3))
+        self.assertEqual(chart["labels"], ["Jan 1", "Jan 2", "Jan 3", "Jan 4", "Jan 5", "Jan 6"])
+        self.assertEqual(chart["actual"], [150.0, None, 158.0, None, None, None])
+        self.assertEqual(chart["predicted"], [148.0, 151.0, 156.0, 160.0, 161.0, 162.0])
+        self.assertEqual(chart["projected"], [False, True, False, True, True, True])
+        self.assertEqual(chart["source"][1], "Forecast from Jan 1 (1 day ahead)")
+
+    def test_projections_never_run_into_a_free_range_gap(self):
+        """itikcare-spec.md section 10: the last forecast before a caging-period gap must
+        not trail its day+1..+3 into the gap once the farm is logging a new period."""
+        self._log(date(2024, 1, 1), 150, caging_period=1)
+        self._forecast(date(2024, 1, 1), "148.00", "151.00", "152.00", "153.00")
+        self._log(date(2024, 3, 1), 140, caging_period=2)
+        chart = self._chart("all", today=date(2024, 3, 1))
+        self.assertEqual(chart["labels"], ["Jan 1", "Mar 1"])
+        self.assertEqual(chart["predicted"], [148.0, None])
+
+    def test_stale_forecast_with_no_later_log_is_not_shown(self):
+        self._log(date(2024, 1, 1), 150)
+        self._forecast(date(2024, 1, 1), "148.00", "151.00", "152.00", "153.00")
+        # 10 days later with nothing logged since: that forecast's days are all past.
+        chart = self._chart("all", today=date(2024, 1, 11))
+        self.assertEqual(chart["labels"], ["Jan 1"])
+        self.assertFalse(chart["has_future"])
 
 
 class RecordsChartHelpersTests(TestCase):

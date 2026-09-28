@@ -90,11 +90,12 @@
         {% if forecast_warmup %}
         {% include "includes/forecast_warmup_notice.html" %}
         {% elif next_day_forecasts %}
+        {% if logging_gap_caution %}{% include "includes/forecast_gap_caution.html" %}{% endif %}
         <div class="flex divide-x divide-emerald-200 text-center">
             {% for day in next_day_forecasts %}
             <div class="flex-1 px-4 first:pl-0 last:pr-0">
                 <p class="text-sm text-gray-600">
-                    {{ day.date|date:"M j" }}{% if day.is_tomorrow %} | {% translate "Tomorrow" %}{% endif %}
+                    {{ day.date|date:"M j" }}{% if day.is_today %} | {% translate "Today" %}{% elif day.is_tomorrow %} | {% translate "Tomorrow" %}{% endif %}
                 </p>
                 <p class="text-3xl font-bold text-emerald-700 mt-2">{{ day.value|floatformat:0|default:"—" }}</p>
                 <p class="text-sm text-gray-500">{% translate "Eggs" %}</p>
@@ -121,7 +122,7 @@
                 </form>
             </div>
             <p class="text-sm text-gray-500 mb-4">
-                {{ trend_range_label }}: {% translate "actual vs. predicted" %}{% if trend_has_future_forecast %} {% translate "(dashed = upcoming forecast, not yet logged)" %}{% endif %}
+                {{ trend_range_label }}: {% translate "actual vs. predicted" %}{% if trend_has_future_forecast %} {% translate "(dashed = forecast for a day not logged yet)" %}{% endif %}
             </p>
             {% if trend_logs %}
             <canvas id="trendChart" height="220"></canvas>
@@ -234,7 +235,12 @@
 
 {% if trend_logs %}
 <script>
-    const trendFutureStartIndex = {{ trend_future_start_index|default_if_none:"null" }};
+    // Per point: true where the date has no log yet, so its prediction comes from an
+    // earlier day's forecast (see farm.services.build_trend_chart_data).
+    const trendProjected = {{ trend_projected_json|safe }};
+    // Per point: which forecast produced the predicted value, shown in the tooltip so
+    // every number stays traceable to its source.
+    const trendPredictedSource = {{ trend_predicted_source_json|safe }};
     const trendLabels = {{ trend_labels_json|safe }};
     // Dot markers become visual noise once "All data" packs in months of daily
     // points -- shrink them to 0 past ~60 points so the trend reads as a clean
@@ -266,12 +272,12 @@
                     pointHoverRadius: 4,
                     tension: 0.3,
                     spanGaps: false,
-                    // The tail beyond trendFutureStartIndex is the Next 3-Day Forecast
-                    // (no DailyLog exists for those dates yet) -- dashed so it always
-                    // reads as a projection, not a nowcast confirmed against real data.
+                    // Dashed wherever either end of a segment is a projected point (a day
+                    // with no log yet -- a skipped day, or the upcoming days), so a
+                    // projection never reads as a prediction tied to a real log.
                     segment: {
                         borderDash: (ctx) =>
-                            trendFutureStartIndex !== null && ctx.p1DataIndex >= trendFutureStartIndex
+                            trendProjected[ctx.p0DataIndex] || trendProjected[ctx.p1DataIndex]
                                 ? [6, 6]
                                 : undefined,
                     },
@@ -284,6 +290,8 @@
                 tooltip: {
                     callbacks: {
                         label: (ctx) => `${ctx.dataset.label}: ${Math.round(ctx.parsed.y)}`,
+                        afterLabel: (ctx) =>
+                            ctx.datasetIndex === 1 ? trendPredictedSource[ctx.dataIndex] || "" : "",
                     },
                 },
             },

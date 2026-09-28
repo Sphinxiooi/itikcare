@@ -10,14 +10,20 @@ from django.shortcuts import get_object_or_404, redirect, render
 from django.views.decorators.http import require_GET, require_POST
 
 from forecasting.models import Forecast
-from forecasting.services import ModelNotTrainedError, generate_forecast, readiness_for_log, trigger_retrain
+from forecasting.services import (
+    ModelNotTrainedError,
+    generate_forecast,
+    logging_gap_caution_for_log,
+    readiness_for_log,
+    trigger_retrain,
+)
 
 from .forms import DailyLogEditForm, DailyLogForm, FlockRegisterForm, FlockResumeCagingForm
 from .models import AUDITED_FIELDS, DailyLog, DailyLogEdit, Flock
 from .services import (
     RECORDS_CHART_MIN_LOGS,
-    assign_caging_periods,
     build_records_chart_data,
+    caging_period_for_new_log,
     build_records_summary,
     current_flock_age_weeks,
     detect_daily_log_anomalies,
@@ -45,9 +51,11 @@ def log_daily_data(request):
     aging during a free-range gap even though nothing gets logged during it
     (itikcare-spec.md section 10), so a flock logged at 94 weeks that comes back into
     caging 6 weeks later should be pre-filled at 100, not still 94. caging_period is
-    never farmer-entered: it continues the previous log's value, unless the gap since
-    that log is long enough to imply a free-range-then-recage cycle happened in
-    between (CAGING_PERIOD_GAP_DAYS).
+    never farmer-entered: it continues the previous log's value, unless the flock has
+    just come back from free-range (Flock.starts_new_caging_period -- see
+    services.caging_period_for_new_log). A long gap in logging while the flock stayed
+    caged keeps the same period; its forecast just carries a "may be less accurate"
+    caution (forecasting.services.logging_gap_caution_for_log).
 
     temperature_c and humidity_pct are always left blank for the farmer to enter
     from their own thermometer/hygrometer reading — no pre-fill.
@@ -106,13 +114,12 @@ def log_daily_data(request):
             else:
                 daily_log = form.save(commit=False)
                 daily_log.flock = active_flock
-                # assign_caging_periods (farm/services.py) is the single source of truth
-                # for this rule, shared with the import_daily_logs command — a flock's very
-                # first entry always starts a new period (no prior date to gap-check
-                # against, and it continues this owner's overall counter across flock
-                # retirements per itikcare-spec.md section 10); later entries compare
-                # against the previous log's date.
-                daily_log.caging_period = assign_caging_periods(active_flock, request.user, [new_date])[0]
+                # caging_period_for_new_log (farm/services.py) is the single source of
+                # truth for this rule — a flock's very first entry always starts a new
+                # period (continuing this owner's overall counter across flock
+                # retirements per itikcare-spec.md section 10); after that, only a
+                # return from free-range starts a new one.
+                daily_log.caging_period = caging_period_for_new_log(active_flock, request.user)
                 is_new_period = not is_first_entry and daily_log.caging_period != previous_log.caging_period
                 daily_log.recorded_by = request.user
                 try:
@@ -134,15 +141,24 @@ def log_daily_data(request):
                         active_flock.pending_flock_size is not None
                         or active_flock.pending_flock_age_weeks is not None
                         or active_flock.pending_feed_intake_kg is not None
+                        or active_flock.starts_new_caging_period
                     ):
                         # Consumed only now that it's actually backed a real DailyLog, so an
                         # abandoned form (farmer navigates away without logging) doesn't
-                        # silently lose the values they confirmed at resume/registration time.
+                        # silently lose the values they confirmed at resume/registration time
+                        # — or the free-range return that this entry's new caging period
+                        # was opened for.
                         active_flock.pending_flock_size = None
                         active_flock.pending_flock_age_weeks = None
                         active_flock.pending_feed_intake_kg = None
+                        active_flock.starts_new_caging_period = False
                         active_flock.save(
-                            update_fields=["pending_flock_size", "pending_flock_age_weeks", "pending_feed_intake_kg"]
+                            update_fields=[
+                                "pending_flock_size",
+                                "pending_flock_age_weeks",
+                                "pending_feed_intake_kg",
+                                "starts_new_caging_period",
+                            ]
                         )
                     messages.success(request, _("Daily data saved."))
                     if new_date == operational_today():
@@ -160,6 +176,17 @@ def log_daily_data(request):
                                         "Recommendations are ready now."
                                     ) % {"so_far": warmup.logs_so_far, "needed": warmup.logs_needed},
                                 )
+                            else:
+                                gap_caution = logging_gap_caution_for_log(daily_log)
+                                if gap_caution is not None:
+                                    messages.warning(
+                                        request,
+                                        _(
+                                            "No logs for %(days)s days before this entry, so this "
+                                            "forecast may be less accurate until you've logged a few "
+                                            "days in a row again."
+                                        ) % {"days": gap_caution.missed_days},
+                                    )
                         except ModelNotTrainedError:
                             messages.warning(
                                 request,
@@ -182,8 +209,8 @@ def log_daily_data(request):
                             "predictions."),
                         )
                     if is_new_period:
-                        # The previous caging period just closed with this entry's gap — a
-                        # complete new segment of training data now exists (itikcare-spec.md
+                        # The flock just came back from free-range, so the previous caging
+                        # period is closed — a complete new segment of training data now exists (itikcare-spec.md
                         # section 5's "rolling retraining as new data comes in").
                         trigger_retrain("caging_period_closed", active_flock.owner_id)
                         messages.info(request, _("New caging period detected — model retraining triggered."))
@@ -571,7 +598,11 @@ def toggle_caging_status(request):
         return redirect("flock_profile")
 
     active_flock.is_caged = not active_flock.is_caged
-    active_flock.save(update_fields=["is_caged"])
+    if active_flock.is_caged:
+        # Back from free-range: the next DailyLog opens a new caging period
+        # (services.caging_period_for_new_log).
+        active_flock.starts_new_caging_period = True
+    active_flock.save(update_fields=["is_caged", "starts_new_caging_period"])
     if active_flock.is_caged:
         messages.success(request, _("Flock marked as caged. Daily logging and forecasts have resumed."))
     else:
@@ -600,7 +631,10 @@ def resume_caging(request):
     if form.is_valid():
         active_flock.is_caged = True
         active_flock.pending_flock_size = form.cleaned_data["flock_size"]
-        active_flock.save(update_fields=["is_caged", "pending_flock_size"])
+        # Back from free-range: the next DailyLog opens a new caging period
+        # (services.caging_period_for_new_log).
+        active_flock.starts_new_caging_period = True
+        active_flock.save(update_fields=["is_caged", "pending_flock_size", "starts_new_caging_period"])
         messages.success(
             request,
             _("Flock marked as caged with %(size)s ducks. Daily logging and forecasts have resumed.")

@@ -59,6 +59,9 @@ msgstr "Itlog"
 msgid "Next 3-Day Forecast"
 msgstr "Pagtataya sa Susunod na 3 Araw"
 
+msgid "Today"
+msgstr "Ngayon"
+
 msgid "Tomorrow"
 msgstr "Bukas"
 
@@ -74,8 +77,16 @@ msgstr "Saklaw"
 msgid "actual vs. predicted"
 msgstr "aktwal kumpara sa tinaya"
 
-msgid "(dashed = upcoming forecast, not yet logged)"
-msgstr "(putol-putol na linya = paparating na pagtataya, hindi pa naitatala)"
+msgid "(dashed = forecast for a day not logged yet)"
+msgstr "(putol-putol na linya = pagtataya para sa araw na hindi pa naitatala)"
+
+msgid "Same-day prediction"
+msgstr "Tinaya sa parehong araw"
+
+msgid "Forecast from %(date)s (%(days)s day ahead)"
+msgid_plural "Forecast from %(date)s (%(days)s days ahead)"
+msgstr[0] "Pagtataya mula %(date)s (%(days)s araw nang mas maaga)"
+msgstr[1] "Pagtataya mula %(date)s (%(days)s araw nang mas maaga)"
 
 msgid "No farm records yet — log daily data to see the trend here."
 msgstr "Wala pang talaan ng bukid — magtala ng araw-araw na datos para makita rito ang takbo."
@@ -422,6 +433,9 @@ msgstr "Mga Rekomendasyon"
 msgid "Predicted Egg Yield Tomorrow"
 msgstr "Tinayang Ani ng Itlog Bukas"
 
+msgid "Predicted 3-Day Egg Yield"
+msgstr "Tinayang Ani ng Itlog sa 3 Araw"
+
 msgid "No forecast generated yet."
 msgstr "Wala pang nagagawang pagtataya."
 
@@ -596,8 +610,8 @@ msgstr "Magsisimula ang pagtataya ng ani ng itlog kapag nakapagtala ka na ng 1 b
 msgid "Recommendations are based on the data you've logged and are available now."
 msgstr "Ang mga rekomendasyon ay batay sa datos na naitala mo at available na ngayon."
 
-msgid "Logging just resumed. Forecasts return on your %(needed)sth day of logs"
-msgstr "Kababalik lang ng pagtatala. Babalik ang pagtataya sa ika-%(needed)s araw ng iyong tala"
+msgid "Back from free-range. Forecasts return on your %(needed)sth day of logs"
+msgstr "Kababalik lang mula sa pagpapastol. Babalik ang pagtataya sa ika-%(needed)s araw ng iyong tala"
 
 msgid "(%(so_far)s/%(needed)s days logged)"
 msgstr "(%(so_far)s/%(needed)s araw na naitala)"
@@ -605,8 +619,17 @@ msgstr "(%(so_far)s/%(needed)s araw na naitala)"
 msgid "ItikCare needs at least a week of your own farm's data before predicting egg yield, so the prediction fits your flock and not someone else's."
 msgstr "Kailangan ng ItikCare ng hindi bababa sa isang linggong datos mula sa sarili mong bukid bago tayahin ang ani ng itlog, para ang pagtataya ay akma sa iyong kawan at hindi sa iba."
 
-msgid "The first 3 days back rebuild your flock's recent laying history, so the prediction reflects how your flock is laying now."
-msgstr "Ang unang 3 araw pagbalik ay bumubuo muli sa kamakailang kasaysayan ng pangingitlog ng iyong kawan, para ang pagtataya ay tumugma sa kasalukuyang pangingitlog nito."
+msgid "The first 3 days back in the cage rebuild your flock's recent laying history, so the prediction reflects how your flock is laying now."
+msgstr "Ang unang 3 araw pagbalik sa kulungan ay bumubuo muli sa kamakailang kasaysayan ng pangingitlog ng iyong kawan, para ang pagtataya ay tumugma sa kasalukuyang pangingitlog nito."
+
+msgid "No logs for %(days)s days. This forecast may be less accurate"
+msgstr "Walang tala sa loob ng %(days)s araw. Maaaring hindi gaanong tumpak ang pagtatayang ito"
+
+msgid "The prediction still uses egg counts from before the gap (last logged %(last)s), which may not match how your flock is laying now. It becomes reliable again once you've logged a few days in a row."
+msgstr "Gumagamit pa rin ang pagtataya ng bilang ng itlog mula bago ang puwang (huling tala: %(last)s), na maaaring hindi na tugma sa kasalukuyang pangingitlog ng iyong kawan. Magiging maaasahan ito muli kapag nakapagtala ka na nang ilang magkakasunod na araw."
+
+msgid "No logs for %(days)s days before this entry, so this forecast may be less accurate until you've logged a few days in a row again."
+msgstr "Walang tala sa loob ng %(days)s araw bago ang entry na ito, kaya maaaring hindi gaanong tumpak ang pagtatayang ito hanggang makapagtala ka muli nang ilang magkakasunod na araw."
 
 msgid "Language"
 msgstr "Wika"

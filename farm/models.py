@@ -35,6 +35,12 @@ class Flock(models.Model):
         default=True,
         help_text="False while ducks are free-range in the field; daily logging and forecasts pause until it's caged again.",
     )
+    starts_new_caging_period = models.BooleanField(
+        default=False,
+        help_text="Set when the flock comes back from free-range; the next DailyLog opens a new "
+        "caging_period (itikcare-spec.md section 10), then this is cleared. A plain gap in "
+        "logging while the flock stays caged never starts a new period.",
+    )
     pending_flock_size = models.PositiveIntegerField(
         null=True,
         blank=True,

@@ -1,6 +1,7 @@
 from datetime import date, timedelta
 
 from django.test import Client, TestCase
+from django.utils import timezone
 
 from accounts.models import User
 from farm.models import DailyLog, Flock
@@ -72,8 +73,21 @@ class NotificationSourceTests(NotificationTestBase):
         make_log(flock, self.user, self.today - timedelta(days=1), caging_period=2)
         self.assertNotIn("missed_days", self.keys())
 
-    def test_missed_days_skipped_when_latest_log_is_past_the_gap_threshold(self):
+    def test_long_caged_gap_is_still_flagged_within_the_lookback(self):
+        # The flock stayed caged: a month without logs is missed days, not free-range
+        # time, so the last MISSED_DAYS_LOOKBACK of them are flagged.
         flock = Flock.objects.create(owner=self.user, generation_number=1, started_on=date(2024, 1, 1))
+        make_log(flock, self.user, self.today - timedelta(days=30))
+        missed = [n for n in build_notifications(self.user) if n.key.startswith("missed_days")]
+        self.assertEqual(len(missed), 1)
+        self.assertIn("7 recent days", missed[0].title)
+
+    def test_missed_days_skipped_right_after_returning_from_free_range(self):
+        # Back from free-range but not logged yet: the days since the last log were
+        # free-range time, not missed entries.
+        flock = Flock.objects.create(
+            owner=self.user, generation_number=1, started_on=date(2024, 1, 1), starts_new_caging_period=True
+        )
         make_log(flock, self.user, self.today - timedelta(days=30))
         self.assertNotIn("missed_days", self.keys())
 
@@ -159,6 +173,23 @@ class NotificationReceiptTests(NotificationTestBase):
             user=self.user, key=f"log_today_missing:{yesterday.isoformat()}", dismissed_at="2026-01-01T00:00Z"
         )
         self.assertIn("log_today_missing", [n.key.split(":")[0] for n in get_notification_state(self.user)[0]])
+
+    def test_dismissed_notification_returns_after_snooze_if_unfixed(self):
+        self.client.post("/notifications/dismiss/", {"key": "no_flock"})
+        self.user.refresh_from_db()
+        self.assertEqual(get_notification_state(self.user), ([], 0))
+        # 31 minutes later the flock still isn't set up: it's back, and unread.
+        dismissed = timezone.now() - timedelta(minutes=31)
+        NotificationReceipt.objects.filter(key="no_flock").update(dismissed_at=dismissed, read_at=dismissed)
+        visible, unread = get_notification_state(self.user)
+        self.assertEqual(([n.key for n in visible], unread), (["no_flock"], 1))
+
+    def test_dismissed_notification_returns_on_next_login(self):
+        self.client.post("/notifications/dismiss/", {"key": "no_flock"})
+        self.client.logout()
+        self.client.login(username="farmer1", password="pw12345")  # bumps last_login
+        self.user.refresh_from_db()
+        self.assertEqual([n.key for n in get_notification_state(self.user)[0]], ["no_flock"])
 
     def test_views_reject_get_and_anonymous(self):
         self.assertEqual(self.client.get("/notifications/read-all/").status_code, 405)

@@ -40,7 +40,7 @@ Five core classes/entities:
 - **User** — authentication, role (farmer/admin)
 - **Flock** — flock size (number of ducks), flock age (weeks)
 - **DailyLog** — daily manual entry: egg count, feed intake (kg/day), temperature (°C), humidity (%), date
-- **Forecast** — model output: predicted daily yield, predicted tri-day yield, timestamp, links back to the DailyLog data it was generated from. Also carries a recursive best-effort predicted_next_day1/2/3_yield breakdown (dashboard's "Next 3-Day Forecast" panel) — 3 distinct day-by-day numbers derived by re-applying the same daily model iteratively, not a separately trained model or a split of the tri-day sum (see forecasting/services.py's `_predict_next_days`).
+- **Forecast** — model output: predicted daily yield, predicted tri-day yield, timestamp, links back to the DailyLog data it was generated from. Also carries a recursive best-effort predicted_next_day1/2/3_yield breakdown (dashboard's "Next 3-Day Forecast" panel) — 3 distinct day-by-day numbers derived by re-applying the same daily model iteratively, not a separately trained model or a split of the tri-day sum (see forecasting/services.py's `_predict_next_days`). Display rule (dashboard + Forecast page trend chart and Next 3-Day panel): each date shows its **newest** available prediction — its own same-day prediction once logged, otherwise the most recent earlier Forecast's day+1/+2/+3 value — so the predicted line and panel don't disappear before today is logged or across a skipped day; projections never cross a caging-period boundary (see `farm/services.py::predictions_by_date`).
 - **Recommendation** — output of the prescriptive module: linked to a Forecast, contains the actionable advice text and which rule/variable triggered it
 
 Relationships: a Flock has many DailyLogs → DailyLogs feed the Forecast model → each Forecast can produce one or more Recommendations.
@@ -160,6 +160,9 @@ Implication for the model: treat each caged period as its own contiguous segment
 |---|---|
 | New farm (fewer than 7 logs of their own) | the 7th log (1 full week) |
 | New caging period (back from free-range, or a new flock generation) | the 4th log in that period, the first with a full 3-day lag1/roll3 history |
+| Logging gap of 7+ days while the flock stayed caged (not a free-range return) | not withheld — shown with a "may be less accurate" caution until the 4th log after the gap (`logging_gap_caution_for_log`) |
+
+**Caging-period boundaries in live logging (changed 2026-09-28):** a new `caging_period` starts only when the farmer marks the flock as caged again after free-range (Flock Profile sets `Flock.starts_new_caging_period`, consumed by the next log — `farm/services.py::caging_period_for_new_log`), or for a new flock generation. A gap in logging alone no longer starts one: the ducks stayed caged, so it's the same operational segment with unrecorded days. Its first logs back therefore carry lag1/roll3 from before the gap, at prediction and training time alike — hence the caution above. The historical CSV keeps its own `Caging_Period` column.
 
 Why: a new farmer's model is bootstrapped from the foundation farm only, and a Random Forest can't predict outside the yield range it was trained on. For example, a 50-duck flock got a forecast of 154 eggs. The first days of a new caging period would otherwise have imputed lag features. Logs are counted, not calendar days, so backfilled days count. None of this changes the RF split, retraining, or acceptance thresholds. **Known limitation:** after the first week, a farm far smaller or larger than the foundation farm can still be biased toward its scale until a retrain includes the farm's own data.
 

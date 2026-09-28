@@ -44,6 +44,28 @@ class DashboardIndexTests(TestCase):
         self.assertNotContains(response, "Tomorrow")
         self.assertEqual(response.context["next_day_forecasts"], [])
 
+    def test_week_long_caged_gap_shows_prediction_with_accuracy_caution(self):
+        """Not logging for a week+ while caged isn't a free-range return: no warm-up, the
+        prediction still shows, with a "may be less accurate" caution above it."""
+        flock = Flock.objects.create(owner=self.user, generation_number=1, started_on=date(2024, 1, 1))
+        today = operational_today()
+        for days_ago in range(30, 20, -1):  # 10 logs, then nothing for 20 days
+            self._log(flock, today - timedelta(days=days_ago))
+        log = self._log(flock, today)
+        forecast = Forecast.objects.create(
+            flock=flock, forecast_date=today, feature_importances={"temperature_c": 0.4},
+            model_version="rf-test", predicted_daily_yield=150, predicted_tri_day_yield=450,
+            predicted_next_day1_yield=151, predicted_next_day2_yield=152, predicted_next_day3_yield=153,
+        )
+        forecast.source_logs.set([log])
+
+        response = self.client.get("/")
+        self.assertIsNone(response.context["forecast_warmup"])
+        self.assertEqual(response.context["logging_gap_caution"].missed_days, 20)
+        self.assertContains(response, "No logs for 20 days. This forecast may be less accurate")
+        self.assertContains(response, "151")
+        self.assertNotContains(response, "Back from free-range")
+
     def test_no_active_flock_shows_no_forecast_placeholder(self):
         response = self.client.get("/")
         self.assertContains(response, "No forecasts generated yet.")
@@ -78,7 +100,10 @@ class DashboardIndexTests(TestCase):
         )
         forecast.source_logs.set([log])
 
-        response = self.client.get("/")
+        # Pin the farm day: between midnight and 6am operational_today() is still
+        # yesterday, which would put the date.today() log/Forecast one day in the future.
+        with patch("dashboard.views.operational_today", return_value=date.today()):
+            response = self.client.get("/")
         self.assertContains(response, "Next 3-Day Forecast")
         self.assertContains(response, "Tomorrow")
         self.assertContains(response, "157")

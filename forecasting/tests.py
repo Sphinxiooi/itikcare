@@ -277,6 +277,54 @@ class ForecastReadinessTests(TestCase):
         self.assertIsNone(services.current_forecast_warmup(self.flock))
 
 
+class LoggingGapCautionTests(TestCase):
+    """services.logging_gap_caution_for_log: a week+ with no logs while the flock stayed
+    caged keeps the same caging period, so the prediction is still made -- but with a
+    "may be less accurate" caution until its lag1/roll3 window is entirely post-gap."""
+
+    def setUp(self):
+        self.user = User.objects.create_user(username="farmer1", password="pw12345")
+        self.flock = Flock.objects.create(owner=self.user, generation_number=1, started_on=date(2024, 1, 1))
+        # 10 consecutive logs, Jan 1-10.
+        _make_logs(self.flock, self.user, date(2024, 1, 1), 10)
+
+    def test_no_caution_for_consecutive_logs(self):
+        self.assertIsNone(services.current_logging_gap_caution(self.flock))
+
+    def test_six_missed_days_is_below_the_threshold(self):
+        # Jan 10 -> Jan 17: Jan 11-16 missed (6 days).
+        log = _make_logs(self.flock, self.user, date(2024, 1, 17), 1)[0]
+        self.assertIsNone(services.logging_gap_caution_for_log(log))
+
+    def test_a_week_of_missed_days_cautions_until_the_fourth_log_back(self):
+        # Jan 10 -> Jan 18: Jan 11-17 missed (7 days). Logs on Jan 18-21.
+        after_gap = _make_logs(self.flock, self.user, date(2024, 1, 18), 4)
+        caution = services.logging_gap_caution_for_log(after_gap[0])
+        self.assertEqual((caution.missed_days, caution.last_log_before_gap), (7, date(2024, 1, 10)))
+        # The 2nd and 3rd logs back still reach Jan 10 through roll3.
+        self.assertIsNotNone(services.logging_gap_caution_for_log(after_gap[1]))
+        self.assertIsNotNone(services.logging_gap_caution_for_log(after_gap[2]))
+        # The 4th log's 3 priors are all post-gap.
+        self.assertIsNone(services.logging_gap_caution_for_log(after_gap[3]))
+
+    def test_prediction_is_not_withheld_for_a_caged_gap(self):
+        after_gap = _make_logs(self.flock, self.user, date(2024, 3, 1), 1)[0]
+        self.assertTrue(services.readiness_for_log(after_gap).is_ready)
+        self.assertIsNotNone(services.current_logging_gap_caution(self.flock))
+
+    def test_no_caution_across_a_free_range_period_boundary(self):
+        # Back from free-range: new caging period, so the warm-up notice applies instead
+        # and the priors never reach the old period.
+        recaged = _make_logs(self.flock, self.user, date(2024, 3, 1), 1, caging_period=2)[0]
+        self.assertIsNone(services.logging_gap_caution_for_log(recaged))
+        self.assertEqual(services.current_forecast_warmup(self.flock).reason, "recaged")
+
+    def test_no_caution_while_free_range(self):
+        _make_logs(self.flock, self.user, date(2024, 3, 1), 1)
+        self.flock.is_caged = False
+        self.assertIsNone(services.current_logging_gap_caution(self.flock))
+
+
 class GenerateForecastTests(TestCase):
     """DB-backed orchestration tests for services.generate_forecast, following the same
     "real DB rows, no mocking" style as recommendations/tests.py's GenerateRecommendationsTests.
@@ -759,11 +807,28 @@ class ForecastRecommendationsViewTests(TestCase):
         # setUp's Forecast has distinct predicted_next_day1/2/3_yield values (157/155/172).
         # Under the old upcoming_forecasts logic, only one same-day Forecast row exists,
         # so this would have shown just one card instead of three distinct days.
-        response = self.client.get("/forecast-recommendations/")
+        # The farm day is pinned to the forecast's date (see the tri-day test below).
+        with patch("forecasting.views.operational_today", return_value=self.forecast.forecast_date):
+            response = self.client.get("/forecast-recommendations/")
         self.assertEqual(len(response.context["next_day_forecasts"]), 3)
         self.assertContains(response, "157")
         self.assertContains(response, "155")
         self.assertContains(response, "172")
+
+    def test_shows_tri_day_model_total_with_its_own_date_range(self):
+        # setUp's Forecast has predicted_tri_day_yield=455: the Tri-day Yield Model's total
+        # for its forecast date + the next 2 days (see farm.services.build_tri_day_forecast).
+        # The farm day is pinned to the forecast's date: between midnight and 6am
+        # operational_today() is still yesterday, which would put setUp's date.today()
+        # Forecast one day in the future.
+        with patch("forecasting.views.operational_today", return_value=self.forecast.forecast_date):
+            response = self.client.get("/forecast-recommendations/")
+        tri = response.context["tri_day_forecast"]
+        self.assertEqual(tri["value"], Decimal("455.00"))
+        self.assertEqual(tri["start"], self.forecast.forecast_date)
+        self.assertEqual(tri["end"], self.forecast.forecast_date + timedelta(days=2))
+        self.assertContains(response, "Predicted 3-Day Egg Yield")
+        self.assertContains(response, "455 eggs")
 
     def test_temperature_and_humidity_recommendations_nest_under_one_environment_block(self):
         Recommendation.objects.bulk_create([
@@ -809,6 +874,7 @@ class ForecastRecommendationsViewTests(TestCase):
         response = client.get("/forecast-recommendations/")
         self.assertContains(response, "1/7 days logged")
         self.assertNotContains(response, "Predicted Egg Yield Tomorrow")
+        self.assertNotContains(response, "Predicted 3-Day Egg Yield")
         self.assertEqual(response.context["next_day_forecasts"], [])
         self.assertContains(response, "Add shade.")
 

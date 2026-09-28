@@ -55,6 +55,15 @@ class ModelNotTrainedError(Exception):
 NEW_FARM_MIN_LOGS = 7
 RECAGE_WARMUP_LOGS = 3
 
+# --- Logging-gap caution -------------------------------------------------------------
+# A gap in logging while the flock stayed caged does NOT start a new caging period (only
+# a return from free-range does -- farm.services.caging_period_for_new_log), so the
+# prediction is still made. But its lag1/roll3 history features then reach back to egg
+# counts from before the gap, which may no longer reflect how the flock is laying now.
+# When at least this many whole days went unlogged inside that history window, the
+# prediction is shown with a "may be less accurate" caution instead of being withheld.
+LOGGING_GAP_CAUTION_DAYS = 7
+
 
 @dataclass(frozen=True)
 class ForecastReadiness:
@@ -158,6 +167,57 @@ def current_forecast_warmup(active_flock):
     return None if readiness.is_ready else readiness
 
 
+@dataclass(frozen=True)
+class LoggingGapCaution:
+    """A prediction is being made from laying history that spans a long unlogged gap.
+
+    missed_days is the number of whole days with no log between last_log_before_gap and
+    the next log after it (the longest such gap, if there's more than one).
+    """
+
+    missed_days: int
+    last_log_before_gap: object  # datetime.date
+
+
+def logging_gap_caution_for_log(daily_log: DailyLog):
+    """LoggingGapCaution if daily_log's own prediction relies on history from before a
+    gap of LOGGING_GAP_CAUTION_DAYS+ unlogged days, else None.
+
+    Checks exactly the logs that feed its lag1/roll3 -- daily_log plus up to 3 prior
+    logs in the same caging period (the same lookup as _build_feature_row). So the
+    caution clears by itself on the 4th log after the gap, the first whose history
+    window is entirely post-gap.
+    """
+    priors = DailyLog.objects.filter(
+        flock=daily_log.flock,
+        caging_period=daily_log.caging_period,
+        date__lt=daily_log.date,
+    ).order_by("-date")[:3]
+    window_dates = [daily_log.date] + [p.date for p in priors]  # newest first
+
+    worst = None
+    for newer, older in zip(window_dates, window_dates[1:]):
+        missed_days = (newer - older).days - 1
+        if missed_days >= LOGGING_GAP_CAUTION_DAYS and (worst is None or missed_days > worst.missed_days):
+            worst = LoggingGapCaution(missed_days, older)
+    return worst
+
+
+def current_logging_gap_caution(active_flock):
+    """The logging-gap caution to show next to the flock's current prediction, or None.
+
+    None when there's nothing to caution about or the flock is free-range. The templates
+    show the warm-up notice (current_forecast_warmup) in preference to this one: while
+    the prediction is withheld there's nothing to caution about.
+    """
+    if active_flock is None or not active_flock.is_caged:
+        return None
+    latest_log = DailyLog.objects.filter(flock=active_flock).order_by("-date").first()
+    if latest_log is None:
+        return None
+    return logging_gap_caution_for_log(latest_log)
+
+
 def _build_feature_row(daily_log: DailyLog):
     """Single-row MODEL_FEATURES-ordered input for .predict(), plus the prior logs used
     for lag1/roll3 (kept so the resulting Forecast can be traced back to its inputs).
@@ -242,9 +302,10 @@ def generate_forecast(daily_log: DailyLog, model_path=None) -> Forecast:
     forecast_date is set to daily_log.date (not the day after) — the daily/tri-day models
     are trained to predict a day's own yield (and the following 3-day sum) from that day's
     own farm conditions plus recent laying history, so this is a same-day "nowcast" using
-    the reading the farmer just entered. dashboard/views.py's trend chart already expects
-    this: it shows "actual" (DailyLog.egg_count) and "predicted" (Forecast.predicted_daily_yield)
-    side by side for the same date.
+    the reading the farmer just entered. The trend chart and Next 3-Day panel read these
+    rows through farm.services.predictions_by_date: each date shows its newest prediction
+    -- this same-day value once the date is logged, otherwise the most recent earlier
+    Forecast's day+1/+2/+3 value below.
 
     update_or_create keeps this idempotent (re-generating for a date already forecast
     updates it in place rather than erroring against the flock+forecast_date uniqueness

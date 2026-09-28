@@ -4,6 +4,7 @@ from django.shortcuts import render
 from farm.services import (
     build_next_day_forecasts,
     build_trend_chart_data,
+    build_tri_day_forecast,
     get_active_flock,
     operational_today,
     resolve_trend_range,
@@ -13,7 +14,7 @@ from farm.services import (
 from recommendations import rules as recommendation_rules
 
 from .models import Forecast
-from .services import current_forecast_warmup
+from .services import current_forecast_warmup, current_logging_gap_caution
 from .pipeline import FEATURE_LABELS, FEATURES as RAW_FEATURES
 from django.utils.translation import gettext as _
 from django.utils.translation import gettext_lazy
@@ -87,20 +88,25 @@ def forecast_recommendations(request):
         if flock_is_caged
         else None
     )
-    # Next 3-Day Forecast panel data: the recursive day+1/2/3 projection (see
-    # farm.services.build_next_day_forecasts), shared with the dashboard's identical
-    # panel and also used to extend the Egg Yield Trend chart's predicted line with a
-    # dashed forward-looking tail. This page used to instead query stored Forecast rows
-    # directly (forecast_date >= today), but every Forecast row is a same-day nowcast, so
-    # that query almost never returned more than 1 distinct future day -- next_day_forecasts
-    # is the correct source for a genuine 3-day-ahead view.
-    next_day_forecasts = build_next_day_forecasts(latest_forecast)
+    # Next 3-Day Forecast panel data: the newest prediction for each upcoming day not yet
+    # logged (see farm.services.build_next_day_forecasts), shared with the dashboard's
+    # identical panel. Unlike latest_forecast above, this falls back to yesterday's
+    # forecast until today is logged, so the panel -- and the "Predicted Egg Yield
+    # Tomorrow" card, which reads its Tomorrow entry -- never go blank mid-day.
+    next_day_forecasts = build_next_day_forecasts(active_flock, operational_today()) if flock_is_caged else []
+    tomorrow_forecast = next((day for day in next_day_forecasts if day["is_tomorrow"]), None)
+    # The Tri-day Yield Model's 3-day total, shown with its own date range -- see
+    # farm.services.build_tri_day_forecast for which Forecast it comes from.
+    tri_day_forecast = build_tri_day_forecast(active_flock, operational_today()) if flock_is_caged else None
     # Prediction withheld during warm-up (recommendations still show) -- see
     # forecasting.services.forecast_readiness.
     forecast_warmup = current_forecast_warmup(active_flock)
+    # Shown with the prediction after a week+ logging gap while caged -- see
+    # forecasting.services.logging_gap_caution_for_log.
+    logging_gap_caution = None if forecast_warmup else current_logging_gap_caution(active_flock)
     trend_range_choices = trend_range_choices_for(active_flock)
     trend_range = resolve_trend_range(request.GET.get("trend_range", "7"), trend_range_choices)
-    trend_data = build_trend_chart_data(active_flock, flock_is_caged, trend_range, next_day_forecasts)
+    trend_data = build_trend_chart_data(active_flock, flock_is_caged, trend_range)
 
     feature_importances = []
     grouped_recommendations = []
@@ -165,7 +171,10 @@ def forecast_recommendations(request):
         "flock_is_caged": flock_is_caged,
         "latest_forecast": latest_forecast,
         "next_day_forecasts": next_day_forecasts,
+        "tomorrow_forecast": tomorrow_forecast,
+        "tri_day_forecast": tri_day_forecast,
         "forecast_warmup": forecast_warmup,
+        "logging_gap_caution": logging_gap_caution,
         "feature_importances": feature_importances,
         "grouped_recommendations": grouped_recommendations,
         "trend_range": trend_range,

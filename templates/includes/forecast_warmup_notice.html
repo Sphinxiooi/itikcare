@@ -11,7 +11,7 @@ exactly the same thing. Expects `forecast_warmup` (a ForecastReadiness) in conte
         {% if forecast_warmup.reason == "new_farm" %}
         {% translate "Egg yield forecasts start once you've logged 1 full week" %}
         {% else %}
-        {% blocktranslate with needed=forecast_warmup.logs_needed %}Logging just resumed. Forecasts return on your {{ needed }}th day of logs{% endblocktranslate %}
+        {% blocktranslate with needed=forecast_warmup.logs_needed %}Back from free-range. Forecasts return on your {{ needed }}th day of logs{% endblocktranslate %}
         {% endif %}
         {% blocktranslate with so_far=forecast_warmup.logs_so_far needed=forecast_warmup.logs_needed %}({{ so_far }}/{{ needed }} days logged){% endblocktranslate %}
     </p>
@@ -23,8 +23,8 @@ exactly the same thing. Expects `forecast_warmup` (a ForecastReadiness) in conte
         {% endblocktranslate %}
         {% else %}
         {% blocktranslate trimmed %}
-        The first 3 days back rebuild your flock's recent laying history, so the
-        prediction reflects how your flock is laying now.
+        The first 3 days back in the cage rebuild your flock's recent laying history, so
+        the prediction reflects how your flock is laying now.
         {% endblocktranslate %}
         {% endif %}
         {% translate "Recommendations are based on the data you've logged and are available now." %}

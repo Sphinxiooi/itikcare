@@ -13,12 +13,13 @@ from dataclasses import dataclass
 from datetime import timedelta
 
 from django.urls import reverse
+from django.utils import timezone
 from django.utils.formats import date_format
 from django.utils.translation import gettext as _
 from django.utils.translation import ngettext
 
 from farm.models import DailyLog
-from farm.services import CAGING_PERIOD_GAP_DAYS, get_active_flock, operational_today
+from farm.services import get_active_flock, operational_today
 from forecasting.models import Forecast
 from forecasting.services import current_forecast_warmup
 from recommendations.services import ACTIONABLE_PRIORITIES, most_urgent_recommendation
@@ -28,6 +29,10 @@ from .models import NotificationReceipt
 # How far back the "missed days" check looks for unlogged days. Kept short on
 # purpose: this is a nudge to fill in a recent slip, not an audit of the whole history.
 MISSED_DAYS_LOOKBACK = 7
+
+# How long the dismiss (x) button hides a notification whose issue is still unfixed.
+# It also comes back sooner if the farmer logs out and back in (see _dismissal_active).
+DISMISS_SNOOZE = timedelta(minutes=30)
 
 # Display order in the dropdown: things the farmer should do now first, then things
 # worth knowing about, then plain status info.
@@ -81,14 +86,16 @@ def _missed_days(user, flock, today):
 
     Only counts days inside the flock's *current* caging stretch -- the latest
     DailyLog's caging_period (itikcare-spec.md section 10). Days before that stretch
-    began were free-range time, a known and intentional gap, not a missed entry. If
-    the latest log is already more than CAGING_PERIOD_GAP_DAYS old, the next entry
-    will open a new caging period anyway, so nothing is flagged.
+    began were free-range time, a known and intentional gap, not a missed entry. Nothing
+    is flagged while the flock is just back from free-range and hasn't logged yet
+    (Flock.starts_new_caging_period): its next entry opens a new stretch, so every day
+    since the last log was free-range time too. A plain gap while the flock stayed caged
+    is still flagged -- those days really were missed.
     """
-    if flock is None or not flock.is_caged:
+    if flock is None or not flock.is_caged or flock.starts_new_caging_period:
         return None
     latest_log = DailyLog.objects.filter(flock=flock).order_by("-date").first()
-    if latest_log is None or (today - latest_log.date).days > CAGING_PERIOD_GAP_DAYS:
+    if latest_log is None:
         return None
     stretch_start = (
         DailyLog.objects.filter(flock=flock, caging_period=latest_log.caging_period)
@@ -232,20 +239,42 @@ def build_notifications(user):
     return sorted(notifications, key=lambda n: LEVEL_ORDER[n.level])
 
 
+def _dismissal_active(receipt, user, now):
+    """True while a dismissal still hides its notification.
+
+    Dismissing is a snooze, not "never show again": if the issue is still unfixed
+    (the notification is still being built), it comes back once DISMISS_SNOOZE has
+    passed or the farmer logs in again -- whichever comes first.
+    """
+    if receipt is None or receipt.dismissed_at is None:
+        return False
+    if now - receipt.dismissed_at >= DISMISS_SNOOZE:
+        return False
+    if user.last_login and user.last_login > receipt.dismissed_at:
+        return False
+    return True
+
+
 def get_notification_state(user):
     """(visible notifications, unread count) with the farmer's receipts applied:
-    dismissed ones are dropped, read ones are marked is_unread=False."""
+    snoozed dismissals are dropped, read ones are marked is_unread=False."""
     notifications = build_notifications(user)
     receipts = {
         r.key: r
         for r in NotificationReceipt.objects.filter(user=user, key__in=[n.key for n in notifications])
     }
+    now = timezone.now()
     visible = []
     for notification in notifications:
         receipt = receipts.get(notification.key)
-        if receipt and receipt.dismissed_at:
+        if _dismissal_active(receipt, user, now):
             continue
-        notification.is_unread = not (receipt and receipt.read_at)
+        read_at = receipt.read_at if receipt else None
+        # A notification returning from a dismissal counts as unread again (so the
+        # badge flags it) until the dropdown is opened after it came back.
+        if read_at and receipt.dismissed_at and read_at <= receipt.dismissed_at:
+            read_at = None
+        notification.is_unread = read_at is None
         visible.append(notification)
     unread_count = sum(1 for n in visible if n.is_unread)
     return visible, unread_count

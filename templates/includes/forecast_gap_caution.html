@@ -1,0 +1,22 @@
+{% load i18n itik_icons %}
+{% comment %}
+Shown above an egg-yield prediction whose recent laying history (lag1/roll3) reaches
+back across a week or more with no logs while the flock stayed caged -- see
+forecasting/services.py's logging_gap_caution_for_log. Unlike the warm-up notice, the
+prediction is still shown; this only says it may be less accurate. Shared by the
+dashboard's Next 3-Day panel and the Forecast & Recommendations page. Expects
+`logging_gap_caution` (a LoggingGapCaution) in context.
+{% endcomment %}
+<div class="bg-amber-50 border border-amber-200 text-amber-800 text-sm rounded-md p-3 mb-4">
+    <p class="font-semibold">
+        {% icon "clock" "w-4 h-4 inline -mt-0.5" %}
+        {% blocktranslate with days=logging_gap_caution.missed_days %}No logs for {{ days }} days. This forecast may be less accurate{% endblocktranslate %}
+    </p>
+    <p class="mt-1">
+        {% blocktranslate trimmed with last=logging_gap_caution.last_log_before_gap|date:"M j" %}
+        The prediction still uses egg counts from before the gap (last logged {{ last }}),
+        which may not match how your flock is laying now. It becomes reliable again once
+        you've logged a few days in a row.
+        {% endblocktranslate %}
+    </p>
+</div>
