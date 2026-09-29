@@ -6,6 +6,7 @@ Run as:
                                           [--output-dir DIR]
                                           [--tune [--tune-iter N] [--cv-folds K]
                                                   [--fallback-untuned]]
+                                          [--force]
 
 There is no single global model: every farmer (User) gets a separate artifact, and
 ``--owner-id`` says whose. The foundation farmer (accounts.User.is_foundation_farmer,
@@ -46,7 +47,14 @@ there. Stages:
 4. Fit a RandomForestRegressor for daily yield and a separate one for tri-day yield.
 5. Evaluate both against the §5 thresholds (MAE ≤ 8%, RMSE ≤ 10%, MAPE ≤ 15%, R² ≥ 0.75),
    alongside a mean-predictor baseline.
-6. Persist both pipelines + metadata + feature importances (joblib, atomically written)
+6. Champion/challenger check: if this owner already has a saved model, score it on the
+   *same* held-out test rows and only let the new model replace it if the new one beats
+   it — a strictly lower MAE on both the daily and the tri-day test set. Otherwise the
+   current model is kept untouched (and no records are locked). See
+   ``_compare_with_current_model``. ``--force`` skips this check for a deliberate manual
+   replacement; with no saved model yet (e.g. signup's bootstrap train) there is nothing
+   to beat, so the new model is saved as long as the thresholds allow it.
+7. Persist both pipelines + metadata + feature importances (joblib, atomically written)
    and a human-readable metrics report (JSON), so Forecast.model_version /
    feature_importances can be populated at prediction time and the prescriptive module
    can prioritise by importance.
@@ -55,6 +63,7 @@ there. Stages:
 import json
 import os
 from datetime import datetime
+from pathlib import Path
 
 import joblib
 from django.conf import settings
@@ -131,6 +140,14 @@ class Command(BaseCommand):
                 "persisting that model if it passes. Ignored without --tune."
             ),
         )
+        parser.add_argument(
+            "--force", action="store_true",
+            help=(
+                "Skip the champion/challenger check and replace the owner's current model "
+                "even if the new one doesn't beat it (the --strict threshold check still "
+                "applies). For deliberate manual replacements only."
+            ),
+        )
 
     def handle(self, *args, **options):
         owner_id = options["owner_id"]
@@ -166,6 +183,11 @@ class Command(BaseCommand):
         daily_importances, tri_importances = result["daily_importances"], result["tri_importances"]
         all_pass = result["all_pass"]
 
+        # --- Champion/challenger: does the new model beat the one currently in use? ---
+        comparison = None
+        if not options["force"]:
+            comparison = self._compare_with_current_model(options["output_dir"], owner_id, result)
+
         # --- Persist -----------------------------------------------------------------
         model_version = f"rf-{owner_id}-{datetime.now():%Y%m%d-%H%M%S}"
         metrics_payload = {
@@ -182,6 +204,9 @@ class Command(BaseCommand):
                       "feature_importances": daily_importances},
             "tri_day": {"metrics": tri_metrics, "baseline": result["tri_baseline"],
                         "feature_importances": tri_importances},
+            # Which model this one replaced and by how much it beat it (None when there
+            # was no comparable model to beat, or --force was used).
+            "replaced_model": comparison,
         }
 
         if options["dry_run"]:
@@ -191,6 +216,15 @@ class Command(BaseCommand):
             raise CommandError(
                 "--strict is set and at least one threshold failed; refusing to persist the model."
             )
+        if comparison is not None and not comparison["new_model_wins"]:
+            # Not an error: keeping a better model in place is the intended outcome.
+            # Records stay unlocked because no persisted model has learned from them yet.
+            self.stdout.write(self.style.WARNING(
+                f"\nThe new model did not beat the current model "
+                f"({comparison['current_model_version']}); keeping the current model. "
+                f"Nothing written."
+            ))
+            return
 
         self._persist(options["output_dir"], owner_id, model_version, metrics_payload,
                       daily_model, tri_model, daily_importances, tri_importances, len(records))
@@ -257,6 +291,83 @@ class Command(BaseCommand):
             "tri_model": tri_model, "tri_metrics": tri_metrics,
             "tri_baseline": tri_baseline, "tri_importances": tri_importances,
             "tri_best_params": tri_best_params,
+            # Kept so _compare_with_current_model can score the current saved model on
+            # exactly the same held-out rows the new model was scored on.
+            "daily_test": daily_test, "daily_mean": daily_mean,
+            "tri_test": tri_test, "tri_mean": tri_mean,
+        }
+
+    def _compare_with_current_model(self, output_dir, owner_id, result):
+        """Score the owner's currently saved model on the new model's held-out test rows.
+
+        Returns None when there is nothing comparable to beat (no saved model yet, a file
+        that can't be loaded, or a model built on a different feature list) — the new
+        model may then replace it. Otherwise returns a dict with both models' MAE and
+        `new_model_wins`, which is True only if the new model has a strictly lower MAE
+        on BOTH the daily and the tri-day test set. A tie keeps the current model.
+
+        Why this is a fair comparison: the split is chronological within each caging
+        period and segments only grow at the end, so today's test rows (the last 15% of
+        each segment) come after the rows the current model was trained on — it hasn't
+        seen them either. If anything overlapped, it would favour the current model,
+        i.e. make it harder for the new one to win, never easier.
+
+        MAE is the deciding metric because it reads directly as "eggs per day off" and
+        is the same error the §5 MAE threshold is built on.
+        """
+        model_path = Path(output_dir) / f"forecast_model_{owner_id}.joblib"
+        if not model_path.exists():
+            return None
+
+        try:
+            current = joblib.load(model_path)
+            current_features = list(current["feature_names"])
+            current_daily, current_tri = current["daily_pipeline"], current["tri_day_pipeline"]
+        except Exception as exc:  # A broken artifact can't serve forecasts anyway.
+            self.stdout.write(self.style.WARNING(
+                f"\nCurrent model at {model_path} could not be loaded ({exc!r}); "
+                f"it will be replaced if the new model is saved."
+            ))
+            return None
+
+        if current_features != list(ml.MODEL_FEATURES):
+            self.stdout.write(self.style.WARNING(
+                "\nCurrent model was trained on a different feature list, so it can't be "
+                "scored on the same test rows; it will be replaced if the new model is saved."
+            ))
+            return None
+
+        feats = ml.MODEL_FEATURES
+        daily_test, tri_test = result["daily_test"], result["tri_test"]
+        current_daily_mae = ml.evaluate(
+            daily_test[ml.DAILY_TARGET], current_daily.predict(daily_test[feats]), result["daily_mean"],
+        )["mae"]
+        current_tri_mae = ml.evaluate(
+            tri_test[ml.TRI_DAY_TARGET], current_tri.predict(tri_test[feats]), result["tri_mean"],
+        )["mae"]
+        new_daily_mae = result["daily_metrics"]["mae"]
+        new_tri_mae = result["tri_metrics"]["mae"]
+
+        daily_wins = new_daily_mae < current_daily_mae
+        tri_wins = new_tri_mae < current_tri_mae
+        current_version = current.get("model_version", "unknown")
+
+        verdict = lambda won: self.style.SUCCESS("NEW WINS") if won else self.style.ERROR("CURRENT KEPT")
+        self.stdout.write(self.style.MIGRATE_HEADING(
+            f"\n=== New model vs current model ({current_version}) — MAE on the same test rows ==="
+        ))
+        self.stdout.write(
+            f"  DAILY    current {current_daily_mae:7.2f}   new {new_daily_mae:7.2f}   [{verdict(daily_wins)}]"
+        )
+        self.stdout.write(
+            f"  TRI-DAY  current {current_tri_mae:7.2f}   new {new_tri_mae:7.2f}   [{verdict(tri_wins)}]"
+        )
+
+        return {
+            "current_model_version": current_version,
+            "daily": {"current_mae": current_daily_mae, "new_mae": new_daily_mae},
+            "tri_day": {"current_mae": current_tri_mae, "new_mae": new_tri_mae},
+            "new_model_wins": daily_wins and tri_wins,
         }
 
     def _load_records(self, owner):
@@ -350,8 +461,6 @@ class Command(BaseCommand):
 
     def _persist(self, output_dir, owner_id, model_version, metrics_payload,
                  daily_model, tri_model, daily_importances, tri_importances, n_samples):
-        from pathlib import Path
-
         out = Path(output_dir)
         out.mkdir(parents=True, exist_ok=True)
 

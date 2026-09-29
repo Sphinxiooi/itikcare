@@ -654,6 +654,104 @@ class TrainForecastModelFallbackTests(TestCase):
         self.assertFalse(DailyLog.objects.filter(flock=self.flock, is_locked=True).exists())
 
 
+class _ConstantModel:
+    """A deliberately terrible saved "current model": predicts the same number for
+    every row. Module-level so joblib can pickle it into a stand-in artifact."""
+
+    def __init__(self, value):
+        self.value = value
+
+    def predict(self, X):
+        return np.full(len(X), self.value, dtype=float)
+
+
+class TrainForecastModelChampionChallengerTests(TrainForecastModelFallbackTests):
+    """The new model may only replace the owner's current saved model if it beats it
+    (strictly lower MAE on the same held-out rows, daily AND tri-day); otherwise the
+    current artifact must stay byte-for-byte untouched and no records get locked.
+    Reuses TrainForecastModelFallbackTests' learnable 120-row dataset and helpers
+    (its own tests run again here too, which is harmless)."""
+
+    def _model_path(self):
+        return Path(self.tmpdir.name) / f"forecast_model_{self.user.id}.joblib"
+
+    def _save_current_model(self, **overrides):
+        artifact = {
+            "model_version": "rf-current",
+            "feature_names": ml.MODEL_FEATURES,
+            "daily_pipeline": _ConstantModel(1.0),
+            "tri_day_pipeline": _ConstantModel(1.0),
+        }
+        artifact.update(overrides)
+        joblib.dump(artifact, self._model_path())
+
+    def test_no_current_model_means_the_new_one_is_saved(self):
+        self._train(strict=True)
+        self.assertTrue(self._model_path().exists())
+        self.assertIsNone(self._metrics()["replaced_model"])
+
+    def test_new_model_that_beats_the_current_one_replaces_it(self):
+        self._save_current_model()
+
+        self._train(strict=True)
+
+        self.assertNotEqual(joblib.load(self._model_path())["model_version"], "rf-current")
+        replaced = self._metrics()["replaced_model"]
+        self.assertEqual(replaced["current_model_version"], "rf-current")
+        self.assertTrue(replaced["new_model_wins"])
+        self.assertLess(replaced["daily"]["new_mae"], replaced["daily"]["current_mae"])
+        self.assertEqual(DailyLog.objects.filter(flock=self.flock, is_locked=True).count(), 120)
+
+    def test_a_tie_keeps_the_current_model(self):
+        # Same data + fixed random_state -> the retrain is an identical model, so it
+        # doesn't *beat* the current one and must not replace it.
+        self._train(strict=True)
+        DailyLog.objects.filter(flock=self.flock).update(is_locked=False)
+        before_model = self._model_path().read_bytes()
+        before_metrics = self._metrics()
+
+        self._train(strict=True)
+
+        self.assertEqual(self._model_path().read_bytes(), before_model)
+        self.assertEqual(self._metrics(), before_metrics)
+        self.assertFalse(DailyLog.objects.filter(flock=self.flock, is_locked=True).exists())
+
+    def test_worse_new_model_keeps_the_current_one_even_without_strict(self):
+        self._train()
+        DailyLog.objects.filter(flock=self.flock).update(is_locked=False)
+        before_model = self._model_path().read_bytes()
+
+        with patch.object(ml, "tune_estimator", side_effect=self._bad_tuned_model):
+            self._train(tune=True)  # no --strict: only the comparison stands in the way
+
+        self.assertEqual(self._model_path().read_bytes(), before_model)
+        self.assertFalse(DailyLog.objects.filter(flock=self.flock, is_locked=True).exists())
+
+    def test_force_replaces_the_current_model_without_comparing(self):
+        self._train()
+        before_model = self._model_path().read_bytes()
+
+        with patch.object(ml, "tune_estimator", side_effect=self._bad_tuned_model):
+            self._train(tune=True, force=True)
+
+        self.assertNotEqual(self._model_path().read_bytes(), before_model)
+        self.assertIsNone(self._metrics()["replaced_model"])
+
+    def test_incomparable_current_model_is_replaced(self):
+        for current in ("unreadable", "other-features"):
+            with self.subTest(current=current):
+                if current == "unreadable":
+                    self._model_path().write_bytes(b"not-a-joblib-file")
+                else:
+                    self._save_current_model(feature_names=["flock_size"])
+
+                self._train(strict=True)
+
+                self.assertNotEqual(joblib.load(self._model_path())["model_version"], "rf-current")
+                self.assertIsNone(self._metrics()["replaced_model"])
+                self._model_path().unlink()
+
+
 class PredictNextDaysTests(SimpleTestCase):
     """Direct unit test of the recursive lag1/roll3 feature construction in
     services._predict_next_days, isolated from real RF prediction values via a stub

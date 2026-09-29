@@ -398,6 +398,9 @@ def trigger_retrain(reason: str, owner_id: int) -> None:
     cycle. --strict is always used so a bad or unlucky retrain can never overwrite the
     model currently serving real predictions — it only persists if every acceptance
     threshold still passes; the previous working artifact is left untouched otherwise.
+    On top of that, the command's champion/challenger check only lets the new model
+    replace the current one if it beats it (strictly lower MAE on the same held-out test
+    rows, daily and tri-day) — see train_forecast_model._compare_with_current_model.
     (Contrast with the signup flow's bootstrap train, which runs synchronously and
     untuned — see accounts/views.py::signup — because that one must finish before the
     farmer's very first daily log can be forecast.)
