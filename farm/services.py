@@ -87,26 +87,24 @@ def get_effective_coordinates(owner):
     return None, None
 
 
-# Duck egg collection that finishes in the early morning (e.g. 2-5am) still belongs to
-# the previous day's collection cycle, not a fresh one -- so the farm's logging day
-# rolls over at this local hour instead of at midnight.
-FARM_DAY_START_HOUR = 6
+# The farm's logging day rolls over at plain midnight local time, matching the
+# calendar date. (This used to roll over at 6am instead, to keep early-morning egg
+# collection attached to the previous day's cycle -- reverted back to midnight.)
+FARM_DAY_START_HOUR = 0
 
 
 def operational_today(now=None):
-    """The farm's current logging day, rolling over at FARM_DAY_START_HOUR local time
-    instead of midnight. Single source of truth for every "is this today" comparison
-    touching DailyLog/Forecast dates (form validation, forecast generation, the
-    dashboard's "logged today" state, the reminder command) — see itikcare-spec.md
-    section 10 for why a plain calendar day doesn't match how this farm actually
-    operates.
+    """The farm's current logging day (plain local calendar date, midnight to
+    midnight). Single source of truth for every "is this today" comparison touching
+    DailyLog/Forecast dates (form validation, forecast generation, the dashboard's
+    "logged today" state, the reminder command) — see itikcare-spec.md section 10.
 
     timezone.localtime() is TIME_ZONE/USE_TZ-aware by construction, so this is immune
     to the naive datetime.date.today() bug documented in itikcare/settings.py's
     TIME_ZONE comment (that bug used the server's OS clock instead of Asia/Manila).
 
     now: override for tests, so a specific instant can be pinned instead of the real
-    clock (e.g. to exercise the 6am boundary itself either side).
+    clock.
     """
     now = now or timezone.localtime()
     if now.hour < FARM_DAY_START_HOUR:
@@ -124,7 +122,7 @@ def current_flock_age_weeks(daily_log):
     Mirrors the prefill math in views.log_daily_data. Returns None if daily_log is None.
 
     Uses timezone.localdate() rather than operational_today(): a rough weekly bucket
-    like this doesn't need the 6am cutoff, just the naive-date fix.
+    like this just needs the naive-date fix, not operational_today()'s farm-day logic.
     """
     if daily_log is None:
         return None

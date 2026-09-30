@@ -145,7 +145,7 @@ class LogDailyDataTests(TestCase):
             temperature_c="28.0", humidity_pct="75.0", recorded_by=self.user,
         )
         mock_timezone.localdate.return_value = date(2024, 2, 12)  # exactly 6 weeks (42 days) later
-        mock_timezone.localtime.return_value = datetime(2024, 2, 12, 12, 0)  # same day, past the 6am rollover
+        mock_timezone.localtime.return_value = datetime(2024, 2, 12, 12, 0)  # same day
         response = self.client.get("/log-daily-data/")
         self.assertEqual(response.context["form"].initial["flock_age_weeks"], 100)
 
@@ -158,7 +158,7 @@ class LogDailyDataTests(TestCase):
             temperature_c="28.0", humidity_pct="75.0", recorded_by=self.user,
         )
         mock_timezone.localdate.return_value = date(2024, 1, 3)  # 2 days later, under a full week
-        mock_timezone.localtime.return_value = datetime(2024, 1, 3, 12, 0)  # same day, past the 6am rollover
+        mock_timezone.localtime.return_value = datetime(2024, 1, 3, 12, 0)  # same day
         response = self.client.get("/log-daily-data/")
         self.assertEqual(response.context["form"].initial["flock_age_weeks"], 25)
 
@@ -295,9 +295,8 @@ class LogDailyDataTests(TestCase):
 
     def test_future_date_is_rejected(self):
         Flock.objects.create(owner=self.user, generation_number=1, started_on=date(2024, 1, 1))
-        # operational_today(), not timezone.localdate(): the logging day rolls over at
-        # 6am, not midnight, so this must use the same "today" the view itself checks
-        # against, or this test would be wall-clock-flaky in the midnight-6am window.
+        # operational_today(), not timezone.localdate(): this must use the same "today"
+        # the view itself checks against.
         tomorrow = operational_today() + timedelta(days=1)
         response = self.client.post("/log-daily-data/", {**VALID_LOG_POST, "date": tomorrow.isoformat()})
         self.assertFalse(DailyLog.objects.filter(date=tomorrow).exists())
@@ -1109,9 +1108,9 @@ class FlockProfileTests(TestCase):
             temperature_c="28.0", humidity_pct="75.0", recorded_by=self.user,
         )
         self.client.post("/flock/retire/")
-        # operational_today(), not date.today(): between midnight and FARM_DAY_START_HOUR
-        # the farm day is still yesterday, and a log dated the calendar day would be
-        # rejected as a future date.
+        # operational_today(), not date.today(): must match the same "today" the view
+        # itself checks against, or a log dated the calendar day could be rejected as a
+        # future date.
         self.client.post("/flock/", {
             "started_on": operational_today().isoformat(),
             "flock_size": 200, "flock_age_weeks": 1, "feed_intake_kg": "30.0",
@@ -1158,7 +1157,7 @@ class FlockProfileTests(TestCase):
 
         # Registration set the new flock's started_on to today, so the first live
         # entry for it must be dated today or later too (see date-range test above).
-        # operational_today() keeps this passing between midnight and FARM_DAY_START_HOUR.
+        # operational_today() keeps this matching the same "today" the view uses.
         today = operational_today()
         response = self.client.post("/log-daily-data/", {**VALID_LOG_POST, "date": today.isoformat()})
         self.assertRedirects(response, "/")
@@ -1482,30 +1481,29 @@ class GetEffectiveCoordinatesTests(TestCase):
 
 class OperationalTodayTests(TestCase):
     """Covers operational_today() in isolation, pinning `now` explicitly so these never
-    depend on the real wall clock — the whole point of the function is behavior that
-    only shows up in the midnight-FARM_DAY_START_HOUR window, which a real-clock test
-    would only exercise on the rare run that happens to land there."""
+    depend on the real wall clock. Rolls over at plain midnight, matching the local
+    calendar date."""
 
-    def test_before_6am_rolls_back_to_yesterday(self):
+    def test_early_morning_is_still_todays_calendar_date(self):
         now = timezone.make_aware(datetime(2024, 6, 15, 3, 0))
-        self.assertEqual(operational_today(now=now), date(2024, 6, 14))
+        self.assertEqual(operational_today(now=now), date(2024, 6, 15))
 
-    def test_just_before_6am_still_rolls_back_to_yesterday(self):
-        now = timezone.make_aware(datetime(2024, 6, 15, 5, 59))
-        self.assertEqual(operational_today(now=now), date(2024, 6, 14))
+    def test_just_after_midnight_is_todays_calendar_date(self):
+        now = timezone.make_aware(datetime(2024, 6, 15, 0, 1))
+        self.assertEqual(operational_today(now=now), date(2024, 6, 15))
 
-    def test_at_6am_sharp_rolls_forward_to_today(self):
-        now = timezone.make_aware(datetime(2024, 6, 15, 6, 0))
+    def test_midnight_sharp_is_todays_calendar_date(self):
+        now = timezone.make_aware(datetime(2024, 6, 15, 0, 0))
         self.assertEqual(operational_today(now=now), date(2024, 6, 15))
 
     def test_late_evening_is_still_todays_calendar_date(self):
         now = timezone.make_aware(datetime(2024, 6, 15, 23, 0))
         self.assertEqual(operational_today(now=now), date(2024, 6, 15))
 
-    def test_farm_day_start_hour_matches_the_documented_6am_boundary(self):
-        # A guard, not a tautology: if this constant is ever tuned, the four tests
-        # above stop meaning what their names say unless updated alongside it.
-        self.assertEqual(FARM_DAY_START_HOUR, 6)
+    def test_farm_day_start_hour_matches_the_documented_midnight_boundary(self):
+        # A guard, not a tautology: if this constant is ever tuned, the tests above
+        # stop meaning what their names say unless updated alongside it.
+        self.assertEqual(FARM_DAY_START_HOUR, 0)
 
 
 class CagingPeriodForNewLogTests(TestCase):
@@ -2089,8 +2087,8 @@ class SendDailyLogRemindersCommandTests(TestCase):
     constraint on owner+reminder_date)."""
 
     def setUp(self):
-        # operational_today(), matching what the command itself now uses (rolls over
-        # at 6am, not midnight — see farm.services.operational_today).
+        # operational_today(), matching what the command itself uses (see
+        # farm.services.operational_today).
         self.today = operational_today()
 
     def _make_owner(self, username, **flock_kwargs):

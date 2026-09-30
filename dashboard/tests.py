@@ -100,8 +100,7 @@ class DashboardIndexTests(TestCase):
         )
         forecast.source_logs.set([log])
 
-        # Pin the farm day: between midnight and 6am operational_today() is still
-        # yesterday, which would put the date.today() log/Forecast one day in the future.
+        # Pin the farm day so operational_today() matches date.today() for this test.
         with patch("dashboard.views.operational_today", return_value=date.today()):
             response = self.client.get("/")
         self.assertContains(response, "Next 3-Day Forecast")
@@ -130,8 +129,7 @@ class DashboardDailyLogReminderBannerTests(TestCase):
 
     def test_banner_hidden_once_logged_today(self):
         # operational_today(), not date.today(): the dashboard's logged_today check
-        # compares against the farm's current logging day, which rolls over at 6am
-        # rather than midnight (farm.services.operational_today).
+        # compares against the farm's current logging day (farm.services.operational_today).
         flock = Flock.objects.create(owner=self.user, generation_number=1, started_on=date(2024, 1, 1))
         DailyLog.objects.create(
             flock=flock, date=operational_today(), flock_size=240, caging_period=1,
@@ -170,7 +168,7 @@ class DashboardFlockAgeTests(TestCase):
             temperature_c="28.0", humidity_pct="75.0", recorded_by=self.user,
         )
         mock_timezone.localdate.return_value = date(2024, 2, 12)  # exactly 6 weeks (42 days) later
-        mock_timezone.localtime.return_value = datetime(2024, 2, 12, 12, 0)  # same day, past the 6am rollover
+        mock_timezone.localtime.return_value = datetime(2024, 2, 12, 12, 0)  # same day
         response = self.client.get("/")
         self.assertEqual(response.context["current_age_weeks"], 100)
         self.assertContains(response, "100")

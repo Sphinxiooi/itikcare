@@ -33,11 +33,8 @@ class Command(BaseCommand):
     help = "Email + record a reminder for every farmer with an active, caged flock who hasn't logged today's data yet."
 
     def handle(self, *args, **options):
-        # operational_today(), not the plain calendar date: this farm's logging day
-        # rolls over at 6am, not midnight (see farm.services.operational_today). This
-        # command only ever runs post-6am via the timer, so this is purely defensive —
-        # it protects a future manual re-run before 6am from reminding a farmer about
-        # a day that, operationally, hasn't started yet.
+        # operational_today() is the single source of truth for "today" here (see
+        # farm.services.operational_today), matching what the dashboard/forms use.
         today = operational_today()
 
         # Flock.owner has no direct is_active filter of its own -- get_active_flock

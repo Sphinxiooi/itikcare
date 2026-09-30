@@ -50,9 +50,8 @@ class DailyLogForm(forms.ModelForm):
         # Caps the browser's native date picker at today (and, if we know which flock
         # this entry is for, at the flock's start date on the other end) so the
         # farmer can't even pick an out-of-range date — clean_date() below is the
-        # real (server-side) guard either way. Uses operational_today(), not the plain
-        # calendar date: this farm's logging day rolls over at 6am, not midnight, so an
-        # early-morning entry (e.g. 3am) is still capped at yesterday's date.
+        # real (server-side) guard either way. Uses operational_today() as the single
+        # source of truth for "today" (see farm.services.operational_today).
         super().__init__(*args, **kwargs)
         self.active_flock = active_flock
         self.fields["date"].widget.attrs["max"] = operational_today().isoformat()
@@ -64,8 +63,8 @@ class DailyLogForm(forms.ModelForm):
         can log today or backfill a missed past day, but not log ahead of time for a
         day that hasn't happened yet), and not before this flock even started.
 
-        "Today" here is operational_today() (rolls over at 6am, not midnight) — see
-        farm.services.operational_today for why.
+        "Today" here is operational_today() — see farm.services.operational_today for
+        why.
         """
         entered_date = self.cleaned_data["date"]
         if entered_date > operational_today():
@@ -188,8 +187,7 @@ class DailyLogEditForm(forms.ModelForm):
 
     def clean_date(self):
         """Same date-range rules as DailyLogForm — an edit can't move a record's date
-        ahead of today (operational_today(), which rolls over at 6am, not midnight),
-        or back before its flock even started."""
+        ahead of today (operational_today()), or back before its flock even started."""
         entered_date = self.cleaned_data["date"]
         if entered_date > operational_today():
             raise forms.ValidationError(_("You can't log data for a future date."))

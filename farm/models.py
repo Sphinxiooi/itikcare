@@ -153,8 +153,7 @@ class DailyLog(models.Model):
         that bypass them entirely, like the Django admin and import_daily_logs."""
         super().clean()
         # Local import to avoid a models<->services import cycle (farm.services already
-        # imports DailyLog/Flock from this module). operational_today() rolls the
-        # logging day over at 6am rather than midnight — see its docstring.
+        # imports DailyLog/Flock from this module). See operational_today()'s docstring.
         from .services import operational_today
 
         if self.date and self.date > operational_today():

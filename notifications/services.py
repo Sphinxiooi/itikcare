@@ -65,7 +65,7 @@ def _no_flock(user, flock):
 
 
 def _log_today_missing(user, flock, today):
-    """Caged flock with no DailyLog for the current farm day (6am rollover, see
+    """Caged flock with no DailyLog for the current farm day (see
     farm.services.operational_today). Same condition as the dashboard's banner."""
     if flock is None or not flock.is_caged:
         return None

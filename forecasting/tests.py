@@ -427,8 +427,8 @@ class GenerateForecastTests(TestCase):
 
     def test_generates_next_day_forecasts_using_weather_when_todays_log(self):
         # operational_today(), not date.today(): generate_forecast only fetches live
-        # weather when the log's date matches the farm's current logging day, which
-        # rolls over at 6am rather than midnight (farm.services.operational_today).
+        # weather when the log's date matches the farm's current logging day
+        # (farm.services.operational_today).
         today = operational_today()
         today_log = DailyLog.objects.create(
             flock=self.flock, date=today, caging_period=2,
@@ -916,9 +916,8 @@ class ForecastRecommendationsViewTests(TestCase):
     def test_shows_tri_day_model_total_with_its_own_date_range(self):
         # setUp's Forecast has predicted_tri_day_yield=455: the Tri-day Yield Model's total
         # for its forecast date + the next 2 days (see farm.services.build_tri_day_forecast).
-        # The farm day is pinned to the forecast's date: between midnight and 6am
-        # operational_today() is still yesterday, which would put setUp's date.today()
-        # Forecast one day in the future.
+        # The farm day is pinned to the forecast's date so it matches setUp's
+        # date.today() Forecast.
         with patch("forecasting.views.operational_today", return_value=self.forecast.forecast_date):
             response = self.client.get("/forecast-recommendations/")
         tri = response.context["tri_day_forecast"]
