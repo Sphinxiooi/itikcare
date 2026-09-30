@@ -1,13 +1,40 @@
 {% extends "base.html" %}
-{% load i18n itik_icons %}
+{% load i18n itik_icons static %}
 
 {% block title %}{% translate "Farm Records" %} — ItikCare{% endblock %}
 
 {% block extra_head %}
-<script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
+<script src="{% static 'js/vendor/chart.umd.js' %}"></script>
 {% endblock %}
 
 {% block content %}
+<script>
+(function () {
+    // Changing a filter re-submits the GET form to a new URL, which is a full
+    // navigation -- the browser can't auto-restore scroll position across that
+    // like it does for back/forward, so we do it ourselves via sessionStorage.
+    const SCROLL_KEY = "farmRecordsScrollY";
+
+    window.__saveScrollPos = function () {
+        try {
+            sessionStorage.setItem(SCROLL_KEY, String(window.scrollY));
+        } catch (e) { /* storage unavailable (e.g. private mode) -- ignore */ }
+    };
+
+    window.addEventListener("load", function () {
+        // Wait for full load (charts etc.) so the page has its final height
+        // before we scroll -- doing this earlier could land short on a page
+        // that's still growing.
+        try {
+            const saved = sessionStorage.getItem(SCROLL_KEY);
+            if (saved !== null) {
+                sessionStorage.removeItem(SCROLL_KEY);
+                window.scrollTo(0, parseInt(saved, 10) || 0);
+            }
+        } catch (e) { /* ignore */ }
+    });
+})();
+</script>
 <div class="bg-white border border-gray-200 rounded-xl p-6">
     <div class="flex flex-wrap justify-between items-start gap-3 mb-4">
         <div>
@@ -18,7 +45,7 @@
             <form method="get" class="flex flex-wrap items-center gap-2">
                 {% if flock_choices %}
                 <label for="flock" class="text-sm text-gray-500">{% translate "Flock Number" %}</label>
-                <select id="flock" name="flock" onchange="this.form.submit()"
+                <select id="flock" name="flock" onchange="window.__saveScrollPos && window.__saveScrollPos(); this.form.submit()"
                         class="text-sm border border-gray-300 rounded-md px-2.5 py-2 text-gray-700 focus:outline-none focus:ring-2 focus:ring-emerald-600">
                     {% for value, label in flock_choices.items %}
                     <option value="{{ value }}" {% if value == selected_flock_id %}selected{% endif %}>{{ label }}</option>
@@ -26,7 +53,7 @@
                 </select>
 
                 <label for="month" class="text-sm text-gray-500">{% translate "Month" %}</label>
-                <select id="month" name="month" onchange="this.form.submit()"
+                <select id="month" name="month" onchange="window.__saveScrollPos && window.__saveScrollPos(); this.form.submit()"
                         class="text-sm border border-gray-300 rounded-md px-2.5 py-2 text-gray-700 focus:outline-none focus:ring-2 focus:ring-emerald-600">
                     {% for value, label in month_choices.items %}
                     <option value="{{ value }}" {% if value == selected_month %}selected{% endif %}>{{ label }}</option>
@@ -42,7 +69,7 @@
 
     {% if records_charts_available %}
     <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
-        <div class="bg-white border border-gray-200 rounded-xl p-4 transition duration-150 ease-out motion-safe:hover:scale-[1.02] hover:shadow-md">
+        <div class="relative bg-white border border-gray-200 rounded-xl p-4 transition duration-200 ease-out motion-safe:hover:scale-110 hover:shadow-lg hover:z-10">
             <p class="text-xs font-medium text-gray-500 uppercase tracking-wide flex items-center gap-1">{% icon "egg" "w-3.5 h-3.5" %} {% translate "Avg. Daily Egg Yield" %}</p>
             <div class="flex items-end justify-between mt-1">
                 <div>
@@ -53,11 +80,13 @@
                     </p>
                     {% endif %}
                 </div>
-                <canvas id="sparkEggYield" width="80" height="32"></canvas>
+                <div class="sparkline-wrap">
+                    <canvas id="sparkEggYield" width="80" height="32" tabindex="0" aria-label="{% translate 'Egg yield trend' %}"></canvas>
+                </div>
             </div>
         </div>
 
-        <div class="bg-white border border-gray-200 rounded-xl p-4 transition duration-150 ease-out motion-safe:hover:scale-[1.02] hover:shadow-md">
+        <div class="relative bg-white border border-gray-200 rounded-xl p-4 transition duration-200 ease-out motion-safe:hover:scale-110 hover:shadow-lg hover:z-10">
             <p class="text-xs font-medium text-gray-500 uppercase tracking-wide flex items-center gap-1">{% icon "wheat" "w-3.5 h-3.5" %} {% translate "Avg. Feed / Bird" %}</p>
             <div class="flex items-end justify-between mt-1">
                 <div>
@@ -68,22 +97,26 @@
                     </p>
                     {% endif %}
                 </div>
-                <canvas id="sparkFeed" width="80" height="32"></canvas>
+                <div class="sparkline-wrap">
+                    <canvas id="sparkFeed" width="80" height="32" tabindex="0" aria-label="{% translate 'Feed per bird trend' %}"></canvas>
+                </div>
             </div>
         </div>
 
-        <div class="bg-white border border-gray-200 rounded-xl p-4 transition duration-150 ease-out motion-safe:hover:scale-[1.02] hover:shadow-md">
+        <div class="relative bg-white border border-gray-200 rounded-xl p-4 transition duration-200 ease-out motion-safe:hover:scale-110 hover:shadow-lg hover:z-10">
             <p class="text-xs font-medium text-gray-500 uppercase tracking-wide flex items-center gap-1">{% icon "thermometer" "w-3.5 h-3.5" %} {% translate "Avg. Temp / Humidity" %}</p>
             <div class="flex items-end justify-between mt-1">
                 <div>
                     <p class="text-2xl font-bold text-gray-900">{{ avg_temperature }}°C</p>
                     <p class="text-xs font-medium text-gray-500">{% blocktranslate %}{{ avg_humidity }}% humidity{% endblocktranslate %}</p>
                 </div>
-                <canvas id="sparkTemp" width="80" height="32"></canvas>
+                <div class="sparkline-wrap">
+                    <canvas id="sparkTemp" width="80" height="32" tabindex="0" aria-label="{% translate 'Temperature trend' %}"></canvas>
+                </div>
             </div>
         </div>
 
-        <div class="bg-white border border-gray-200 rounded-xl p-4 transition duration-150 ease-out motion-safe:hover:scale-[1.02] hover:shadow-md">
+        <div class="relative bg-white border border-gray-200 rounded-xl p-4 transition duration-200 ease-out motion-safe:hover:scale-110 hover:shadow-lg hover:z-10">
             <p class="text-xs font-medium text-gray-500 uppercase tracking-wide flex items-center gap-1">{% icon "flock" "w-3.5 h-3.5" %} {% translate "Flock Size" %}</p>
             <p class="text-2xl font-bold text-gray-900 mt-1">{{ current_flock_size }}</p>
             <p class="text-xs text-gray-400 mt-1">{% translate "as of latest entry" %}</p>
@@ -243,11 +276,32 @@ into "%" -- _() inside {{ }} would render "Humidity (%%)" in the chart legend.
         if (!el) return;
         new Chart(el, {
             type: "line",
-            data: { labels, datasets: [{ data, borderColor: color, borderWidth: 2, pointRadius: 0, tension: 0.3 }] },
+            data: {
+                labels,
+                datasets: [{
+                    data,
+                    borderColor: color,
+                    borderWidth: 2,
+                    pointRadius: 0,
+                    pointHoverRadius: 4,
+                    pointHitRadius: 8,
+                    pointHoverBackgroundColor: color,
+                    pointHoverBorderColor: "#ffffff",
+                    tension: 0.3,
+                }],
+            },
             options: {
                 animation: chartAnimation,
                 responsive: false,
-                plugins: { legend: { display: false }, tooltip: { enabled: false } },
+                // The wrapper div scales this canvas up to ~1.8x on hover (input.css
+                // .sparkline-wrap) -- rendering the backing store above the CSS
+                // display size keeps that zoom crisp instead of blurry/pixelated.
+                devicePixelRatio: (window.devicePixelRatio || 1) * 2.5,
+                interaction: { intersect: false, mode: "index" },
+                plugins: {
+                    legend: { display: false },
+                    tooltip: { enabled: true, displayColors: false, padding: 6, bodyFont: { size: 11 } },
+                },
                 scales: { x: { display: false }, y: { display: false } },
             },
         });

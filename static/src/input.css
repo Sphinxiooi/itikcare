@@ -9,11 +9,7 @@
 @source "../../recommendations/templates";
 @source "../../dashboard/templates";
 
-/* Full-page backdrop behind the header/sidebar layout (base.html), replacing a duck
-   photo that used to sit here. A soft emerald-tinted gradient instead — smooth, low
-   contrast, and pulled from the same emerald family as the brand mark, the sidebar's
-   active-tab fill, and the emerald-50 card tints on the dashboard, so it reads as
-   part of one palette rather than competing with card content in the foreground. */
+
 .app-background {
     background-image:
         radial-gradient(circle at top right, rgb(16 185 129 / 0.10), transparent 60%),
@@ -157,6 +153,16 @@
    can't reuse #confirm-modal above and gets its own plain dialog + dimmed backdrop. */
 #signup-confirm-modal::backdrop {
     background-color: rgb(15 23 42 / 0.45);
+}
+
+/* Farm Records stat cards (avg egg yield / feed / temp / flock size): the whole
+   card lifts and scales up on hover -- not just the sparkline canvas -- so the
+   label, number and trend line all grow together and stay readable as a group.
+   The card's own hover:scale/hover:shadow classes live in farm_records.html;
+   .sparkline-wrap here is just a plain layout container for the canvas (kept as
+   its own element so the tooltip/aria-label markup has somewhere to anchor). */
+.sparkline-wrap {
+    display: inline-block;
 }
 
 /* ---------------------------------------------------------------------------------

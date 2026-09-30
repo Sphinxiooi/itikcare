@@ -1,10 +1,10 @@
 {% extends "base.html" %}
-{% load i18n itik_icons %}
+{% load i18n itik_icons static %}
 
 {% block title %}{% translate "Forecast & Recommendations" %} — ItikCare{% endblock %}
 
 {% block extra_head %}
-<script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
+<script src="{% static 'js/vendor/chart.umd.js' %}"></script>
 {% endblock %}
 
 {% block content %}
