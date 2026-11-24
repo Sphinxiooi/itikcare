@@ -1,6 +1,12 @@
 // Minimal logo loading overlay (the ItikCare mark inside a spinning ring) shown while the browser navigates to another page
 // (link click or form submit). Styles live in static/css/duck-loader.css.
 //
+// Inside the app (pages with <main data-skeleton-host>) a slow link click or form submit
+// shows a skeleton of the destination page instead (see static/js/states.js), so the
+// farmer sees the shape of what is coming rather than a spinner. This logo overlay is
+// the fallback where there is no page shape to draw (login, landing, signup...) and for
+// the manual show() calls below ("Saving changes…", "Signing you out…").
+//
 // Automatic triggers (nothing to wire up per page):
 //   - clicking an ordinary same-site link
 //   - submitting a form that actually goes to the server
@@ -111,10 +117,23 @@
         safetyTimer = window.setTimeout(hide, SAFETY_TIMEOUT_MS);
     }
 
+    // Navigation to `url`: draw the destination's skeleton if the page has somewhere to
+    // draw it, otherwise fall back to the logo overlay.
+    function showForNavigation(url, text) {
+        if (window.ItikStates && window.ItikStates.showSkeleton(url)) {
+            window.clearTimeout(safetyTimer);
+            return;
+        }
+        show(text);
+    }
+
     function hide() {
         // Also cancels a link's delayed show that hasn't fired yet.
         window.clearTimeout(pendingShowTimer);
         window.clearTimeout(safetyTimer);
+        if (window.ItikStates) {
+            window.ItikStates.hideSkeleton();
+        }
         if (!overlay) {
             return;
         }
@@ -185,7 +204,7 @@
             if (!event.defaultPrevented && isNavigatingLink(link)) {
                 window.clearTimeout(pendingShowTimer);
                 pendingShowTimer = window.setTimeout(function () {
-                    show(link.dataset.loaderText);
+                    showForNavigation(link.href, link.dataset.loaderText);
                 }, LINK_SHOW_DELAY_MS);
             }
         }, 0);
@@ -206,7 +225,20 @@
                 return;
             }
             const submitter = event.submitter;
-            show((submitter && submitter.dataset.loaderText) || form.dataset.loaderText);
+            const text = (submitter && submitter.dataset.loaderText) || form.dataset.loaderText;
+            // Forms in the app: a skeleton of the page the submit lands on, after a short
+            // beat so a fast round trip (e.g. validation errors re-rendering the same page)
+            // doesn't flash it. The global double-submit guard in base.html is what stops a
+            // second click, so nothing needs to cover the page instantly. Elsewhere the
+            // logo overlay still goes up at once.
+            if (window.ItikStates && document.querySelector("main[data-skeleton-host]")) {
+                window.clearTimeout(pendingShowTimer);
+                pendingShowTimer = window.setTimeout(function () {
+                    showForNavigation(form.action, text);
+                }, LINK_SHOW_DELAY_MS);
+            } else {
+                show(text);
+            }
         }, 0);
     });
 

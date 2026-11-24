@@ -32,3 +32,4 @@ deploy/farm_data.json
 *.swp
 
 .claude/
+_extras/

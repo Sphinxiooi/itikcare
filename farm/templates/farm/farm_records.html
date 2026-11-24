@@ -245,9 +245,12 @@
         </table>
     </div>
     {% else %}
-    <p class="text-sm text-gray-500">
-        {% if selected_month == "all" %}{% translate "No farm records yet." %}{% else %}{% translate "No farm records for the selected month." %}{% endif %}
-    </p>
+    {% if selected_month == "all" %}
+    {% include "includes/empty_state_logging.html" with icon="egg" title=_("No farm records yet") why=_("Nothing has been logged for this flock, so there is nothing to list. Your first daily log will appear here.") %}
+    {% else %}
+    {% url 'farm_records' as all_months_url %}
+    {% include "includes/empty_state.html" with icon="calendar" title=_("No records in this month") why=_("No daily log was saved in the month you picked, for example because the flock was free-range then. Records from other months are still there.") action_url=all_months_url|add:"?flock="|add:selected_flock_id|add:"&month=all" action_label=_("Show all months") %}
+    {% endif %}
     {% endif %}
 </div>
 

@@ -1,15 +1,6 @@
-"""One-time backfill: retroactively lock DailyLog rows for owners who already have a
-persisted model artifact from before DailyLog.is_locked existed.
+"""One-time backfill: lock DailyLog rows for owners who already have a trained model file.
 
-Run as:
-    python manage.py backfill_locked_daily_logs [--dry-run]
-
-A trained model artifact (models/forecast_model_<owner_id>.joblib) is proof that
-train_forecast_model has already done a full refit over that owner's entire DailyLog
-history — see DailyLog.is_locked's help_text and train_forecast_model.py's own
-docstring on why every retrain is a fresh fit, never warm_start. Going forward, new
-successful training runs lock records themselves (train_forecast_model.Command._lock_records);
-this command only exists to catch up rows that predate that behaviour.
+Usage: python manage.py backfill_locked_daily_logs [--dry-run]
 """
 
 import re
@@ -22,10 +13,7 @@ from forecasting.services import MODEL_DIR
 
 User = get_user_model()
 
-# Matches forecast_model_<owner_id>.joblib, deliberately not the legacy unsuffixed
-# forecast_model.joblib from before multi-tenancy — that filename doesn't identify
-# which current owner it belongs to, and it's superseded the moment that owner's next
-# retrain writes a properly-suffixed artifact.
+# Matches forecast_model_<owner_id>.joblib (the old unsuffixed file is ignored)
 MODEL_FILENAME_RE = re.compile(r"^forecast_model_(\d+)\.joblib$")
 
 

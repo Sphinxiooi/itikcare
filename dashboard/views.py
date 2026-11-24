@@ -19,35 +19,28 @@ from forecasting.services import current_forecast_warmup, current_logging_gap_ca
 from recommendations.services import ACTIONABLE_PRIORITIES, most_urgent_recommendation
 
 
+# ---------- public pages ----------
 def researchers(request):
-    """Public "About the Researchers" page, linked from the landing page footer."""
+    """Public "About the Researchers" page."""
 
     return render(request, "researchers.html")
 
 
 def privacy_notice(request):
-    """Public Privacy Notice (Data Privacy Act of 2012, RA 10173), linked from the
-    signup form's required consent checkbox and the Google sign-in buttons -- see
-    accounts/forms.py's SignupForm and User.privacy_consented_at. Public so a farmer
-    can read it before they have an account."""
+    """Public Privacy Notice (Data Privacy Act of 2012)."""
 
     return render(request, "privacy.html")
 
 
 def robots_txt(request):
-    """Explicitly allow crawling of the whole site (login-gated pages just redirect
-    to the login form for a crawler with no session, so there's nothing sensitive to
-    disallow) -- a missing robots.txt is treated as "allow all" too, but returning a
-    real one avoids the 404 Search Console otherwise flags for it."""
+    """robots.txt: allow crawling and point to the sitemap."""
 
     sitemap_url = request.build_absolute_uri(reverse("sitemap_xml"))
     return HttpResponse(f"User-agent: *\nAllow: /\nSitemap: {sitemap_url}\n", content_type="text/plain")
 
 
 def sitemap_xml(request):
-    """Lists only the pages an anonymous visitor (or a search crawler) can
-    actually reach -- every other page requires login and would just redirect a
-    crawler to the login form, so there's no ranking value in listing it."""
+    """Sitemap listing only the publicly reachable pages."""
 
     page_urls = [
         request.build_absolute_uri(reverse("dashboard")),
@@ -65,9 +58,7 @@ def sitemap_xml(request):
 
 
 def google_site_verification(request):
-    """Serves the file Google Search Console's "HTML file" verification method
-    expects at the site root -- Google fetches this exact filename and checks its
-    contents match, then never asks for it again once verification succeeds."""
+    """Google Search Console site-verification file."""
 
     return HttpResponse(
         "google-site-verification: google6c0aee7b83489d73.html",
@@ -75,39 +66,22 @@ def google_site_verification(request):
     )
 
 
+# ---------- dashboard ----------
 def index(request):
-    """Root URL: public landing page for anonymous visitors, dashboard for farmers.
-
-    Kept as one view (rather than redirecting anonymous users to a login-gated
-    dashboard) so the marketing page can live at "/" without moving the dashboard
-    to its own path -- see templates/landing.html.
-    """
+    """Landing page for visitors, dashboard for logged-in farmers."""
 
     if not request.user.is_authenticated:
         return render(request, "landing.html")
 
     active_flock = get_active_flock(request.user)
-    # While the flock is free-range in the field (is_caged=False), nothing is being
-    # logged, so no forecast/trend/records data is fetched at all — the template shows
-    # a "flock is in the field" notice instead. Nothing is deleted: as soon as the
-    # flock is marked caged again (Flock Profile), this data reappears untouched.
+    # Free-range flock: no forecast/trend data is fetched (nothing is deleted)
     flock_is_caged = bool(active_flock and active_flock.is_caged)
 
-    # Live weather for the farmer's own guidance (e.g. before heading out to check on
-    # the ducks) -- independent of flock/caging state, and distinct from today_log
-    # below, which shows the last *submitted* DailyLog and may be stale if nothing's
-    # been logged recently (itikcare-spec.md section 10's known data gaps). Never
-    # raises; renders nothing if unconfigured or unreachable (see farm/weather.py).
+    # Live weather card (never raises; empty if unconfigured/unreachable)
     lat, lon = get_effective_coordinates(request.user)
     current_weather = fetch_current_weather(lat, lon)
 
-    # "Latest" here means the soonest still-actionable forecast (today or the nearest
-    # upcoming date), not the furthest-out one — that's the prediction the farmer
-    # actually needs recommendations for right now. Every Forecast is dated by the log
-    # it was made from (see forecasting/services.py), so in practice this is today's
-    # forecast or none — it drives the Quick Recommendation card only. The Next 3-Day
-    # panel and trend chart below don't use it: they fall back to yesterday's forecast
-    # until today is logged (see farm.services.predictions_by_date).
+    # Soonest still-actionable forecast (today or later); drives the Quick Recommendation card
     latest_forecast = (
         Forecast.objects.filter(flock=active_flock, forecast_date__gte=operational_today())
         .order_by("forecast_date")
@@ -115,14 +89,7 @@ def index(request):
         if flock_is_caged
         else None
     )
-    # Dashboard shows only the single most urgent recommendation (see
-    # recommendations.services.most_urgent_recommendation, shared with the header
-    # notification bell), and only if it's actually at an actionable tier
-    # (ACTIONABLE_PRIORITIES) -- the 4 recommendation slots always fire (see
-    # recommendations/rules.py), including routine "on track"/"in range" confirmations
-    # that aren't worth interrupting the farmer for here; those still show in full on the
-    # Forecast & Recommendations page. has_calm_recommendations distinguishes "nothing
-    # urgent right now" from "no forecast/recommendations exist yet" for the template.
+    # Show only the single most urgent recommendation, and only at an actionable priority
     top_recommendation = None
     has_calm_recommendations = False
     most_urgent = most_urgent_recommendation(latest_forecast)
@@ -132,19 +99,11 @@ def index(request):
         else:
             has_calm_recommendations = True
 
-    # Forecast warm-up notice: a brand-new farm's first week, or the first days back
-    # after free-range, has its yield prediction withheld (recommendations still show) --
-    # see forecasting.services.forecast_readiness for the rule and why.
+    # Warm-up notice (prediction withheld) and logging-gap caution (prediction less accurate)
     forecast_warmup = current_forecast_warmup(active_flock)
-    # Prediction shown, but with a "may be less accurate" caution: the farmer skipped a
-    # week or more of logs while the flock stayed caged, so the prediction's recent
-    # laying history is old (forecasting.services.logging_gap_caution_for_log).
     logging_gap_caution = None if forecast_warmup else current_logging_gap_caution(active_flock)
 
-    # Next 3-Day Forecast panel: the newest prediction for each upcoming day not yet
-    # logged -- yesterday's forecast (Today/Tomorrow/+2) until today is logged, then
-    # today's (+1/+2/+3). See farm.services.build_next_day_forecasts, shared with the
-    # Forecast & Recommendations page.
+    # Next 3-Day Forecast panel
     next_day_forecasts = build_next_day_forecasts(active_flock, operational_today()) if flock_is_caged else []
 
     recent_logs = (
@@ -153,21 +112,14 @@ def index(request):
         else []
     )
     today_log = recent_logs[0] if recent_logs else None
-    # Fall back to the pending_* values staged on the flock at registration/resume-
-    # caging time when no DailyLog exists yet at all, so a freshly registered flock's
-    # stats cards show real numbers immediately instead of "—" until the first entry.
+    # Fall back to staged values so a brand-new flock shows real numbers before its first log
     flock_size_display = today_log.flock_size if today_log else (active_flock.pending_flock_size if active_flock else None)
     feed_intake_display = today_log.feed_intake_kg if today_log else (active_flock.pending_feed_intake_kg if active_flock else None)
-    # Distinct from today_log above: this is only set when the farmer has actually
-    # logged *today's* data (today_log can be stale -- see note above), used for the
-    # "Today's Egg Yield" card, which must stay blank until today's entry exists.
+    # Set only if today's data is actually logged (today_log may be stale)
     logged_today = today_log if today_log and today_log.date == operational_today() else None
     recent_records = recent_logs[:5]
 
-    # Trend chart range: farmer-selectable via ?trend_range=, defaulting to 7 days.
-    # Kept independent of recent_logs (which is capped at 10 for the status cards and
-    # records table above) so widening the trend view doesn't affect those. Shared with
-    # the Forecast & Recommendations page's own trend chart -- see farm.services.
+    # Trend chart range (?trend_range=, default 7 days)
     trend_range_choices = trend_range_choices_for(active_flock)
     trend_range = resolve_trend_range(request.GET.get("trend_range", "7"), trend_range_choices)
     trend_data = build_trend_chart_data(active_flock, flock_is_caged, trend_range)
@@ -181,12 +133,7 @@ def index(request):
         "logged_today": logged_today,
         "flock_size_display": flock_size_display,
         "feed_intake_display": feed_intake_display,
-        # Calendar-projected, not today_log.flock_age_weeks as-is -- that field is a
-        # snapshot as of today_log.date, which can be stale (see today_log's note
-        # above), so the "Flocks Age" card must add the weeks elapsed since then.
-        # Falls back to pending_flock_age_weeks (confirmed at registration/resume-caging)
-        # when no DailyLog has been logged yet at all, so a freshly registered flock
-        # shows its real age immediately instead of "—" until the first entry.
+        # Age projected to today, falling back to the staged age
         "current_age_weeks": current_flock_age_weeks(today_log) or (active_flock.pending_flock_age_weeks if active_flock else None),
         "latest_forecast": latest_forecast,
         "next_day_forecasts": next_day_forecasts,

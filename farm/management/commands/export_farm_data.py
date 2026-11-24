@@ -1,27 +1,12 @@
-"""Export the chosen farmers' data to a JSON fixture that `manage.py loaddata` can load
-into a fresh database (e.g. the new Railway PostgreSQL).
+"""Export chosen farmers' data to a JSON fixture for `manage.py loaddata` on a fresh database.
 
-Exported, per chosen owner: their account, flocks, DailyLogs (with their DailyLogEdit
-audit trail), reminder records, Forecasts (with the DailyLogs each was built from) and
-the Recommendations attached to those forecasts. Every row keeps its primary key, so all
-the foreign keys and the many-to-many links stay valid after loading.
+Includes accounts, flocks, DailyLogs (+ edit history), reminders, Forecasts and Recommendations
+with their primary keys. Users referenced by that data (e.g. the admin who recorded imports)
+are included too and listed. Not exported: model files, sessions, reset codes, avatars.
+The output contains password hashes and emails (gitignored); never commit or share it.
 
-Users referenced by a chosen owner's data but not chosen themselves (typically the admin
-account that recorded imported historical DailyLogs, or edited them) are exported too --
-DailyLog.recorded_by/DailyLogEdit.changed_by are PROTECT foreign keys, so the load would
-fail without them. The command lists these so nothing is included silently.
-
-Not exported: trained model files (retrain on the target instead -- see
-deploy/RAILWAY.md), sessions, password-reset codes, admin log entries, and avatar image
-files (the avatar field is blanked so no broken image links are created; the farmer just
-re-uploads it in their account settings).
-
-The output contains password hashes and email addresses -- it is gitignored
-(deploy/farm_data.json); never commit or share it.
-
-Run as:
-    python manage.py export_farm_data --owner-ids 2 3
-    python manage.py export_farm_data --owner-ids 2 3 --output path/to/file.json
+Usage:
+    python manage.py export_farm_data --owner-ids 2 3 [--output path/to/file.json]
 """
 
 import json
@@ -67,7 +52,7 @@ class Command(BaseCommand):
         forecasts = Forecast.objects.filter(flock__in=flocks)
         recommendations = Recommendation.objects.filter(forecast__in=forecasts)
 
-        # PROTECT foreign keys to User: pull in every account the exported rows point at.
+        # Include every account the exported rows point at (PROTECT foreign keys)
         referenced_ids = (
             set(logs.values_list("recorded_by_id", flat=True))
             | set(edits.values_list("changed_by_id", flat=True))
@@ -75,12 +60,10 @@ class Command(BaseCommand):
         extra_ids = sorted(referenced_ids - set(owner_ids))
         users = list(User.objects.filter(pk__in=set(owner_ids) | referenced_ids).order_by("pk"))
         for user in users:
-            # In-memory only (never saved): the image file itself isn't part of the export.
+            # In-memory only: the image file isn't exported
             user.avatar = ""
 
-        # Dependency order (parents before children) -- loaddata copes either way inside
-        # its single transaction, but this keeps the file readable and easy to audit.
-        # Querysets are ordered by pk so re-running the export gives an identical file.
+        # Parents before children, ordered by pk so re-runs give an identical file
         objects = chain(
             users,
             flocks.order_by("pk"),

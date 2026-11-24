@@ -1,14 +1,8 @@
-"""One-time historical backfill: import ItikCareDataSet.csv into Flock/DailyLog.
+"""One-time import of ItikCareDataSet.csv into Flock/DailyLog.
 
-Run as:
-    python manage.py import_daily_logs --recorded-by <username> [csv_path] [--dry-run]
+Usage: python manage.py import_daily_logs --recorded-by <username> [csv_path] [--dry-run]
 
-Per itikcare-spec.md section 10, the CSV's Caging_Period and Flock_Generation columns
-mark real operational boundaries (free-range/caging cycles and flock-generation
-resets). This command preserves both as-is (Caging_Period on DailyLog, Flock_Generation
-as Flock.generation_number) so later training-time segmentation can use them — neither
-is fed to the RF model as a raw feature, that happens in the forecasting pipeline, not
-here.
+Caging_Period and Flock_Generation are kept as segment markers (not model features).
 """
 
 import csv
@@ -24,9 +18,7 @@ from farm.models import DailyLog, Flock
 
 User = get_user_model()
 
-# Historical CSV -> DailyLog field, with a parser for each. Yield_Per_Bird is
-# deliberately omitted: it's exactly egg_count / flock_size, a derived value with no
-# new information, so it isn't stored.
+# CSV column -> DailyLog field, with a parser (Yield_Per_Bird is derived, so skipped)
 FIELD_PARSERS = {
     "caging_period": ("Caging_Period", int),
     "flock_size": ("Number of Flocks", int),
@@ -116,8 +108,7 @@ class Command(BaseCommand):
                 recorded_by=recorded_by,
                 **{field: parser(row[column]) for field, (column, parser) in FIELD_PARSERS.items()},
             )
-            # This backfill deliberately populates already-retired generations, so it
-            # opts out of DailyLog.clean()'s "no new logs for a retired flock" guard.
+            # Retired generations are allowed here
             daily_log._allow_inactive_flock = True
             try:
                 daily_log.full_clean(exclude=["flock", "recorded_by"])
@@ -133,8 +124,7 @@ class Command(BaseCommand):
         return summary
 
     def _set_active_flock(self, owner):
-        """Mark this owner's highest-generation Flock as active, matching
-        farm/services.py's get_active_flock single-active-flock-per-owner assumption."""
+        """Make the owner's highest-generation flock the only active one."""
 
         latest_flock = Flock.objects.filter(owner=owner).order_by("-generation_number").first()
         if latest_flock is None:

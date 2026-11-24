@@ -1,12 +1,6 @@
-"""Compile locale/<lang>/LC_MESSAGES/django.po into the binary django.mo Django reads.
+"""Compile locale/<lang>/LC_MESSAGES/django.po into django.mo in pure Python (no GNU gettext needed).
 
-Django's own ``compilemessages`` shells out to GNU gettext's ``msgfmt``, which isn't
-installed on Windows dev machines or on the Railway image. The .mo format is small and
-fully documented (GNU gettext manual, "The Format of GNU MO Files"), so this command
-writes it directly in pure Python. The compiled .mo files are committed to git so the
-deployed app never needs to run this.
-
-Usage:  python manage.py compile_translations
+Usage: python manage.py compile_translations
 """
 
 import ast
@@ -18,13 +12,7 @@ from django.core.management.base import BaseCommand, CommandError
 
 
 def parse_po(text):
-    """Return {msgid_key: msgstr_bytes} for every translated entry in a .po file.
-
-    Handles the subset of the .po syntax this project uses: ``#`` comments,
-    ``msgctxt``, ``msgid``/``msgstr``, plural ``msgid_plural``/``msgstr[n]``, and
-    multi-line strings continued on following lines. Untranslated entries (empty
-    msgstr) are skipped so Django falls back to the English source text.
-    """
+    """Return {msgid_key: msgstr} for every translated entry in a .po file (untranslated entries are skipped)."""
     entries = []
     current = {}
     last_key = None
@@ -75,7 +63,7 @@ def parse_po(text):
 
 
 def build_mo(catalog):
-    """Serialize a {msgid: msgstr} dict to GNU .mo bytes (little-endian, no hash table)."""
+    """Serialize a {msgid: msgstr} dict to GNU .mo bytes."""
     keys = sorted(catalog)  # the format requires msgids sorted for binary search
     ids = [k.encode('utf-8') for k in keys]
     strs = [catalog[k].encode('utf-8') for k in keys]

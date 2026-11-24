@@ -15,9 +15,7 @@ def _unread_count_response(user):
 @login_required
 @require_POST
 def mark_all_read(request):
-    """Called when the bell's dropdown is opened: everything currently visible counts
-    as seen. Only keys that currently apply are written, so a notification that shows
-    up later (e.g. tomorrow's log reminder) still arrives unread."""
+    """Mark everything currently visible as read (called when the bell opens)."""
     visible, _ = get_notification_state(request.user)
     now = timezone.now()
     for notification in visible:
@@ -31,8 +29,7 @@ def mark_all_read(request):
 @login_required
 @require_POST
 def dismiss(request):
-    """Hides one notification (by key) for this farmer. The key comes from the POST
-    body rather than the URL since keys contain ':' and ',' characters."""
+    """Hide one notification (key from the POST body) for this farmer."""
     key = request.POST.get("key", "").strip()
     if not key or len(key) > NotificationReceipt._meta.get_field("key").max_length:
         return JsonResponse({"error": "invalid key"}, status=400)

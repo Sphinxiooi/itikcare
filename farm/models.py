@@ -4,23 +4,12 @@ from django.core.validators import MaxValueValidator, MinValueValidator
 from django.db import models
 from django.utils.translation import gettext_lazy as _
 
-# Fields a DailyLog edit is audited against, and how to render each value as text
-# for the DailyLogEdit.old_value/new_value CharFields. Shared by farm/views.py
-# (farmer-facing edit) and farm/admin.py (staff edit) so neither path can silently
-# apply a change without a paired audit entry.
+# Fields audited on every DailyLog edit (shared by the farmer view and the admin)
 AUDITED_FIELDS = ["date", "flock_size", "flock_age_weeks", "egg_count", "feed_intake_kg", "temperature_c", "humidity_pct"]
 
 
 class Flock(models.Model):
-    """A generation/batch of ducks.
-
-    Flock size and age change day to day, so they are NOT stored here as mutable
-    "current" fields — DailyLog snapshots its own flock_size/flock_age_weeks for the
-    day it was recorded, which preserves accurate history for model retraining.
-    A new Flock row marks a generation reset (old flock retired, younger flock
-    brought in) per itikcare-spec.md section 10 — it is not a data-entry error when
-    flock age drops sharply between generations.
-    """
+    """A generation/batch of ducks (size and age are snapshotted per DailyLog, not stored here)."""
 
     owner = models.ForeignKey(
         settings.AUTH_USER_MODEL,
@@ -77,12 +66,7 @@ class Flock(models.Model):
 
 
 class DailyLog(models.Model):
-    """One farmer-entered daily record for a flock.
-
-    flock_size and flock_age_weeks are snapshots as of `date`, mirroring the source
-    CSV's per-day columns rather than deriving from Flock, since both values genuinely
-    vary day to day within a single generation.
-    """
+    """One farmer-entered daily record for a flock (size and age are snapshots for that date)."""
 
     flock = models.ForeignKey(Flock, on_delete=models.PROTECT, related_name="daily_logs")
     date = models.DateField()
@@ -146,14 +130,9 @@ class DailyLog(models.Model):
         return f"{self.date} — {self.flock}"
 
     def clean(self):
-        """Model-level backstop for the rules the farmer-facing layer already enforces
-        elsewhere (DailyLogForm/DailyLogEditForm.clean_date for the date range,
-        farm/views.py::log_daily_data for "active flock only"). Those forms/views only
-        guard the farmer path — this makes the same rules hold for full_clean() callers
-        that bypass them entirely, like the Django admin and import_daily_logs."""
+        """Model-level date and retired-flock checks (also applies to the admin and imports)."""
         super().clean()
-        # Local import to avoid a models<->services import cycle (farm.services already
-        # imports DailyLog/Flock from this module). See operational_today()'s docstring.
+        # Local import avoids a circular import
         from .services import operational_today
 
         if self.date and self.date > operational_today():
@@ -163,11 +142,7 @@ class DailyLog(models.Model):
                 "date": _("This flock started on %(date)s — you can't log data from before then.")
                 % {"date": f"{self.flock.started_on:%b %d, %Y}"}
             })
-        # A retired flock's history is closed — no new entries for it. This only blocks
-        # *creating* a log (self._state.adding); existing rows can still be re-cleaned,
-        # since edits go through farm_record_edit, which has its own is_active guard.
-        # The historical CSV import legitimately backfills already-retired generations,
-        # so import_daily_logs opts out via _allow_inactive_flock.
+        # Retired flocks accept no new logs (import_daily_logs opts out via _allow_inactive_flock)
         if (
             self._state.adding
             and self.flock_id
@@ -180,14 +155,7 @@ class DailyLog(models.Model):
 
 
 class DailyLogReminder(models.Model):
-    """Audit trail for the "log today's data" reminder email (farm/management/commands/
-    send_daily_log_reminders.py) -- one row per owner per day it was sent.
-
-    This is purely a dedup/audit record: the in-app reminder banner (dashboard/
-    templates/dashboard/index.html) is computed live from DailyLog/Flock state and
-    needs no row here at all. The unique constraint below is what makes the daily
-    command idempotent if it's ever run twice on the same day.
-    """
+    """Log of reminder emails sent (one per owner per day), so the daily command is idempotent."""
 
     owner = models.ForeignKey(
         settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name="daily_log_reminders"
@@ -207,12 +175,7 @@ class DailyLogReminder(models.Model):
 
 
 class DailyLogEdit(models.Model):
-    """Audit trail for DailyLog edits.
-
-    CLAUDE.md requires historical farm data edits to be tracked, never silently
-    overwritten — this records the old/new value of a single field on a single edit,
-    so a DailyLog change with N edited fields produces N rows here.
-    """
+    """Audit trail: old/new value of one field per DailyLog edit."""
 
     daily_log = models.ForeignKey(DailyLog, on_delete=models.CASCADE, related_name="edits")
     field_name = models.CharField(max_length=50)

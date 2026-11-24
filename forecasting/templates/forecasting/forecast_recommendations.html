@@ -61,7 +61,7 @@
             {% endif %}
         </div>
         {% else %}
-        <p class="text-sm text-gray-500">{% translate "No forecast generated yet." %}</p>
+        {% include "includes/empty_state_logging.html" with icon="trending-up" title=_("No forecast yet") why=_("A forecast is made from your logged days. Once you save today's data, it will show up here.") %}
         {% endif %}
 
         <div class="mt-6">
@@ -99,7 +99,7 @@
                 {% if trend_logs %}
                 <canvas id="trendChart" height="220"></canvas>
                 {% else %}
-                <p class="text-sm text-gray-500">{% translate "No farm records yet." %}</p>
+                {% include "includes/empty_state_logging.html" with icon="calendar" title=_("No trend to draw yet") why=_("The chart compares actual and predicted eggs day by day, so it needs at least one logged day.") compact=True %}
                 {% endif %}
             </div>
             <div class="bg-emerald-50 rounded-xl p-5">
@@ -120,7 +120,7 @@
                     {% endfor %}
                 </div>
                 {% else %}
-                <p class="text-sm text-gray-500">{% translate "No current forecast yet — once you log today's data and a forecast is generated, you'll see the factors influencing it here." %}</p>
+                {% include "includes/empty_state_logging.html" with icon="lightbulb" title=_("No factors to show yet") why=_("These bars show what is shaping the current forecast, so they appear once a forecast exists.") compact=True %}
                 {% endif %}
             </div>
         </div>
@@ -168,7 +168,7 @@
             {% endfor %}
         </div>
         {% else %}
-        <p class="text-sm text-gray-500">{% translate "No recommendations yet — these are generated once a forecast exists." %}</p>
+        {% include "includes/empty_state_logging.html" with icon="lightbulb" title=_("No recommendations yet") why=_("Recommendations are generated from a forecast, and there is no forecast until you log data.") %}
         {% endif %}
     </div>
 </div>

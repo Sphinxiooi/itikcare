@@ -1,12 +1,7 @@
-"""Google Sign-In (OAuth2 authorization code flow), hand-rolled with `requests` rather
-than a library like django-allauth — same "talk to a third-party HTTP API with a plain
-requests call, a timeout, and a try/except" pattern as farm/weather.py, kept small and
-readable enough to walk through in a thesis defense.
+"""Google Sign-In (OAuth2 authorization code flow) using plain `requests`.
 
-Only two things ever happen here: build the URL that sends the farmer to Google's own
-consent screen, and turn the authorization code Google hands back into that farmer's
-Google account id/email. accounts/views.py owns everything after that (resolving/
-creating the local User, logging them in) -- this module never touches the database.
+Builds the Google consent URL and exchanges the returned code for the account's id/email.
+Never touches the database (accounts/views.py handles users and login).
 """
 
 import logging
@@ -24,14 +19,7 @@ REQUEST_TIMEOUT_SECONDS = 5
 
 
 def build_authorization_url(redirect_uri, state):
-    """The URL to send the farmer's browser to so they can sign in with Google and
-    approve sharing their basic profile (name/email) with this app.
-
-    prompt=select_account forces Google's account chooser to show every time, instead
-    of silently reusing whichever Google account is already signed in on this browser
-    -- without it, a farm computer shared by multiple family members would keep signing
-    everyone into whoever signed in with Google first.
-    """
+    """URL of Google's consent screen (prompt=select_account always shows the account chooser)."""
     params = {
         "client_id": settings.GOOGLE_OAUTH_CLIENT_ID,
         "redirect_uri": redirect_uri,
@@ -44,16 +32,7 @@ def build_authorization_url(redirect_uri, state):
 
 
 def fetch_google_account(code, redirect_uri):
-    """Exchange the authorization code Google's callback handed us for that farmer's
-    Google account id/email, or None on any failure (network error, Google rejected the
-    code, malformed response). Never raises -- accounts.views.google_callback treats
-    None as "something went wrong, send them back to the login page with a message,"
-    the same "best effort" contract farm/weather.py's functions use.
-
-    Returns {"sub": str, "email": str | None, "email_verified": bool, "name": str | None}.
-    `sub` is Google's own stable per-account id (see User.google_sub's help_text) and is
-    the only field guaranteed present.
-    """
+    """Exchange the code for {"sub", "email", "email_verified", "name"}, or None on any failure (never raises)."""
     try:
         token_response = requests.post(
             TOKEN_URL,

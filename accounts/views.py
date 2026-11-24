@@ -39,17 +39,9 @@ from django.utils.translation import gettext as _
 logger = logging.getLogger(__name__)
 
 
+# ---------- login & signup ----------
 class RateLimitedLoginView(LoginView):
-    """LoginView with a per-IP attempt cap, for standard brute-force protection on a
-    publicly reachable login page. 10/m is generous for a genuine farmer mistyping a
-    password a few times, tight enough to make password-guessing impractical.
-
-    Uses django_ratelimit's default cache backend (Django's CACHES, LocMemCache unless
-    DJANGO_SHARED_CACHE=True, see itikcare/settings.py). LocMemCache is accurate only for
-    a single process; with several gunicorn workers set DJANGO_SHARED_CACHE=True so all
-    of them share one counter instead of each keeping its own. Behind a reverse proxy,
-    the client IP comes from accounts/ratelimit.py (RATELIMIT_IP_META_KEY).
-    """
+    """LoginView limited to 10 POST attempts per minute per IP (brute-force protection)."""
 
     @method_decorator(ratelimit(key="ip", rate="10/m", method="POST", block=True))
     def dispatch(self, request, *args, **kwargs):
@@ -57,11 +49,7 @@ class RateLimitedLoginView(LoginView):
 
 
 def _bootstrap_train(request, user):
-    """Run the synchronous bootstrap training job a brand-new farmer needs before their
-    first daily log can be forecast — see `signup`'s docstring for the full rationale.
-    Shared by `signup` and `google_callback`, the two ways a new account gets created,
-    so both run the identical bootstrap step rather than duplicating it.
-    """
+    """Train a new farmer's starter model synchronously (used by signup and google_callback)."""
     try:
         call_command("train_forecast_model", owner_id=user.id, strict=True)
     except Exception:
@@ -77,35 +65,15 @@ def _bootstrap_train(request, user):
 @ratelimit(key="ip", rate="5/d", method="POST", block=True)
 @transaction.atomic
 def signup(request):
-    """Self-service farmer signup, then a synchronous bootstrap training run.
+    """Farmer signup (5/day/IP), then a synchronous untuned bootstrap training run.
 
-    The new farmer has zero DailyLogs at signup time, so `train_forecast_model
-    --owner-id <id>` trains on exactly the foundation farmer's historical data (see
-    that command's `_load_records`) — this is what "seeds every new farmer's model
-    from the founding dataset" actually means in code.
-
-    Run synchronously (call_command, not the async subprocess `trigger_retrain` used
-    for routine retrains) and without --tune: this bootstrap train must finish before
-    the redirect to the dashboard, because the farmer's very first `log_daily_data`
-    submission calls `generate_forecast`, which needs this owner's model artifact to
-    already exist. Firing it via `trigger_retrain`'s detached subprocess would leave a
-    race — a farmer logging their first entry within seconds of signing up could beat
-    the background process. Dropping --tune keeps the fixed-hyperparameter path fast
-    enough to run inline in this request; the farmer's first *real* retrain (once they
-    have their own data) goes through the normal async, tuned `trigger_retrain` path.
-
-    Rate-limited at 5 POSTs/day/IP (see class docstring above for the same caveat on
-    django_ratelimit's cache backend): this is the actual cost-exhaustion vector flagged
-    during the deployment-readiness review — every submission runs a real training job,
-    so an anonymous, unauthenticated endpoint that runs one on demand needs a hard cap
-    before going public. Django_ratelimit returns HTTP 403 once the limit is hit.
+    Runs inline so the model exists before the farmer's first daily log is forecast.
     """
     if request.method == "POST":
         form = SignupForm(request.POST)
         if form.is_valid():
             user = form.save(commit=False)
-            # SignupForm.privacy_consent is required, so reaching here means the
-            # farmer ticked the Privacy Notice box on this very submission.
+            # The privacy consent checkbox is required, so it was ticked
             user.privacy_consented_at = timezone.now()
             if user.address:
                 coordinates = geocode_address(user.address)
@@ -118,14 +86,10 @@ def signup(request):
                         "will use the default location for now."),
                     )
             user.save()
-            # Skips authenticate() (the password was just set, not typed in to be
-            # checked) -- with more than one AUTHENTICATION_BACKENDS configured,
-            # login() needs to be told explicitly which one to attribute this session
-            # to, same as google_callback below.
+            # Name the backend explicitly (several are configured)
             login(request, user, backend="accounts.auth_backends.UsernameEmailOrFullNameBackend")
             _bootstrap_train(request, user)
-            # A brand-new account has no Flock, and nothing can be logged or forecast
-            # without one -- send them straight to the Register Flock form.
+            # No flock yet: send them to register one
             messages.warning(request, _("Welcome! Register your flock to start logging daily data."))
             return redirect("flock_profile")
     else:
@@ -133,25 +97,10 @@ def signup(request):
     return render(request, "registration/signup.html", {"form": form})
 
 
+# ---------- account settings ----------
 @login_required
 def account_settings(request):
-    """Personal-data settings for the logged-in farmer: name, username, email, farm
-    address, and profile picture (AccountSettingsForm) -- reachable from the header
-    avatar (templates/base.html), and where a brand-new Google sign-in is redirected
-    to finish setting up their account (see google_callback below), since that flow
-    creates a User with no name or address at all.
-
-    Gathers farm.views.flock_profile's flock context (via flock_profile_context) so
-    the same "farm/_flock_profile_panel.html" partial can render as this page's
-    second box — see templates/account/_settings_panel.html.
-
-    The edit form's own submit is intercepted client-side (templates/base.html) and
-    sent with an X-Requested-With header, so a save doesn't need a full-page reload.
-    On an AJAX save this re-renders the partial in place (with a fresh,
-    unbound form so it collapses back to view mode) and a just_saved flag the partial
-    turns into a self-dismissing banner, instead of going through messages.success +
-    redirect, which only ever surfaces on the next full-page render.
-    """
+    """Personal-data settings (name, email, address, avatar); AJAX saves re-render the panel in place."""
     is_ajax = request.headers.get("X-Requested-With") == "XMLHttpRequest"
     template_name = "account/_settings_panel.html" if is_ajax else "account/settings.html"
 
@@ -187,10 +136,7 @@ def account_settings(request):
     context = {
         "active_nav": "account_settings",
         "account_form": form,
-        # Settings is a personal-info page (reached from the header avatar,
-        # templates/base.html) -- flock lifecycle actions (retire, toggle
-        # caging, register) belong on the dedicated /flock/ page, not duplicated
-        # here, so the shared partial renders a read-only summary + link instead.
+        # Read-only flock summary; flock actions live on /flock/
         "compact": True,
         "just_saved": just_saved,
         **flock_profile_context(request.user),
@@ -201,27 +147,9 @@ def account_settings(request):
 @login_required
 @require_POST
 def delete_account(request):
-    """Self-service account deletion, triggered from the "Danger Zone" card on
-    Account Settings (templates/account/_settings_panel.html). This is a soft
-    delete: it deactivates the account and scrubs personally-identifying fields
-    rather than removing the row, so the farmer's Flock/DailyLog/Forecast/
-    Recommendation history survives intact for the forecasting model's training
-    data -- there's no real benefit to cascade-deleting that, only lost history.
+    """Soft-delete the account: deactivate it and scrub personal data, keeping farm history.
 
-    The foundation farmer (User.is_foundation_farmer) is exempt: their historical
-    DailyLog data bootstraps every new farmer's starter model (see
-    train_forecast_model's docstring), so deleting that one account would break
-    onboarding for everyone else. Also enforced in the template, which doesn't
-    render a working delete button for that account at all -- this check is the
-    real gate.
-
-    Beyond the fields a farmer would recognize as "their info" (email, phone,
-    name, avatar, address, coordinates), this also clears google_sub and blanks the
-    password. Without that, a deactivated Google-linked account could still sign
-    back in: google_callback resolves a user by google_sub and calls login()
-    directly, bypassing the is_active check that authenticate() would normally
-    apply for a plain password login. Clearing google_sub closes that path too,
-    so "deactivated" actually holds for every sign-in method the account has.
+    The foundation farmer can't be deleted (their data seeds every new farmer's model).
     """
     user = request.user
     if user.is_foundation_farmer:
@@ -248,6 +176,7 @@ def delete_account(request):
         user.address = ""
         user.latitude = None
         user.longitude = None
+        # Clearing google_sub and the password blocks every sign-in method
         user.google_sub = None
         user.set_unusable_password()
         user.is_active = False
@@ -258,14 +187,13 @@ def delete_account(request):
     return redirect("login")
 
 
+# ---------- password reset (emailed 6-digit code) ----------
 RESET_CODE_EXPIRY_MINUTES = 10
 RESET_CODE_MAX_ATTEMPTS = 5
 
 
 def _mask_email(email):
-    """Show enough of an email (first 2 + last 2 characters of the local part) for a
-    farmer to recognize their own address in request_reset_code's step-2 handoff,
-    without fully exposing it to anyone who just guesses a username."""
+    """Partially hide an email (first 2 + last 2 characters of the local part)."""
     local, _, domain = email.partition("@")
     if len(local) <= 4:
         masked_local = local[0] + "•" * max(len(local) - 1, 1)
@@ -276,20 +204,10 @@ def _mask_email(email):
 
 @ratelimit(key="ip", rate="10/h", method="POST", block=True)
 def request_reset_code(request):
-    """Step 1 of the password-reset flow: the farmer enters their name, email, or
-    phone number -- anything the login form accepts, resolved through the same
-    accounts.auth_backends.find_user_by_login_identifier lookup. (Signup no longer asks
-    for a username, so most farmers won't know theirs.) If the account has
-    an email on file, emails it a fresh 6-digit code and hands off to verify_reset_code.
+    """Step 1: look up the account by name/email/phone and email a 6-digit code.
 
-    Replaces Django's built-in tokenized-link reset, which breaks in practice here: the
-    link points at whatever host served the request (localhost in dev), meaningless
-    once the farmer opens the email on a different device.
-
-    Deliberately gives the same "if that account exists..." message for both an
-    unknown account and one with no email on file, so neither response alone confirms
-    an account exists -- reaching step 2 is the only signal that it does, which is the
-    accepted trade-off recorded in this feature's plan doc.
+    Unknown accounts and accounts without an email get the same kind of message,
+    so the response doesn't confirm an account exists.
     """
     if request.method == "POST":
         form = AccountLookupForm(request.POST)
@@ -326,8 +244,7 @@ def request_reset_code(request):
                         subject = "".join(
                             render_to_string("registration/password_reset_subject.txt").splitlines()
                         )
-                        # Plain-text body plus a styled HTML alternative -- clients
-                        # that can't render HTML fall back to the .txt version.
+                        # Plain-text body plus an HTML alternative
                         email_context = {"user": user, "code": code}
                         send_mail(
                             subject,
@@ -356,9 +273,7 @@ def request_reset_code(request):
 
 @ratelimit(key="ip", rate="20/h", method="POST", block=True)
 def verify_reset_code(request):
-    """Step 2 of the password-reset flow: the farmer enters the 6-digit code just
-    emailed (see request_reset_code above) plus a new password. A matching, unexpired
-    code sets the new password immediately -- no separate confirmation link/page."""
+    """Step 2: check the emailed code and set the new password."""
     username = request.session.get("password_reset_username")
     user = User.objects.filter(username=username, is_active=True).first() if username else None
     if user is None:
@@ -413,30 +328,18 @@ def verify_reset_code(request):
     )
 
 
+# ---------- Google sign-in ----------
 def google_login(request):
-    """Redirect the farmer to Google's own consent screen. See accounts/google_oauth.py
-    for why this is hand-rolled with `requests` rather than a library.
-
-    `state` is a one-time random token stashed in the session and checked again in
-    `google_callback` — standard OAuth2 protection against a forged callback request
-    that didn't actually originate from this browser's own sign-in attempt.
-
-    A `?next=` query param (added by login.html whenever Django's own login_required
-    redirect sent the farmer here with one, same as the plain username/password form
-    already honors) is likewise stashed in the session and consumed by google_callback
-    once sign-in succeeds, so choosing "Sign in with Google" from a next-carrying login
-    page returns the farmer to the page they actually wanted instead of always dumping
-    them on the dashboard. Validated with url_has_allowed_host_and_scheme (same check
-    Django's own LoginView applies to `next`) so a crafted `?next=` can't be used as an
-    open redirect.
-    """
+    """Send the farmer to Google's consent screen (state token + validated ?next= kept in the session)."""
     if not settings.GOOGLE_OAUTH_CLIENT_ID:
         messages.error(request, _("Google sign-in isn't available right now."))
         return redirect("login")
 
+    # One-time token checked again in google_callback
     state = secrets.token_urlsafe(32)
     request.session["google_oauth_state"] = state
 
+    # Only same-host ?next= values are kept (prevents open redirects)
     next_url = request.GET.get("next")
     if next_url and url_has_allowed_host_and_scheme(
         next_url, allowed_hosts={request.get_host()}, require_https=request.is_secure()
@@ -451,34 +354,9 @@ def google_login(request):
 
 @ratelimit(key="ip", rate="10/h", method="GET", block=True)
 def google_callback(request):
-    """Handle Google's redirect back after the farmer approves (or cancels) sign-in.
+    """Handle Google's redirect: sign in by google_sub, link by verified email, or create a new account.
 
-    Resolves to a local User in this order (see accounts/google_oauth.py's
-    fetch_google_account for exactly what Google hands back):
-
-    1. `google_sub` already on file -> that user (a returning Google sign-in).
-    2. No `google_sub` match, but Google reports email_verified=True and it matches an
-       existing local account's email -> link this Google account to it. Only linking
-       on a *verified* email is what makes this safe: Google won't vouch for an email
-       its account holder doesn't own, so this can't be used to hijack another farmer's
-       account by typing their email into a throwaway Google account.
-    3. No match at all -> create a brand-new account, same "farmer role, no local
-       password, synchronous bootstrap train" shape `signup` uses for a fresh signup.
-
-    Both lookups above are checked for is_active before anything else -- a deactivated
-    account (accounts.views.delete_account, or a plain admin-side ban from /admin/)
-    must never be able to sign back in this way. Unlike a plain password login (whose
-    ModelBackend.authenticate() already rejects is_active=False via
-    user_can_authenticate()), this view resolves the user itself and calls login()
-    directly, so that check doesn't happen for free here -- it has to be explicit.
-    delete_account additionally clears google_sub and blanks the email for its own
-    deactivation path, but an admin flipping the "Active" checkbox in /admin/ (the
-    normal way to suspend an account) does neither, so this can't rely on a match
-    simply "not existing any more" -- it has to check found-but-inactive explicitly.
-
-    Rate-limited (10/h/IP) as defense in depth on top of Google's own consent screen,
-    which is the primary abuse barrier here — see `signup`'s docstring for why the new-
-    account path this can also take needs a cap at all (it runs a real training job).
+    Deactivated accounts are always blocked (login() here skips the is_active check).
     """
     expected_state = request.session.pop("google_oauth_state", None)
     next_url = request.session.pop("google_oauth_next", None)
@@ -499,11 +377,10 @@ def google_callback(request):
         messages.error(request, _("Google sign-in didn't complete — please try again."))
         return redirect("login")
 
-    # Not filtered by is_active here -- a match still has to be inspected (and blocked
-    # below) rather than silently treated as "no match", which would otherwise fall
-    # through to create a brand-new account with the same (unique) google_sub and crash.
+    # Not filtered by is_active: an inactive match must be blocked below, not treated as "no match"
     user = User.objects.filter(google_sub=account["sub"]).first()
 
+    # Link to an existing account only by a Google-verified email
     if user is None and account["email_verified"] and account["email"]:
         user = User.objects.filter(email__iexact=account["email"]).first()
         if user is not None and user.is_active:
@@ -527,22 +404,17 @@ def google_callback(request):
                 username=generate_unique_username(username_base),
                 email=account["email"] or "",
                 google_sub=account["sub"],
-                # The Google button carries the same Privacy Notice line as the
-                # signup form's consent checkbox (templates/registration/*.html).
+                # Same privacy consent line as the signup form
                 privacy_consented_at=timezone.now(),
             )
             user.set_unusable_password()
             user.save()
 
-    # Google's own consent screen is the actual authentication here -- there's no
-    # local password to authenticate() against, so the backend must be named
-    # explicitly (see signup's identical login() call above).
+    # Google already authenticated them; name the backend explicitly
     login(request, user, backend="accounts.auth_backends.UsernameEmailOrFullNameBackend")
     if is_new_user:
         _bootstrap_train(request, user)
-        # A Google account is created with no name or address at all -- send them
-        # straight to the same settings form a farmer would use to edit that data
-        # later, instead of the dashboard, so it doesn't stay permanently blank.
+        # New Google accounts have no name/address, so send them to settings
         messages.info(
             request,
             _("Welcome! Add your name and farm location so we can personalize your "

@@ -1,26 +1,13 @@
-"""Hand-inlined SVG icon set used across the app in place of emoji.
-
-Drawn in the same 24x24 outline-stroke style already used for the sidebar
-icons in templates/base.html (fill="none", stroke="currentColor",
-stroke-width="2") -- visually the same family as shadcn/ui's default
-(Lucide) icons, without pulling in an external icon library.
-
-Usage in a template: {% load itik_icons %} then {% icon "wheat" %} or
-{% icon "wheat" "w-4 h-4 text-white" %} to override the default size/color
-classes. The icon name can also be a variable, e.g. {% icon block.meta.icon %}.
-"""
+"""Inline SVG icon set (24x24 outline style). Usage: {% load itik_icons %} then {% icon "wheat" %} or {% icon "wheat" "w-4 h-4" %}."""
 
 from django.template import Library
 from django.utils.html import format_html, mark_safe
 
 register = Library()
 
-# Each entry is the inner content of an <svg viewBox="0 0 24 24"> shell (see
-# `icon` below) -- just the <path>/<circle>/<rect> shapes, no wrapping <svg>.
+# Inner SVG shapes for each icon (the <svg> wrapper is added by `icon`)
 ICONS = {
-    # Two overlapping figures -- generic "count of animals/flock" mark, used
-    # for the Flock Size stat. (The brand logo is the raster
-    # static/images/logo-mark.png, not an icon from this table.)
+    # Generic flock mark (used for Flock Size)
     "flock": (
         '<circle cx="8" cy="10" r="3"/><circle cx="16" cy="10" r="3"/>'
         '<path stroke-linecap="round" stroke-linejoin="round" '
@@ -115,7 +102,7 @@ ICONS = {
         '<path stroke-linecap="round" stroke-linejoin="round" '
         'd="M12 7.5V12l3 2"/>'
     ),
-    # Header notification bell (templates/includes/notification_bell.html).
+    # Header notification bell
     "bell": (
         '<path stroke-linecap="round" stroke-linejoin="round" '
         'd="M14.857 17.082a23.848 23.848 0 0 0 5.454-1.31A8.967 8.967 0 0 1 18 '
@@ -126,18 +113,19 @@ ICONS = {
     "x-mark": (
         '<path stroke-linecap="round" stroke-linejoin="round" d="M6 18 18 6M6 6l12 12"/>'
     ),
+    # Error states (includes/error_state.html)
+    "alert-triangle": (
+        '<path stroke-linecap="round" stroke-linejoin="round" '
+        'd="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 '
+        '2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 '
+        '16.126ZM12 15.75h.007v.008H12v-.008Z"/>'
+    ),
 }
 
 
 @register.simple_tag(name="icon")
 def icon(name, css_class="w-5 h-5"):
-    """Render one of the ICONS above as an inline <svg>.
-
-    `name` may be a literal icon key or a template variable holding one
-    (e.g. the category icon keys stored in forecasting.views). Unknown
-    names render nothing rather than raising, so a stale/mistyped key
-    degrades quietly instead of 500ing a page.
-    """
+    """Render an icon from ICONS as inline <svg>; unknown names render nothing."""
     inner = ICONS.get(name)
     if inner is None:
         return ""

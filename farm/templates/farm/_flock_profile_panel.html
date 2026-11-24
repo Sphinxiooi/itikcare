@@ -127,7 +127,7 @@
     {% else %}
     <p class="text-sm text-gray-500 mb-6">{% translate "No flock has been set up yet. Tell us a bit about your ducks to get started — these details will pre-fill your first daily log." %}</p>
 
-    <form method="post" action="{% url 'flock_profile' %}" data-loader-text="{% translate "Registering your flock…" %}" class="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-4"
+    <form method="post" action="{% url 'flock_profile' %}" data-draft="flock-register" data-loader-text="{% translate "Registering your flock…" %}" class="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-4"
           data-confirm="{% translate "Double-check the flock size, age, and feed intake above — these details will pre-fill your first daily log and can't be edited afterwards from this page." %}"
           data-confirm-title="{% translate "Are these details correct?" %}"
           data-confirm-label="{% translate "Yes, Register Flock" %}">

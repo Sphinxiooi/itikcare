@@ -1,12 +1,7 @@
-"""Builds the header bell's notification list, computed live on every page load.
+"""Header bell notifications, computed live from current farm data on every page load.
 
-Nothing here is stored: each notification is derived from current DailyLog/Flock/
-Forecast/User state, so it disappears by itself as soon as the farmer fixes whatever
-it's about. The only persisted state is the farmer's read/dismiss reaction to each one
-(notifications.models.NotificationReceipt), merged in by get_notification_state().
-
-Each source below is one small function returning a Notification or None, so every
-alert the farmer sees can be traced back to exactly one condition.
+Only the farmer's read/dismiss state is stored (NotificationReceipt). Each source below is
+one small function returning a Notification or None.
 """
 
 from dataclasses import dataclass
@@ -26,16 +21,13 @@ from recommendations.services import ACTIONABLE_PRIORITIES, most_urgent_recommen
 
 from .models import NotificationReceipt
 
-# How far back the "missed days" check looks for unlogged days. Kept short on
-# purpose: this is a nudge to fill in a recent slip, not an audit of the whole history.
+# How many recent days the "missed days" check looks back
 MISSED_DAYS_LOOKBACK = 7
 
-# How long the dismiss (x) button hides a notification whose issue is still unfixed.
-# It also comes back sooner if the farmer logs out and back in (see _dismissal_active).
+# How long the dismiss (x) button hides a notification whose issue is still unfixed
 DISMISS_SNOOZE = timedelta(minutes=30)
 
-# Display order in the dropdown: things the farmer should do now first, then things
-# worth knowing about, then plain status info.
+# Dropdown order: act now, then warnings, then info
 LEVEL_ORDER = {"action": 0, "warning": 1, "info": 2}
 
 
@@ -50,8 +42,9 @@ class Notification:
     is_unread: bool = True
 
 
+# ---------- notification sources ----------
 def _no_flock(user, flock):
-    """No active flock: nothing else in the app works until one is registered."""
+    """No active flock registered."""
     if flock is not None:
         return None
     return Notification(
@@ -65,8 +58,7 @@ def _no_flock(user, flock):
 
 
 def _log_today_missing(user, flock, today):
-    """Caged flock with no DailyLog for the current farm day (see
-    farm.services.operational_today). Same condition as the dashboard's banner."""
+    """Caged flock with no DailyLog for today."""
     if flock is None or not flock.is_caged:
         return None
     if DailyLog.objects.filter(flock=flock, date=today).exists():
@@ -82,16 +74,8 @@ def _log_today_missing(user, flock, today):
 
 
 def _missed_days(user, flock, today):
-    """Recent days (before today) with no DailyLog while the flock was caged.
-
-    Only counts days inside the flock's *current* caging stretch -- the latest
-    DailyLog's caging_period (itikcare-spec.md section 10). Days before that stretch
-    began were free-range time, a known and intentional gap, not a missed entry. Nothing
-    is flagged while the flock is just back from free-range and hasn't logged yet
-    (Flock.starts_new_caging_period): its next entry opens a new stretch, so every day
-    since the last log was free-range time too. A plain gap while the flock stayed caged
-    is still flagged -- those days really were missed.
-    """
+    """Recent unlogged days inside the current caging stretch (free-range gaps don't count)."""
+    # Nothing is flagged right after a free-range return (before the first new log)
     if flock is None or not flock.is_caged or flock.starts_new_caging_period:
         return None
     latest_log = DailyLog.objects.filter(flock=flock).order_by("-date").first()
@@ -130,8 +114,7 @@ def _missed_days(user, flock, today):
 
 
 def _profile_incomplete(user):
-    """Account Settings fields left blank. The farm location matters most: without it,
-    weather prefill falls back to the default farm's coordinates (farm.weather)."""
+    """Account Settings fields left blank (farm location matters most for weather)."""
     missing = []
     if not user.first_name or not user.last_name:
         missing.append("full name")
@@ -144,36 +127,31 @@ def _profile_incomplete(user):
     if not missing:
         return None
     return Notification(
-        # The missing-field list is part of the key, so dismissing "photo missing"
-        # doesn't also hide a later "email missing".
+        # Missing fields are part of the key, so dismissing one doesn't hide another
         key=f"profile_incomplete:{','.join(sorted(missing))}",
         level="info",
         icon="info-circle",
         title=_("Complete your profile"),
-        # The key above keeps the English field names so a dismissal survives a
-        # language switch; only the message shows them translated.
+        # Key keeps English names; only the message is translated
         message=_("Add your %(fields)s in Account Settings.") % {"fields": ", ".join(_(m) for m in missing)},
         url=reverse("account_settings"),
     )
 
 
 def _todays_forecast(flock, today):
-    """Same forecast the dashboard shows: the soonest one dated today or later."""
+    """The soonest forecast dated today or later (same as the dashboard)."""
     if flock is None or not flock.is_caged:
         return None
     return Forecast.objects.filter(flock=flock, forecast_date__gte=today).order_by("forecast_date").first()
 
 
 def _urgent_recommendation(forecast):
-    """Today's forecast has a recommendation at an actionable tier (HIGH/MEDIUM_HIGH),
-    picked by the same rule as the dashboard's Quick Recommendation card. The
-    notification names the triggering variable so it stays traceable to its rule."""
+    """The forecast's most urgent recommendation, if it is at an actionable priority."""
     rec = most_urgent_recommendation(forecast)
     if rec is None or rec.priority not in ACTIONABLE_PRIORITIES:
         return None
     variable = rec.triggered_by.replace("_", " ")
-    # Stored rule texts are the adviser's English wording; translate at display time
-    # (same lookup the recommendation cards use -- see _recommendation_card.html).
+    # Stored rule texts are English; translate at display time
     status = f"{_(rec.status)}: " if rec.status else ""
     return Notification(
         key=f"urgent_rec:{rec.pk}",
@@ -186,9 +164,7 @@ def _urgent_recommendation(forecast):
 
 
 def _forecast_warming_up(flock):
-    """Yield prediction withheld until there's enough of this farm's own data (a new
-    farm's first week, or the first days back from free-range). Same rule as the
-    dashboard's notice -- see forecasting.services.forecast_readiness."""
+    """Yield prediction is withheld until enough of the farm's own data exists."""
     warmup = current_forecast_warmup(flock)
     if warmup is None:
         return None
@@ -206,7 +182,7 @@ def _forecast_warming_up(flock):
 
 
 def _flock_free_range(flock):
-    """Flock is out in the field: logging and forecasts are paused on purpose."""
+    """Flock is out in the field; logging and forecasts are paused."""
     if flock is None or flock.is_caged:
         return None
     return Notification(
@@ -219,8 +195,9 @@ def _flock_free_range(flock):
     )
 
 
+# ---------- combining & read/dismiss state ----------
 def build_notifications(user):
-    """Every notification that currently applies to `user`, most urgent first."""
+    """Every notification that currently applies to the user, most urgent first."""
     flock = get_active_flock(user)
     today = operational_today()
     forecast = _todays_forecast(flock, today)
@@ -235,17 +212,12 @@ def build_notifications(user):
         _profile_incomplete(user),
     ]
     notifications = [n for n in candidates if n is not None]
-    # sorted() is stable, so ties keep the candidate order above.
+    # Stable sort: ties keep the order above
     return sorted(notifications, key=lambda n: LEVEL_ORDER[n.level])
 
 
 def _dismissal_active(receipt, user, now):
-    """True while a dismissal still hides its notification.
-
-    Dismissing is a snooze, not "never show again": if the issue is still unfixed
-    (the notification is still being built), it comes back once DISMISS_SNOOZE has
-    passed or the farmer logs in again -- whichever comes first.
-    """
+    """True while a dismissal still hides its notification (snoozed for DISMISS_SNOOZE or until next login)."""
     if receipt is None or receipt.dismissed_at is None:
         return False
     if now - receipt.dismissed_at >= DISMISS_SNOOZE:
@@ -256,8 +228,7 @@ def _dismissal_active(receipt, user, now):
 
 
 def get_notification_state(user):
-    """(visible notifications, unread count) with the farmer's receipts applied:
-    snoozed dismissals are dropped, read ones are marked is_unread=False."""
+    """(visible notifications, unread count) with snoozed dismissals dropped and read ones marked."""
     notifications = build_notifications(user)
     receipts = {
         r.key: r
@@ -270,8 +241,7 @@ def get_notification_state(user):
         if _dismissal_active(receipt, user, now):
             continue
         read_at = receipt.read_at if receipt else None
-        # A notification returning from a dismissal counts as unread again (so the
-        # badge flags it) until the dropdown is opened after it came back.
+        # Returning from a dismissal counts as unread again
         if read_at and receipt.dismissed_at and read_at <= receipt.dismissed_at:
             read_at = None
         notification.is_unread = read_at is None

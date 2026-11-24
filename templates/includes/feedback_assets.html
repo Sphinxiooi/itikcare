@@ -1,0 +1,55 @@
+{% load static i18n %}
+{% comment %}
+Inline form validation, draft saving and session-expiry handling.
+Include once inside <head> on any page with forms (see static/js/itik-feedback.js for
+what it does). The config below hands the script its URLs and every user-facing string,
+so the wording follows the English/Filipino switch. {placeholders} are filled in by the
+script. Bump ?v= when either file changes.
+{% endcomment %}
+<link rel="stylesheet" href="{% static 'css/itik-feedback.css' %}?v=1">
+<script>
+    window.ItikFeedbackConfig = {
+        authenticated: {% if user.is_authenticated %}true{% else %}false{% endif %},
+        userId: "{% if user.is_authenticated %}{{ user.pk }}{% endif %}",
+        statusUrl: "{% url 'session_status' %}",
+        extendUrl: "{% url 'session_extend' %}",
+        loginUrl: "{% url 'login' %}",
+        i18n: {
+            thisField: "{% filter escapejs %}{% translate "this field" %}{% endfilter %}",
+            required: "{% filter escapejs %}{% translate "Fill in {label} — it can't be left empty." %}{% endfilter %}",
+            requiredNumber: "{% filter escapejs %}{% translate "Enter {label} — it can't be left empty. Type a number, digits only." %}{% endfilter %}",
+            requiredDate: "{% filter escapejs %}{% translate "Pick a date for {label} — it can't be left empty." %}{% endfilter %}",
+            requiredChoice: "{% filter escapejs %}{% translate "Choose an option for {label}." %}{% endfilter %}",
+            requiredCheck: "{% filter escapejs %}{% translate "Tick this box to continue." %}{% endfilter %}",
+            badNumber: "{% filter escapejs %}{% translate "{label} must be a number — digits only, like 12 or 12.5." %}{% endfilter %}",
+            badDate: "{% filter escapejs %}{% translate "That isn't a date we can read. Use the calendar picker or type it as YYYY-MM-DD." %}{% endfilter %}",
+            tooLow: "{% filter escapejs %}{% translate "{label} can't be lower than {min}. Raise it to {min} or more." %}{% endfilter %}",
+            tooHigh: "{% filter escapejs %}{% translate "{label} can't be higher than {max}. Check for an extra digit." %}{% endfilter %}",
+            dateTooEarly: "{% filter escapejs %}{% translate "{label} can't be before {min}. Pick {min} or a later date." %}{% endfilter %}",
+            dateTooLate: "{% filter escapejs %}{% translate "{label} can't be after {max}. Pick {max} or an earlier date." %}{% endfilter %}",
+            wholeNumber: "{% filter escapejs %}{% translate "{label} must be a whole number — remove the decimal point." %}{% endfilter %}",
+            stepMismatch: "{% filter escapejs %}{% translate "{label} must be in steps of {step}. Round it to the nearest {step}." %}{% endfilter %}",
+            badEmail: "{% filter escapejs %}{% translate "Enter a full email address, like name@example.com." %}{% endfilter %}",
+            badFormat: "{% filter escapejs %}{% translate "{label} isn't in the expected format. Check it and try again." %}{% endfilter %}",
+            badFormatHint: "{% filter escapejs %}{% translate "{label} isn't in the expected format: {hint}" %}{% endfilter %}",
+            tooShort: "{% filter escapejs %}{% translate "{label} needs at least {min} characters — add {more} more." %}{% endfilter %}",
+            tooLong: "{% filter escapejs %}{% translate "{label} can be at most {max} characters — remove {over}." %}{% endfilter %}",
+            generic: "{% filter escapejs %}{% translate "Check {label} and try again." %}{% endfilter %}",
+            fixOne: "{% filter escapejs %}{% translate "Fix the highlighted field to continue." %}{% endfilter %}",
+            fixMany: "{% filter escapejs %}{% translate "Fix the {n} highlighted fields to continue." %}{% endfilter %}",
+            draftRestored: "{% filter escapejs %}{% translate "We restored what you'd typed but hadn't saved yet." %}{% endfilter %}",
+            draftDiscard: "{% filter escapejs %}{% translate "Discard it" %}{% endfilter %}",
+            warnTitle: "{% filter escapejs %}{% translate "You'll be signed out in {time}" %}{% endfilter %}",
+            warnBody: "{% filter escapejs %}{% translate "Stay signed in to keep working. Anything you've typed is also kept on this device." %}{% endfilter %}",
+            warnStay: "{% filter escapejs %}{% translate "Stay signed in" %}{% endfilter %}",
+            warnDismiss: "{% filter escapejs %}{% translate "Not now" %}{% endfilter %}",
+            warnFailed: "{% filter escapejs %}{% translate "Couldn't extend your session — check your connection and try again." %}{% endfilter %}",
+            expiredTitle: "{% filter escapejs %}{% translate "Your session has ended" %}{% endfilter %}",
+            expiredBody: "{% filter escapejs %}{% translate "For your security you were signed out. Log in again to carry on." %}{% endfilter %}",
+            expiredSaved: "{% filter escapejs %}{% translate "Your unsaved entry is safe on this device. After you log in you'll come straight back here with it filled in." %}{% endfilter %}",
+            expiredNothing: "{% filter escapejs %}{% translate "You had no unsaved changes. After you log in you'll come straight back to this page." %}{% endfilter %}",
+            expiredButton: "{% filter escapejs %}{% translate "Log in again" %}{% endfilter %}"
+        }
+    };
+</script>
+<script src="{% static 'js/itik-feedback.js' %}?v=1" defer></script>

@@ -1526,3 +1526,122 @@ msgstr "Nob."
 msgctxt "abbrev. month"
 msgid "Dec."
 msgstr "Dis."
+
+
+# ----------------------------------------------------------------------
+# Empty / loading / error / offline states
+# ----------------------------------------------------------------------
+
+msgid "You are offline."
+msgstr "Offline ka."
+
+msgid "What is on screen is the last copy we loaded, so you can keep reading it. Saving, new forecasts and opening other pages need a connection and will work again when you are back online."
+msgstr "Ang nasa screen ay ang huling kopyang na-load namin, kaya maaari mo pa rin itong basahin. Kailangan ng koneksyon para sa pag-save, bagong forecast at pagbukas ng ibang pahina; gagana ulit ang mga ito pagbalik mo online."
+
+msgid "You are back online."
+msgstr "Online ka na ulit."
+
+msgid "What went wrong"
+msgstr "Ano ang nangyari"
+
+msgid "Whose fault"
+msgstr "Kaninong problema"
+
+msgid "How to fix it"
+msgstr "Paano ito ayusin"
+
+msgid "Try again"
+msgstr "Subukan ulit"
+
+msgid "Something went wrong"
+msgstr "May nangyaring mali"
+
+msgid "ItikCare hit an unexpected error while handling your request, so the page could not be shown."
+msgstr "Nagka-error ang ItikCare habang pinoproseso ang iyong kahilingan, kaya hindi maipakita ang pahina."
+
+msgid "Ours. The problem is on the ItikCare server, not something you did or your connection."
+msgstr "Amin. Nasa server ng ItikCare ang problema, hindi sa ginawa mo o sa koneksyon mo."
+
+msgid "Wait a moment and try again. If you were saving a log, check Farm Records before entering it a second time. If it keeps happening, let an admin know."
+msgstr "Maghintay sandali at subukan ulit. Kung nagse-save ka ng log, tingnan muna ang Farm Records bago ito ilagay ulit. Kung paulit-ulit itong nangyayari, ipaalam sa isang admin."
+
+msgid "Nobody's, really. The link is probably old or the address was mistyped. ItikCare itself is working."
+msgstr "Walang may kasalanan, sa totoo lang. Malamang luma na ang link o mali ang pagkakatype ng address. Gumagana ang ItikCare mismo."
+
+msgid "Check the address for typos, or go back to ItikCare and use the menu to find what you need."
+msgstr "Tingnan kung may mali sa address, o bumalik sa ItikCare at gamitin ang menu para hanapin ang kailangan mo."
+
+msgid "Looking up the weather for this date…"
+msgstr "Hinahanap ang lagay ng panahon para sa petsang ito…"
+
+msgid "Couldn't look up the weather"
+msgstr "Hindi nakuha ang lagay ng panahon"
+
+msgid "The weather suggestion for this date didn't load. Nothing in your log was changed."
+msgstr "Hindi na-load ang mungkahing lagay ng panahon para sa petsang ito. Walang nabago sa iyong log."
+
+msgid "Your connection. This device is offline."
+msgstr "Ang koneksyon mo. Offline ang device na ito."
+
+msgid "Probably the weather service or the connection, not your entry."
+msgstr "Malamang ang serbisyo ng panahon o ang koneksyon, hindi ang inilagay mo."
+
+msgid "Type the temperature and humidity yourself, or try again once you are back online."
+msgstr "I-type mismo ang temperatura at halumigmig, o subukan ulit pagbalik mo online."
+
+msgid "Register a flock"
+msgstr "Magrehistro ng kawan"
+
+msgid "Open flock profile"
+msgstr "Buksan ang profile ng kawan"
+
+msgid "Log daily data"
+msgstr "Mag-log ng datos ngayong araw"
+
+msgid "Every record, forecast and recommendation belongs to a flock, and you have not registered one yet."
+msgstr "Bawat tala, forecast at rekomendasyon ay nakakabit sa isang kawan, at wala ka pang nairerehistro."
+
+msgid "Your flock is marked as free-range, so daily logging is paused. Mark it as caged to start logging again."
+msgstr "Naka-free-range ang iyong kawan, kaya naka-pause ang pang-araw-araw na pag-log. Markahan itong nasa kulungan para makapag-log ulit."
+
+msgid "No forecast yet"
+msgstr "Wala pang forecast"
+
+msgid "A forecast is made from your logged days. Once you save today's data, the next 3 days will show up here."
+msgstr "Ang forecast ay mula sa mga araw na na-log mo. Kapag na-save mo ang datos ngayong araw, lalabas dito ang susunod na 3 araw."
+
+msgid "A forecast is made from your logged days. Once you save today's data, it will show up here."
+msgstr "Ang forecast ay mula sa mga araw na na-log mo. Kapag na-save mo ang datos ngayong araw, lalabas ito dito."
+
+msgid "No trend to draw yet"
+msgstr "Wala pang trend na maipapakita"
+
+msgid "The chart compares actual and predicted eggs day by day, so it needs at least one logged day."
+msgstr "Inihahambing ng tsart ang aktwal at hinulaang itlog bawat araw, kaya kailangan ng kahit isang na-log na araw."
+
+msgid "No recommendations yet"
+msgstr "Wala pang rekomendasyon"
+
+msgid "Recommendations are generated from a forecast, and there is no forecast until you log data."
+msgstr "Ang mga rekomendasyon ay mula sa isang forecast, at walang forecast hangga't hindi ka nagla-log ng datos."
+
+msgid "No farm records yet"
+msgstr "Wala pang tala sa sakahan"
+
+msgid "Nothing has been logged for this flock, so there is nothing to list. Your first daily log will appear here."
+msgstr "Wala pang na-log para sa kawang ito, kaya walang maililista. Lalabas dito ang una mong pang-araw-araw na log."
+
+msgid "No factors to show yet"
+msgstr "Wala pang mga salik na maipapakita"
+
+msgid "These bars show what is shaping the current forecast, so they appear once a forecast exists."
+msgstr "Ipinapakita ng mga bar na ito kung ano ang humuhubog sa kasalukuyang forecast, kaya lalabas ang mga ito kapag may forecast na."
+
+msgid "No records in this month"
+msgstr "Walang tala sa buwang ito"
+
+msgid "No daily log was saved in the month you picked, for example because the flock was free-range then. Records from other months are still there."
+msgstr "Walang pang-araw-araw na log na na-save sa buwang pinili mo, halimbawa dahil free-range noon ang kawan. Nandoon pa rin ang mga tala ng ibang buwan."
+
+msgid "Show all months"
+msgstr "Ipakita ang lahat ng buwan"

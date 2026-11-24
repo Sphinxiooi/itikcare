@@ -1,18 +1,8 @@
-"""Client-IP lookup for django-ratelimit when the app sits behind a reverse proxy.
-
-Wired in through settings.RATELIMIT_IP_META_KEY (only when DJANGO_BEHIND_PROXY=True), so
-every existing ``@ratelimit(key="ip", ...)`` in accounts/views.py keeps working unchanged.
-"""
+"""Client-IP lookup for django-ratelimit behind a reverse proxy (set via RATELIMIT_IP_META_KEY)."""
 
 
 def client_ip(request):
-    """The real client address, as reported by the trusted proxy in front of the app.
-
-    The proxy (Railway's edge, nginx) appends the address it actually saw to
-    X-Forwarded-For. Only that last entry is trustworthy: anything to its left was
-    supplied by the client (or an earlier hop) and can be spoofed to dodge a rate limit.
-    Falls back to REMOTE_ADDR when the header is absent (e.g. a direct connection).
-    """
+    """Real client address: the last X-Forwarded-For entry (added by the trusted proxy), else REMOTE_ADDR."""
     forwarded_for = request.META.get("HTTP_X_FORWARDED_FOR", "")
     if forwarded_for:
         last_hop = forwarded_for.split(",")[-1].strip()

@@ -68,7 +68,7 @@ class DashboardIndexTests(TestCase):
 
     def test_no_active_flock_shows_no_forecast_placeholder(self):
         response = self.client.get("/")
-        self.assertContains(response, "No forecasts generated yet.")
+        self.assertContains(response, "No forecast yet")
 
     def test_freshly_registered_flock_shows_details_before_first_daily_log(self):
         """A brand-new flock has pending_* details staged at registration but no

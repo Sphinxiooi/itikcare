@@ -1,0 +1,16 @@
+{% load itik_icons %}
+{% comment %}
+Empty state: says WHY there is nothing here and gives ONE next-step button.
+Usage:
+  {% url 'log_daily_data' as next_url %}
+  {% include 'includes/empty_state.html' with icon="egg" title=_("No farm records yet") why=_("...") action_url=next_url action_label=_("Log daily data") %}
+Optional: compact=True for small panels. Styles: static/css/states.css.
+{% endcomment %}
+<div class="itik-empty{% if compact %} itik-empty--compact{% endif %}">
+    <span class="itik-empty__icon">{% icon icon|default:"info-circle" "w-6 h-6" %}</span>
+    <p class="itik-empty__title">{{ title }}</p>
+    <p class="itik-empty__why">{{ why }}</p>
+    {% if action_url and action_label %}
+    <a href="{{ action_url }}" class="itik-empty__action">{{ action_label }}</a>
+    {% endif %}
+</div>

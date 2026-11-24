@@ -18,6 +18,8 @@ from forecasting.services import (
     trigger_retrain,
 )
 
+from itikcare.feedback import success_with_next
+
 from .forms import DailyLogEditForm, DailyLogForm, FlockRegisterForm, FlockResumeCagingForm
 from .models import AUDITED_FIELDS, DailyLog, DailyLogEdit, Flock
 from .services import (
@@ -39,45 +41,10 @@ from django.utils.translation import gettext as _
 logger = logging.getLogger(__name__)
 
 
+# ---------- daily log entry ----------
 @login_required
 def log_daily_data(request):
-    """Create today's DailyLog entry.
-
-    flock_size is pre-filled from the active flock's most recent DailyLog (see
-    forms.DailyLogForm docstring) but is a normal, always-editable form field, so the
-    farmer can adjust it up or down to reflect ducks lost/dead or added that day.
-    flock_age_weeks is likewise pre-filled but advanced by however many calendar weeks
-    have passed since that previous log, not carried forward flat — the ducks keep
-    aging during a free-range gap even though nothing gets logged during it
-    (itikcare-spec.md section 10), so a flock logged at 94 weeks that comes back into
-    caging 6 weeks later should be pre-filled at 100, not still 94. caging_period is
-    never farmer-entered: it continues the previous log's value, unless the flock has
-    just come back from free-range (Flock.starts_new_caging_period -- see
-    services.caging_period_for_new_log). A long gap in logging while the flock stayed
-    caged keeps the same period; its forecast just carries a "may be less accurate"
-    caution (forecasting.services.logging_gap_caution_for_log).
-
-    temperature_c and humidity_pct are always left blank for the farmer to enter
-    from their own thermometer/hygrometer reading — no pre-fill.
-
-    A first valid submission never saves immediately: it renders a read-only
-    confirmation screen (services.detect_daily_log_anomalies checked against this
-    flock's own history, e.g. an egg count far above its usual average) so the farmer
-    gets one last look before the entry is written (and, if it's dated today, a
-    forecast generated from it). Only a second submission carrying confirmed=1
-    actually saves. Clicking "Edit" from that screen (edit=1) returns to the normal
-    editable form without re-validating.
-
-    A backdated entry (backfilling a missed past day — see DailyLogForm.clean_date)
-    is saved the same way but never generates its own Forecast: a same-day nowcast
-    for a day that has already fully happened isn't actionable, and forecast_date
-    is unique per flock+date, so generating one here would silently clash with
-    whatever forecast already covers that historical date. It's still fed into the
-    database as ordinary history, though — the next real (today-dated) forecast's
-    lag1/roll3 features look at recent DailyLogs by date regardless of when each
-    one was actually entered, so a backfilled day counts exactly the same as one
-    logged on time.
-    """
+    """Create a DailyLog: validate, show a confirmation screen, then save (and forecast if dated today)."""
 
     active_flock = get_active_flock(request.user)
     if active_flock is None:
@@ -98,11 +65,7 @@ def log_daily_data(request):
             if DailyLog.objects.filter(flock=active_flock, date=new_date).exists():
                 form.add_error("date", "A record for this date already exists — edit it from Farm Records instead.")
             elif request.POST.get("confirmed") != "1":
-                # First successful validation pass — hold off on saving and show a
-                # confirmation screen instead (with any anomaly warnings attached), so
-                # the farmer gets one last look before the entry is written and a new
-                # forecast is generated from it. Only a resubmission carrying
-                # confirmed=1 (the confirm screen's own form) reaches the save below.
+                # First pass: show the confirmation screen (with anomaly warnings), don't save yet
                 anomaly_warnings = detect_daily_log_anomalies(active_flock, form.cleaned_data)
                 context = {
                     "active_nav": "log_daily_data",
@@ -114,24 +77,12 @@ def log_daily_data(request):
             else:
                 daily_log = form.save(commit=False)
                 daily_log.flock = active_flock
-                # caging_period_for_new_log (farm/services.py) is the single source of
-                # truth for this rule — a flock's very first entry always starts a new
-                # period (continuing this owner's overall counter across flock
-                # retirements per itikcare-spec.md section 10); after that, only a
-                # return from free-range starts a new one.
+                # Caging period is never farmer-entered
                 daily_log.caging_period = caging_period_for_new_log(active_flock, request.user)
                 is_new_period = not is_first_entry and daily_log.caging_period != previous_log.caging_period
                 daily_log.recorded_by = request.user
                 try:
-                    # The .exists() check above is a plain read with nothing locked in
-                    # between it and this save — a second, near-simultaneous submission
-                    # for the same date (a double-tap on a slow connection, or the same
-                    # form open in two tabs) can pass that same check before either has
-                    # committed. DailyLog.Meta's UniqueConstraint is the real guard; a
-                    # savepoint here (transaction.atomic, nested — see Django's docs on
-                    # atomic blocks) means only this insert is rolled back on a
-                    # collision, so the request can still render a normal response
-                    # instead of leaving the outer request transaction unusable.
+                    # Savepoint: a double-submit for the same date hits the unique constraint
                     with transaction.atomic():
                         daily_log.save()
                 except IntegrityError:
@@ -143,11 +94,7 @@ def log_daily_data(request):
                         or active_flock.pending_feed_intake_kg is not None
                         or active_flock.starts_new_caging_period
                     ):
-                        # Consumed only now that it's actually backed a real DailyLog, so an
-                        # abandoned form (farmer navigates away without logging) doesn't
-                        # silently lose the values they confirmed at resume/registration time
-                        # — or the free-range return that this entry's new caging period
-                        # was opened for.
+                        # Clear staged values only now that a real DailyLog used them
                         active_flock.pending_flock_size = None
                         active_flock.pending_flock_age_weeks = None
                         active_flock.pending_feed_intake_kg = None
@@ -160,13 +107,18 @@ def log_daily_data(request):
                                 "starts_new_caging_period",
                             ]
                         )
-                    messages.success(request, _("Daily data saved."))
+                    # The success card is queued at the end (below) so its "what happens
+                    # next" list reflects what actually happened -- a forecast that
+                    # failed must not be promised.
+                    next_steps = [
+                        _("It's in Farm Records now. If you spot a typo, edit it there — every change is logged."),
+                    ]
                     if new_date == operational_today():
                         try:
                             forecast = generate_forecast(daily_log)
                             if not forecast.has_prediction:
-                                # Warm-up: recommendations were generated, the yield
-                                # prediction was withheld (see forecast_readiness).
+                                # Warm-up: recommendations only, yield prediction withheld
+                                next_steps.insert(0, _("Recommendations were refreshed. Egg-yield forecasts start once you've logged enough days."))
                                 warmup = readiness_for_log(daily_log)
                                 messages.info(
                                     request,
@@ -177,6 +129,7 @@ def log_daily_data(request):
                                     ) % {"so_far": warmup.logs_so_far, "needed": warmup.logs_needed},
                                 )
                             else:
+                                next_steps.insert(0, _("Your forecast and recommendations were refreshed from this entry."))
                                 gap_caution = logging_gap_caution_for_log(daily_log)
                                 if gap_caution is not None:
                                     messages.warning(
@@ -200,8 +153,7 @@ def log_daily_data(request):
                                 _("Your data was saved, but the forecast could not be generated this time."),
                             )
                     else:
-                        # Backfilling a missed past day: still saved as ordinary history (see
-                        # the log_daily_data docstring), just never gets its own forecast.
+                        # Backdated entry: saved as history, no forecast of its own
                         messages.info(
                             request,
                             _("This entry backfills a past date, so it won't generate its own "
@@ -209,11 +161,10 @@ def log_daily_data(request):
                             "predictions."),
                         )
                     if is_new_period:
-                        # The flock just came back from free-range, so the previous caging
-                        # period is closed — a complete new segment of training data now exists (itikcare-spec.md
-                        # section 5's "rolling retraining as new data comes in").
+                        # Previous caging period is closed, so retrain on the new segment
                         trigger_retrain("caging_period_closed", active_flock.owner_id)
                         messages.info(request, _("New caging period detected — model retraining triggered."))
+                    success_with_next(request, _("Daily data saved."), next_steps)
                     return redirect("dashboard")
     else:
         initial = {}
@@ -221,14 +172,10 @@ def log_daily_data(request):
             initial["flock_age_weeks"] = current_flock_age_weeks(previous_log)
             initial["flock_size"] = previous_log.flock_size
         if active_flock.pending_flock_size is not None:
-            # Overrides previous_log.flock_size (or fills it in on a first-ever entry)
-            # with the count the farmer confirmed when resuming caging, since that's
-            # more current than whatever was last logged before the free-range gap.
+            # Staged count (resume caging) is more current than the last logged size
             initial["flock_size"] = active_flock.pending_flock_size
         if active_flock.pending_flock_age_weeks is not None:
-            # Set only at registration (views.flock_profile) — fills in
-            # flock_age_weeks on a flock's very first entry, which otherwise has no
-            # previous_log to derive it from.
+            # Staged at registration; fills the age on a flock's first entry
             initial["flock_age_weeks"] = active_flock.pending_flock_age_weeks
         if active_flock.pending_feed_intake_kg is not None:
             initial["feed_intake_kg"] = active_flock.pending_feed_intake_kg
@@ -239,21 +186,11 @@ def log_daily_data(request):
     return render(request, "farm/log_daily_data.html", context)
 
 
+# ---------- weather suggestion (JSON) ----------
 @login_required
 @require_GET
 def weather_for_date(request):
-    """JSON endpoint backing log_daily_data.html's date-change handler: suggests
-    temperature_c/humidity_pct for a backdated entry from historical weather (see
-    farm.weather.fetch_historical_weather's docstring for the archive/forecast
-    fallback it uses).
-
-    Takes ?date=YYYY-MM-DD. Returns {"temperature_c": .., "humidity_pct": ..} as JSON,
-    or JSON null if the date is missing/malformed, today or in the future (matching
-    log_daily_data's own "today stays blank, no pre-fill" rule — see its docstring),
-    or the lookup otherwise came back empty. Never a 4xx/5xx for a bad date: the
-    frontend only acts on a non-null body, so there's nothing gained by distinguishing
-    "bad input" from "no weather data available" at the HTTP-status level here.
-    """
+    """Return suggested temperature/humidity for ?date=YYYY-MM-DD as JSON, or null if unavailable."""
     try:
         target_date = date.fromisoformat(request.GET.get("date", ""))
     except ValueError:
@@ -264,19 +201,10 @@ def weather_for_date(request):
     return JsonResponse(weather, safe=False)
 
 
+# ---------- farm records ----------
 @login_required
 def farm_records(request):
-    """List DailyLog entries for one of the owner's flocks, filtered by flock number
-    and month.
-
-    Defaults to the active flock so the common case is unchanged; if the owner has no
-    active flock (e.g. every flock so far has been retired), falls back to their most
-    recent flock by generation_number rather than showing an empty page. Retired
-    flocks stay selectable (and their records visible) but are read-only — see
-    farm_record_edit's is_active guard. The month dropdown's options are always
-    derived from the *currently selected* flock's own records, so switching flocks
-    resets a now-meaningless ?month= back to "all".
-    """
+    """List DailyLogs for a flock (default: active flock), filtered by month, with charts/summary."""
 
     owner_flocks = list(Flock.objects.filter(owner=request.user).order_by("-generation_number"))
     flock_choices = {
@@ -291,8 +219,7 @@ def farm_records(request):
     selected_flock = flocks_by_id.get(request.GET.get("flock"), default_flock)
     selected_flock_id = str(selected_flock.id) if selected_flock else ""
 
-    # select_related("flock"): the template checks log.flock.is_active on every row, which
-    # would otherwise cost one extra query per log.
+    # select_related avoids one extra query per row (template reads log.flock.is_active)
     logs = (
         DailyLog.objects.filter(flock=selected_flock).order_by("-date")
         .select_related("flock").prefetch_related("edits")
@@ -312,15 +239,10 @@ def farm_records(request):
         year, month = (int(part) for part in selected_month.split("-"))
         logs = logs.filter(date__year=year, date__month=month)
 
-    # Evaluated once here (rather than left as a queryset) since both the chart/
-    # summary builders and the min-logs guard below need to inspect it more than
-    # once -- a queryset would otherwise re-hit the database for each access.
+    # Evaluate once; it is inspected several times below
     logs = list(logs)
 
-    # A month-over-month delta on the stat tiles only makes sense when a specific
-    # month is selected -- "All months" has no natural "previous period" to diff
-    # against, so previous_month_logs stays [] and build_records_summary returns
-    # every delta as None in that case.
+    # Previous month's logs (for month-over-month deltas) only when a month is selected
     previous_month_logs = []
     if selected_flock and selected_month != "all":
         year, month = (int(part) for part in selected_month.split("-"))
@@ -337,6 +259,9 @@ def farm_records(request):
         "month_choices": month_choices,
         "selected_month": selected_month,
         "records_charts_available": len(logs) >= RECORDS_CHART_MIN_LOGS,
+        # Lets the empty state pick the right next step (register / un-cage / log).
+        "active_flock": active_flock,
+        "flock_is_caged": bool(active_flock and active_flock.is_caged),
     }
     if context["records_charts_available"]:
         context.update(build_records_chart_data(logs))
@@ -344,15 +269,10 @@ def farm_records(request):
     return render(request, "farm/farm_records.html", context)
 
 
+# ---------- edit a record (audited) ----------
 @login_required
 def farm_record_edit(request, pk):
-    """Edit an existing DailyLog, recording a DailyLogEdit audit row per changed field.
-
-    CLAUDE.md requires historical data edits to be tracked, never silently
-    overwritten — this compares the submitted form against the record's current
-    values field by field before saving, so nothing changes without a paired audit
-    entry (old value, new value, who, when).
-    """
+    """Edit a DailyLog and write one DailyLogEdit audit row per changed field."""
 
     daily_log = get_object_or_404(DailyLog, pk=pk, flock__owner=request.user)
     if daily_log.is_locked:
@@ -367,20 +287,13 @@ def farm_record_edit(request, pk):
             _("This record belongs to a retired flock and is read-only."),
         )
         return redirect("farm_records")
-    # Snapshot old values before the form touches the instance: ModelForm.is_valid()
-    # calls _post_clean(), which writes cleaned data onto form.instance (the same
-    # object as daily_log) even before .save() — so reading daily_log's fields after
-    # is_valid() would already see the new values, not the old ones.
+    # Snapshot old values first: is_valid() already writes new values onto the instance
     old_values = {field_name: getattr(daily_log, field_name) for field_name in AUDITED_FIELDS}
 
     if request.method == "POST":
         form = DailyLogEditForm(request.POST, instance=daily_log)
         if form.is_valid():
-            # DailyLogEditForm can't enforce the unique (flock, date) constraint itself
-            # — `flock` isn't one of its fields, and Django skips a constraint whose
-            # fields are all excluded from validation — so a collision would otherwise
-            # only surface as an IntegrityError from form.save(). Check it here, the
-            # same way log_daily_data does on create.
+            # The form can't enforce unique (flock, date) itself, so check it here
             new_date = form.cleaned_data["date"]
             if DailyLog.objects.filter(flock=daily_log.flock, date=new_date).exclude(pk=daily_log.pk).exists():
                 form.add_error("date", _("Another record already exists for this date — edit that one instead."))
@@ -394,17 +307,11 @@ def farm_record_edit(request, pk):
                     changes.append((field_name, old_value, new_value))
 
             try:
-                # Same race as log_daily_data's own create path: the .exists() check
-                # above is a plain read, so a second, near-simultaneous edit/create for
-                # the same date can still slip past it before either has committed.
-                # One savepoint around the save + its audit rows also means a farmer
-                # never ends up with a DailyLogEdit trail for an update that didn't
-                # actually take (see this view's docstring on the audit trail).
+                # One savepoint: no audit rows for an update that didn't take
                 with transaction.atomic():
                     updated_log = form.save()
                     if updated_log.date != old_values["date"]:
-                        # The date moved — its caging_period (assigned from the gap to the
-                        # previous log when this row was first created) may no longer fit.
+                        # Date moved, so its caging period may no longer fit
                         recompute_caging_period(updated_log)
                     for field_name, old_value, new_value in changes:
                         DailyLogEdit.objects.create(
@@ -417,12 +324,14 @@ def farm_record_edit(request, pk):
             except IntegrityError:
                 form.add_error("date", _("Another record already exists for this date — edit that one instead."))
             else:
-                messages.success(
-                    request,
-                    _("Record updated (%(count)d field(s) changed).") % {"count": len(changes)}
-                    if changes
-                    else _("No changes made."),
-                )
+                if changes:
+                    success_with_next(
+                        request,
+                        _("Record updated (%(count)d field(s) changed).") % {"count": len(changes)},
+                        [_("The old and new values are kept in this record's edit history.")],
+                    )
+                else:
+                    success_with_next(request, _("No changes made."), [_("The record is exactly as it was.")])
                 return redirect("farm_records")
     else:
         form = DailyLogEditForm(instance=daily_log)
@@ -431,25 +340,10 @@ def farm_record_edit(request, pk):
     return render(request, "farm/farm_record_edit.html", context)
 
 
+# ---------- delete a record ----------
 @login_required
 def farm_record_delete(request, pk):
-    """Permanently remove a DailyLog entry, after a confirmation step.
-
-    Deletion is irreversible (unlike farm_record_edit, there's no audit row to
-    reconstruct the record from), so this is deliberately a separate confirm page
-    rather than a button on the edit form that deletes on click. Only the DailyLog
-    itself and its DailyLogEdit history (on_delete=CASCADE) are removed.
-
-    generate_forecast always writes its Forecast at forecast_date == the source
-    DailyLog's own date (it's a same-day nowcast, see services.py), so that Forecast
-    row is this log's alone, not shared with any other log — it's deleted alongside
-    the DailyLog (its Recommendations cascade with it) so the dashboard's "latest
-    forecast"/recommendations can't keep showing predictions for a date that no
-    longer has any underlying farm data. Other Forecasts that merely used this log
-    as a lag1/roll3 prior (via source_logs M2M) are left intact — their own
-    forecast_date still has a real DailyLog behind it, just with one fewer historical
-    input than when they were generated.
-    """
+    """Delete a DailyLog (after a confirm page) along with its same-day Forecast."""
 
     daily_log = get_object_or_404(DailyLog, pk=pk, flock__owner=request.user)
     if daily_log.is_locked:
@@ -477,11 +371,9 @@ def farm_record_delete(request, pk):
     return render(request, "farm/farm_record_delete_confirm.html", context)
 
 
+# ---------- flock profile ----------
 def flock_profile_context(user):
-    """The active-flock context shared by flock_profile below and accounts.views.
-    account_settings (which embeds the same "farm/_flock_profile_panel.html" partial
-    as its flock-status box) -- kept in one place so both pages show identical numbers.
-    """
+    """Active-flock context shared by flock_profile and account_settings."""
     active_flock = get_active_flock(user)
 
     if active_flock is None:
@@ -496,12 +388,7 @@ def flock_profile_context(user):
     return {
         "active_flock": active_flock,
         "latest_log": latest_log,
-        # Calendar-projected, not the raw snapshot on latest_log — ducks keep aging
-        # even during a logging gap (e.g. free-range), so "Average Age" must reflect
-        # today's date, not whatever date latest_log happens to be from. Falls back to
-        # pending_flock_age_weeks (confirmed at registration/resume-caging) when no
-        # DailyLog exists yet at all, so the profile shows real numbers right away
-        # instead of "—" until the first entry is logged.
+        # Age projected to today (not the snapshot on latest_log); falls back to the staged age
         "current_age_weeks": current_flock_age_weeks(latest_log) or active_flock.pending_flock_age_weeks,
         "resume_form": resume_form,
     }
@@ -509,22 +396,7 @@ def flock_profile_context(user):
 
 @login_required
 def flock_profile(request):
-    """View the active flock's lifecycle info, or start the farm's very first flock
-    if none exists yet.
-
-    This is the only farmer-facing way to manage Flock rows at all — previously
-    Flock could only be created/edited via the Django admin. started_on is farmer-
-    entered at registration (defaults to today, but can be backdated for a flock
-    that's been raised a while before the farmer started using this app) and is not
-    farmer-editable afterwards, so there is nothing here that needs to go through the
-    DailyLogEdit audit trail — that requirement (CLAUDE.md, itikcare-spec.md section 3)
-    covers historical DailyLog data, not Flock lifecycle metadata.
-
-    A GET request with ?partial=1 renders just the profile card, no header/sidebar —
-    available for embedding elsewhere, same as accounts.views.account_settings does
-    with "farm/_flock_profile_panel.html" as its own second box. The plain /flock/
-    page (no query param) renders normally for direct links/bookmarks.
-    """
+    """Show the active flock's profile, or register the first/next flock if none is active."""
 
     template_name = (
         "farm/_flock_profile_panel.html" if request.GET.get("partial") == "1" else "farm/flock_profile.html"
@@ -534,10 +406,7 @@ def flock_profile(request):
     if active_flock is None and request.method == "POST":
         form = FlockRegisterForm(request.POST)
         if form.is_valid():
-            # Max(), not a simple count, since a retired flock's generation_number
-            # must never be reused (unique_generation_per_owner) — this is 1 on a
-            # farm's very first-ever registration and old_flock.generation_number + 1
-            # after any later retirement.
+            # Max() so a retired flock's generation number is never reused
             last_generation = Flock.objects.filter(owner=request.user).aggregate(
                 Max("generation_number")
             )["generation_number__max"] or 0
@@ -549,7 +418,12 @@ def flock_profile(request):
                 pending_flock_age_weeks=form.cleaned_data["flock_age_weeks"],
                 pending_feed_intake_kg=form.cleaned_data["feed_intake_kg"],
             )
-            messages.success(request, _("Flock registered."))
+            success_with_next(
+                request,
+                _("Flock registered."),
+                [_("Next, log today's data. Your starting flock size, age and feed are already pre-filled."),
+                 _("Forecasts begin once you've logged enough days of your own data.")],
+            )
             return redirect("flock_profile")
         context = {"active_nav": "flock_profile", "active_flock": None, "form": form}
         return render(request, template_name, context)
@@ -558,14 +432,11 @@ def flock_profile(request):
     return render(request, template_name, context)
 
 
+# ---------- flock lifecycle ----------
 @login_required
 @require_POST
 def flock_retire(request):
-    """Retire the active flock. No replacement flock is created here — the farmer
-    registers the next generation from scratch via the same Register Flock form
-    flock_profile already shows when a farm has no active flock at all (this keeps
-    first-ever registration and post-retirement registration identical).
-    """
+    """Retire the active flock and trigger retraining; the next flock is registered separately."""
 
     active_flock = get_active_flock(request.user)
     if active_flock is None:
@@ -574,8 +445,7 @@ def flock_retire(request):
 
     active_flock.is_active = False
     active_flock.save(update_fields=["is_active"])
-    # Retirement closes out this generation's entire history at once — a
-    # complete new segment of training data now exists.
+    # A whole generation of history is now complete
     trigger_retrain("flock_retired", active_flock.owner_id)
     messages.success(request, _("Flock retired. Register a new flock when you're ready to start the next generation."))
     messages.info(request, _("Model retraining has been triggered in the background."))
@@ -585,12 +455,7 @@ def flock_retire(request):
 @login_required
 @require_POST
 def toggle_caging_status(request):
-    """Flip the active flock between caged (logging active) and free-range in the field.
-
-    Nothing is deleted when going free-range — Dashboard/Forecast views just stop
-    querying/displaying data while is_caged is False, and it all reappears once the
-    flock is marked caged again.
-    """
+    """Flip the active flock between caged and free-range (nothing is deleted)."""
 
     active_flock = get_active_flock(request.user)
     if active_flock is None:
@@ -599,8 +464,7 @@ def toggle_caging_status(request):
 
     active_flock.is_caged = not active_flock.is_caged
     if active_flock.is_caged:
-        # Back from free-range: the next DailyLog opens a new caging period
-        # (services.caging_period_for_new_log).
+        # Back from free-range: next DailyLog opens a new caging period
         active_flock.starts_new_caging_period = True
     active_flock.save(update_fields=["is_caged", "starts_new_caging_period"])
     if active_flock.is_caged:
@@ -613,14 +477,7 @@ def toggle_caging_status(request):
 @login_required
 @require_POST
 def resume_caging(request):
-    """Mark a free-range flock as caged again, capturing the farmer-confirmed duck
-    count at the same time (ducks may have been added or lost while out in the field).
-
-    The confirmed count is staged on Flock.pending_flock_size rather than written
-    straight to a DailyLog — there's no daily record for "today" yet at this point,
-    only a flock_size. It's picked up as the flock_size prefill on the farmer's next
-    log_daily_data entry and cleared once that entry is actually saved.
-    """
+    """Mark a free-range flock as caged again and stage the confirmed duck count for the next log."""
 
     active_flock = get_active_flock(request.user)
     if active_flock is None or active_flock.is_caged:
@@ -631,8 +488,7 @@ def resume_caging(request):
     if form.is_valid():
         active_flock.is_caged = True
         active_flock.pending_flock_size = form.cleaned_data["flock_size"]
-        # Back from free-range: the next DailyLog opens a new caging period
-        # (services.caging_period_for_new_log).
+        # Back from free-range: next DailyLog opens a new caging period
         active_flock.starts_new_caging_period = True
         active_flock.save(update_fields=["is_caged", "pending_flock_size", "starts_new_caging_period"])
         messages.success(

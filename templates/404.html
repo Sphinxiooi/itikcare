@@ -24,9 +24,8 @@
             </div>
         </div>
 
-        <div class="bg-white px-6 py-6 text-center">
-            <h1 class="text-xl font-bold text-gray-900">{% translate "Page not found" %}</h1>
-            <p class="text-sm text-gray-500 mt-2">{% translate "The page you're looking for doesn't exist or may have moved." %}</p>
+        <div class="bg-white px-4 py-5">
+            {% include 'includes/error_state.html' with title=_("Page not found") what=_("The page you're looking for doesn't exist or may have moved.") whose=_("Nobody's, really. The link is probably old or the address was mistyped. ItikCare itself is working.") fix=_("Check the address for typos, or go back to ItikCare and use the menu to find what you need.") %}
         </div>
 
         <div class="bg-emerald-800 rounded-b-2xl px-6 py-4 text-center text-sm text-emerald-100">

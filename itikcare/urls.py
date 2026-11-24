@@ -1,21 +1,16 @@
-"""URL configuration for the itikcare project.
-
-Login/logout/signup/password-reset are wired explicitly (rather than including the
-full django.contrib.auth.urls) to keep the URL surface easy to reason about and to
-attach this project's own styled forms/templates/rate limiting to each view.
-"""
+"""URL configuration (login, signup and password reset are wired explicitly to use the project's own forms and rate limiting)."""
 from django.conf import settings
 from django.contrib import admin
 from django.contrib.auth import views as auth_views
 from django.urls import include, path, re_path
 from django.views.static import serve
 
-from accounts import views as accounts_views
+from accounts import session_views, views as accounts_views
 from accounts.forms import StyledAuthenticationForm
 
 urlpatterns = [
     path('admin/', admin.site.urls),
-    # POST-only set_language view behind the English/Filipino switch.
+    # Language switch (POST only)
     path('i18n/', include('django.conf.urls.i18n')),
     path(
         'accounts/login/',
@@ -29,6 +24,8 @@ urlpatterns = [
     path('accounts/signup/', accounts_views.signup, name='signup'),
     path('accounts/google/login/', accounts_views.google_login, name='google_login'),
     path('accounts/google/callback/', accounts_views.google_callback, name='google_callback'),
+    path('account/session/status/', session_views.session_status, name='session_status'),
+    path('account/session/extend/', session_views.session_extend, name='session_extend'),
     path('account/settings/', accounts_views.account_settings, name='account_settings'),
     path('account/delete/', accounts_views.delete_account, name='delete_account'),
     path(
@@ -52,10 +49,7 @@ urlpatterns = [
     path('', include('notifications.urls')),
 ]
 
-# Farmer-uploaded avatars. whitenoise serves STATIC_ROOT but never MEDIA_ROOT, and
-# django.conf.urls.static.static() is a no-op when DEBUG=False, so route MEDIA_URL through
-# Django's own static-file view explicitly -- fine at single-farm scale. (On a VM, an nginx
-# location block over MEDIA_ROOT can take over this job; this route is then simply unused.)
+# Serve uploaded avatars (WhiteNoise doesn't serve MEDIA_ROOT)
 urlpatterns += [
     re_path(
         r'^%s(?P<path>.*)$' % settings.MEDIA_URL.lstrip('/'),

@@ -3,21 +3,9 @@ from django.db import models
 
 
 class NotificationReceipt(models.Model):
-    """Remembers what a farmer has done with one header-bell notification.
+    """Stores what a farmer did with a bell notification (read_at, dismissed_at), keyed by the notification key.
 
-    Notifications themselves are never stored -- notifications/services.py computes
-    them live from DailyLog/Flock/Forecast/User state on every page load, so one
-    disappears on its own as soon as the underlying issue is fixed (e.g. today's log
-    gets entered) and can never go stale. This table only records the farmer's
-    *reaction* to a notification, keyed by that notification's `key`:
-
-    * read_at -- set when the bell's dropdown is opened; clears the unread badge.
-    * dismissed_at -- set by the item's dismiss button; hides it from the list for
-      a while (services.DISMISS_SNOOZE, or until the next login). If the issue is
-      still unfixed after that, the notification comes back.
-
-    Keys embed the date/object they're about (e.g. "log_today_missing:2026-09-24"), so
-    reading or dismissing today's reminder never silences tomorrow's.
+    Notifications themselves are computed live (notifications/services.py).
     """
 
     user = models.ForeignKey(

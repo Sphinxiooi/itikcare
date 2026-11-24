@@ -103,7 +103,7 @@
             {% endfor %}
         </div>
         {% else %}
-        <p class="text-sm text-gray-500">{% translate "No forecasts generated yet." %}</p>
+        {% include "includes/empty_state_logging.html" with icon="trending-up" title=_("No forecast yet") why=_("A forecast is made from your logged days. Once you save today's data, the next 3 days will show up here.") compact=True %}
         {% endif %}
     </div>
 
@@ -127,7 +127,7 @@
             {% if trend_logs %}
             <canvas id="trendChart" height="220"></canvas>
             {% else %}
-            <p class="text-sm text-gray-500">{% translate "No farm records yet — log daily data to see the trend here." %}</p>
+            {% include "includes/empty_state_logging.html" with icon="calendar" title=_("No trend to draw yet") why=_("The chart compares actual and predicted eggs day by day, so it needs at least one logged day.") compact=True %}
             {% endif %}
         </div>
 
@@ -150,7 +150,7 @@
                 {% icon "check-circle" "w-4 h-4 inline -mt-0.5" %} {% translate "Everything looks good — no urgent action needed right now." %}
             </p>
             {% else %}
-            <p class="text-sm text-gray-500">{% translate "No recommendations yet." %}</p>
+            {% include "includes/empty_state_logging.html" with icon="lightbulb" title=_("No recommendations yet") why=_("Recommendations are generated from a forecast, and there is no forecast until you log data.") compact=True %}
             {% endif %}
         </div>
     </div>
@@ -227,7 +227,7 @@
             </table>
         </div>
         {% else %}
-        <p class="text-sm text-gray-500">{% translate "No farm records yet." %}</p>
+        {% include "includes/empty_state_logging.html" with icon="egg" title=_("No farm records yet") why=_("Nothing has been logged for this flock, so there is nothing to list. Your first daily log will appear here.") compact=True %}
         {% endif %}
     </div>
     {% endif %}

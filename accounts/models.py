@@ -14,11 +14,7 @@ def validate_avatar_size(file):
 
 
 class User(AbstractUser):
-    """Custom user model so we can attach a farm role without a separate profile table.
-
-    Must stay wired as AUTH_USER_MODEL from this project's very first migration —
-    switching the user model after tables exist is not a supported Django operation.
-    """
+    """Custom user model with a farm role (must be AUTH_USER_MODEL from the first migration)."""
 
     class Role(models.TextChoices):
         FARMER = "farmer", "Farmer"
@@ -115,17 +111,7 @@ class User(AbstractUser):
 
     @property
     def missing_profile_items(self):
-        """Profile details this farmer hasn't filled in yet, as short keys the
-        notification bell can turn into reminders:
-
-        - "email_or_phone": neither an email nor a mobile number -- the farmer has no
-          way to recover the account except asking an admin.
-        - "email": has a phone but no email -- self-service password reset only works
-          by email (accounts/views.py's request_reset_code).
-        - "full_name": no first name on file (e.g. a fresh Google sign-in).
-        - "address": no farm barangay, so weather prefill uses the default location.
-        - "privacy_consent": account predates the Privacy Notice.
-        """
+        """Profile details the farmer hasn't filled in yet, as short keys for reminders."""
         missing = []
         if not self.email and not self.phone_number:
             missing.append("email_or_phone")
@@ -140,7 +126,7 @@ class User(AbstractUser):
         return missing
 
     def save(self, *args, **kwargs):
-        # Keep createsuperuser accounts consistent: an admin flag should imply the admin role.
+        # Superusers always get the admin role
         if self.is_superuser:
             self.role = self.Role.ADMIN
         if self.is_foundation_farmer:
@@ -162,15 +148,7 @@ class User(AbstractUser):
 
 
 class PasswordResetCode(models.Model):
-    """A one-time 6-digit code emailed for the username-based password-reset flow
-    (accounts/views.py's request_reset_code/verify_reset_code) — replaces Django's
-    built-in tokenized-link reset, which is unusable once the email is opened on a
-    device other than the one running the (localhost) dev server.
-
-    code_hash stores django.contrib.auth.hashers.make_password(code), never the raw
-    code, the same hashing already used for the password itself. attempts caps wrong
-    guesses at 5 (enforced in the view) before the code must be re-requested.
-    """
+    """One-time 6-digit password-reset code (stored hashed, wrong guesses are capped in the view)."""
 
     user = models.ForeignKey(
         settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="password_reset_codes"

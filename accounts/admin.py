@@ -11,7 +11,6 @@ class ItikCareUserAdmin(UserAdmin):
         ("Contact & consent", {"fields": ("phone_number", "privacy_consented_at")}),
     )
     list_display = UserAdmin.list_display + ("phone_number", "role", "is_foundation_farmer")
-    # Farmers sign up with a name + email-or-phone (no username they'd remember), so an
-    # admin doing a manual password reset needs to find them by those instead.
+    # Search by phone number too (farmers have no username to remember)
     search_fields = UserAdmin.search_fields + ("phone_number",)
     list_filter = UserAdmin.list_filter + ("role", "is_foundation_farmer")

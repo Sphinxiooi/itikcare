@@ -1,0 +1,254 @@
+/* Shared UI states: empty, loading (skeleton), error and offline.
+   Plain CSS on purpose (same reason as duck-loader.css): no Tailwind rebuild needed, so it
+   works on every page -- base.html, the standalone auth/landing pages, and 404/500.
+   Behaviour lives in static/js/states.js; the empty/error markup in
+   templates/includes/empty_state.html and error_state.html.
+
+   Colours use the Tailwind theme variables that output.css already defines (and that the
+   dark theme in input.css remaps), each with a light-mode fallback, so these follow the
+   theme toggle automatically. */
+
+/* ---------- Empty state ---------- */
+.itik-empty {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    text-align: center;
+    gap: 0.5rem;
+    padding: 1.75rem 1.25rem;
+    border: 1px dashed var(--color-gray-300, #d1d5db);
+    border-radius: 0.75rem;
+    background-color: var(--color-gray-50, #f9fafb);
+}
+.itik-empty--compact { padding: 1.25rem 1rem; }
+.itik-empty__icon {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 3rem;
+    height: 3rem;
+    border-radius: 9999px;
+    background-color: var(--color-emerald-50, #ecfdf5);
+    color: #059669;
+}
+.itik-empty__icon svg { width: 1.5rem; height: 1.5rem; }
+.itik-empty__title {
+    margin: 0.25rem 0 0;
+    font-size: 1rem;
+    font-weight: 600;
+    color: var(--color-gray-900, #111827);
+}
+.itik-empty__why {
+    margin: 0;
+    max-width: 28rem;
+    font-size: 0.875rem;
+    line-height: 1.4;
+    color: var(--color-gray-500, #6b7280);
+}
+.itik-empty__action {
+    display: inline-block;
+    margin-top: 0.5rem;
+    padding: 0.5rem 1.25rem;
+    border-radius: 0.5rem;
+    background-color: #047857; /* emerald-700, matches the app's primary buttons */
+    color: #fff;
+    font-size: 0.875rem;
+    font-weight: 600;
+    text-decoration: none;
+}
+.itik-empty__action:hover { background-color: #065f46; }
+.itik-empty__action:focus-visible { outline: 2px solid #10b981; outline-offset: 2px; }
+
+/* ---------- Loading: skeletons ---------- */
+/* A skeleton block is a grey placeholder in the shape of the thing that is coming. The
+   shimmer is a soft highlight sweeping across, not a spinner. */
+.itik-skel {
+    display: block;
+    border-radius: 0.5rem;
+    background-color: var(--color-gray-200, #e5e7eb);
+    background-image: linear-gradient(90deg, transparent 0%, rgb(255 255 255 / 0.55) 50%, transparent 100%);
+    background-size: 200% 100%;
+    background-repeat: no-repeat;
+    animation: itik-shimmer 1.3s ease-in-out infinite;
+}
+html.dark .itik-skel {
+    background-image: linear-gradient(90deg, transparent 0%, rgb(255 255 255 / 0.07) 50%, transparent 100%);
+}
+.itik-skel--line { height: 0.75rem; }
+.itik-skel--title { height: 1.75rem; width: 14rem; max-width: 70%; }
+.itik-skel--chart { height: 13rem; }
+.itik-skel--input { height: 2.5rem; }
+.itik-skel--stat { height: 1.5rem; width: 4rem; }
+
+.itik-skel-card {
+    padding: 1rem;
+    border: 1px solid var(--color-gray-200, #e5e7eb);
+    border-radius: 0.75rem;
+    background-color: var(--color-white, #fff);
+    display: flex;
+    flex-direction: column;
+    gap: 0.6rem;
+}
+html.dark .itik-skel-card { background-color: var(--surface-card, #151f1c); }
+
+.itik-skel-grid { display: grid; gap: 1rem; grid-template-columns: 1fr; }
+@media (min-width: 640px) {
+    .itik-skel-grid--3 { grid-template-columns: repeat(3, 1fr); }
+    .itik-skel-grid--2 { grid-template-columns: repeat(2, 1fr); }
+}
+
+/* Covers just <main> while the next page loads (header and sidebar stay put, like the
+   page-rise animation in base.html). Carries the .app-background class too, so it has
+   the same backdrop as the real page in both themes. */
+.itik-skel-overlay {
+    position: fixed;
+    top: 3.5rem; /* header height (h-14) */
+    right: 0;
+    bottom: 0;
+    left: 0;
+    z-index: 30; /* above <main>, below the header (50) and sidebar (40) */
+    overflow: hidden;
+    padding: 1.5rem;
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+    opacity: 0;
+    visibility: hidden;
+    transition: opacity 150ms ease-out, visibility 0s linear 150ms;
+}
+.itik-skel-overlay.is-active {
+    opacity: 1;
+    visibility: visible;
+    transition: opacity 150ms ease-out, visibility 0s;
+}
+@media (min-width: 768px) {
+    .itik-skel-overlay { left: 16rem; /* sidebar width (w-64) */ }
+}
+@media (min-width: 1024px) {
+    .itik-skel-overlay { padding: 2rem; }
+}
+
+@keyframes itik-shimmer {
+    from { background-position: 200% 0; }
+    to { background-position: -200% 0; }
+}
+
+/* ---------- Error state ---------- */
+.itik-error {
+    border: 1px solid var(--color-red-200, #fecaca);
+    border-radius: 0.75rem;
+    background-color: var(--color-red-50, #fef2f2);
+    padding: 1rem 1.25rem;
+    text-align: left;
+}
+.itik-error__head {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    color: #b91c1c;
+}
+.itik-error__head svg { width: 1.5rem; height: 1.5rem; flex: none; }
+.itik-error__title {
+    margin: 0;
+    font-size: 1rem;
+    font-weight: 700;
+    color: var(--color-gray-900, #111827);
+}
+.itik-error__rows {
+    margin: 0.75rem 0 0;
+    display: grid;
+    gap: 0.5rem;
+    font-size: 0.875rem;
+    line-height: 1.4;
+}
+.itik-error__rows dt {
+    font-size: 0.7rem;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: #b91c1c;
+}
+.itik-error__rows dd { margin: 0; color: var(--color-gray-700, #374151); }
+.itik-error__actions { margin-top: 0.9rem; display: flex; flex-wrap: wrap; gap: 0.5rem; }
+.itik-error__btn {
+    display: inline-block;
+    padding: 0.45rem 1.1rem;
+    border: 0;
+    border-radius: 0.5rem;
+    background-color: #047857;
+    color: #fff;
+    font-size: 0.875rem;
+    font-weight: 600;
+    text-decoration: none;
+    cursor: pointer;
+}
+.itik-error__btn:hover { background-color: #065f46; }
+.itik-error__btn--ghost {
+    background: transparent;
+    color: var(--color-gray-700, #374151);
+    border: 1px solid var(--color-gray-300, #d1d5db);
+}
+.itik-error__btn--ghost:hover { background-color: var(--color-gray-100, #f3f4f6); }
+
+/* The wiggle: a short horizontal shake so the error draws the eye. Plays once when the
+   element appears; states.js re-triggers it by re-adding the class. */
+.itik-wiggle { animation: itik-wiggle 0.5s cubic-bezier(0.36, 0.07, 0.19, 0.97) both; }
+@keyframes itik-wiggle {
+    10%, 90% { transform: translateX(-1px); }
+    20%, 80% { transform: translateX(3px); }
+    30%, 50%, 70% { transform: translateX(-6px); }
+    40%, 60% { transform: translateX(6px); }
+}
+
+/* ---------- Offline bar ---------- */
+.itik-offline {
+    position: fixed;
+    left: 50%;
+    bottom: 1rem;
+    z-index: 9998; /* just under the page-transition loader (9999) */
+    width: calc(100% - 2rem);
+    max-width: 36rem;
+    transform: translate(-50%, 1.5rem);
+    opacity: 0;
+    visibility: hidden;
+    display: flex;
+    gap: 0.75rem;
+    padding: 0.8rem 1rem;
+    border: 1px solid #fcd34d;
+    border-radius: 0.75rem;
+    background-color: #fffbeb;
+    color: #78350f;
+    box-shadow: 0 10px 25px -8px rgb(0 0 0 / 0.3);
+    transition: opacity 200ms ease-out, transform 200ms ease-out, visibility 0s linear 200ms;
+}
+.itik-offline.is-active {
+    opacity: 1;
+    visibility: visible;
+    transform: translate(-50%, 0);
+    transition: opacity 200ms ease-out, transform 200ms ease-out, visibility 0s;
+}
+.itik-offline svg { width: 1.5rem; height: 1.5rem; flex: none; margin-top: 0.1rem; }
+.itik-offline__title { margin: 0; font-size: 0.9rem; font-weight: 700; }
+.itik-offline__body { margin: 0.15rem 0 0; font-size: 0.8rem; line-height: 1.35; }
+.itik-offline--back { border-color: #6ee7b7; background-color: #ecfdf5; color: #065f46; }
+html.dark .itik-offline { background-color: #3a2d12; border-color: #7a5a1c; color: #fde68a; }
+html.dark .itik-offline--back { background-color: #13302a; border-color: #1f5446; color: #6ee7b7; }
+/* The wiggle already uses transform; keep the bar's centring while it shakes. */
+.itik-offline.itik-wiggle { animation-name: itik-wiggle-bar; }
+@keyframes itik-wiggle-bar {
+    10%, 90% { transform: translate(calc(-50% - 1px), 0); }
+    20%, 80% { transform: translate(calc(-50% + 3px), 0); }
+    30%, 50%, 70% { transform: translate(calc(-50% - 6px), 0); }
+    40%, 60% { transform: translate(calc(-50% + 6px), 0); }
+}
+
+/* Reduced motion: no shimmer, no wiggle, no slide -- the states still appear. */
+@media (prefers-reduced-motion: reduce) {
+    .itik-skel,
+    .itik-wiggle,
+    .itik-offline.itik-wiggle { animation: none; }
+    .itik-skel-overlay,
+    .itik-skel-overlay.is-active,
+    .itik-offline,
+    .itik-offline.is-active { transition: none; }
+}

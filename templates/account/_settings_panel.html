@@ -62,7 +62,7 @@ back in after a save on the /account/settings/ page (reached from the header ava
         </dl>
     </div>
 
-    <form id="account-edit-form" method="post" action="{% url 'account_settings' %}" enctype="multipart/form-data"
+    <form id="account-edit-form" method="post" action="{% url 'account_settings' %}" enctype="multipart/form-data" data-draft="account-edit"
           class="{% if not account_form.errors %}hidden{% endif %} space-y-5">
         {% csrf_token %}
         {% if account_form.non_field_errors %}

@@ -3,7 +3,11 @@
 Minimal logo page-transition loader. Include once inside <head> on any page that
 should show it (see static/js/duck-loader.js for how it triggers and how to opt an
 element out or customise the message). data-logo hands the JS the resolved logo URL.
-Bump ?v= when either file changes.
+Also loads the shared empty/loading/error/offline states (static/css/states.css,
+static/js/states.js); the data-* strings below are their translated captions.
+Bump ?v= when any of these files change.
 {% endcomment %}
-<link rel="stylesheet" href="{% static 'css/duck-loader.css' %}?v=7">
-<script src="{% static 'js/duck-loader.js' %}?v=7" data-logo="{% static 'images/logo-mark.png' %}" data-default-text="{% translate "Loading…" %}" defer></script>
+<link rel="stylesheet" href="{% static 'css/duck-loader.css' %}?v=8">
+<script src="{% static 'js/duck-loader.js' %}?v=8" data-logo="{% static 'images/logo-mark.png' %}" data-default-text="{% translate "Loading…" %}" defer></script>
+<link rel="stylesheet" href="{% static 'css/states.css' %}?v=1">
+<script src="{% static 'js/states.js' %}?v=1" data-loading-text="{% translate "Loading…" %}" data-offline-title="{% translate "You are offline." %}" data-offline-body="{% translate "What is on screen is the last copy we loaded, so you can keep reading it. Saving, new forecasts and opening other pages need a connection and will work again when you are back online." %}" data-online-text="{% translate "You are back online." %}" defer></script>

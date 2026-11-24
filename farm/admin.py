@@ -2,11 +2,7 @@ from django.contrib import admin
 
 from .models import AUDITED_FIELDS, DailyLog, DailyLogEdit, DailyLogReminder, Flock
 
-# No per-tenant filtering is needed here: only is_staff accounts can reach /admin/ at
-# all (Django's own AdminSite.has_permission), and self-registered farmers never get
-# is_staff (accounts.User.save() only sets is_superuser->role=admin, never is_staff;
-# only createsuperuser grants it). So every farm's Flock/DailyLog being visible here to
-# a staff user is deliberate cross-farm oversight, not a tenant-isolation leak.
+# Only staff can open /admin/, so seeing every farm's data here is deliberate oversight
 
 
 @admin.register(Flock)
@@ -17,11 +13,7 @@ class FlockAdmin(admin.ModelAdmin):
 
 @admin.register(DailyLog)
 class DailyLogAdmin(admin.ModelAdmin):
-    """Mirrors the lock and audit-trail rules farm.views.farm_record_edit/
-    farm_record_delete enforce for farmer-facing edits, so a staff user going
-    through /admin/ instead can't silently bypass either one (see CLAUDE.md:
-    DailyLog edits must always be tracked, and rows already used to train a model
-    are immutable)."""
+    """Same lock and audit-trail rules as the farmer edit view (locked rows are read-only; edits write DailyLogEdit rows)."""
 
     list_display = ("date", "flock", "egg_count", "flock_size", "flock_age_weeks", "recorded_by")
     list_filter = ("flock__owner", "flock")
@@ -61,7 +53,7 @@ class DailyLogAdmin(admin.ModelAdmin):
 
 @admin.register(DailyLogEdit)
 class DailyLogEditAdmin(admin.ModelAdmin):
-    """Read-only in the admin: this is an audit trail, not user-editable data."""
+    """Read-only audit trail."""
 
     list_display = ("daily_log", "field_name", "old_value", "new_value", "changed_by", "changed_at")
 
@@ -77,8 +69,7 @@ class DailyLogEditAdmin(admin.ModelAdmin):
 
 @admin.register(DailyLogReminder)
 class DailyLogReminderAdmin(admin.ModelAdmin):
-    """Read-only in the admin: this is an audit trail of sent reminder emails, not
-    user-editable data (see send_daily_log_reminders management command)."""
+    """Read-only log of sent reminder emails."""
 
     list_display = ("owner", "flock", "reminder_date", "sent_at")
     list_filter = ("owner",)

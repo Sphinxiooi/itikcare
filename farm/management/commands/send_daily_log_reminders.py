@@ -1,15 +1,9 @@
-"""Daily reminder: email any farmer with an active, caged flock who hasn't logged
-today's data yet, and record a DailyLogReminder row so a rerun the same day doesn't
-send a duplicate (see DailyLogReminder's docstring).
+"""Daily reminder email for farmers with an active, caged flock and no log today.
 
-Meant to run once a day, unattended, via the systemd timer in deploy/
-(itikcare-reminders.timer/.service) -- not invoked by any farmer-facing code path.
-The in-app half of this reminder (a banner on the dashboard) needs no command at
-all: it's computed live from the same DailyLog/Flock state every time the dashboard
-is loaded, so it can never fall out of sync with what's actually true.
+Records a DailyLogReminder so a rerun the same day doesn't send duplicates. Meant to run once a day
+from a timer (deploy/).
 
-Run as:
-    python manage.py send_daily_log_reminders
+Usage: python manage.py send_daily_log_reminders
 """
 
 import logging
@@ -33,14 +27,10 @@ class Command(BaseCommand):
     help = "Email + record a reminder for every farmer with an active, caged flock who hasn't logged today's data yet."
 
     def handle(self, *args, **options):
-        # operational_today() is the single source of truth for "today" here (see
-        # farm.services.operational_today), matching what the dashboard/forms use.
+        # Today's farm date
         today = operational_today()
 
-        # Flock.owner has no direct is_active filter of its own -- get_active_flock
-        # (farm/services.py) is the single source of truth for "which flock, if any,
-        # is this owner's current one", same helper the dashboard/farm views already
-        # use, so this command can't drift from what a farmer actually sees as active.
+        # Owners with an active flock (the active flock itself comes from get_active_flock)
         owner_ids = (
             Flock.objects.filter(is_active=True).values_list("owner_id", flat=True).distinct()
         )
@@ -54,17 +44,14 @@ class Command(BaseCommand):
             if DailyLog.objects.filter(flock=active_flock, date=today).exists():
                 continue
             if DailyLogReminder.objects.filter(owner=owner, reminder_date=today).exists():
-                # Already reminded today -- a rerun of this command shouldn't
-                # double-email the same farmer.
+                # Already reminded today
                 skipped_count += 1
                 continue
 
             try:
                 self._send_reminder_email(owner, active_flock)
             except Exception:
-                # One bad address/SMTP hiccup shouldn't stop the run for every other
-                # farmer -- same posture as accounts.views.request_reset_code's own
-                # password-reset email send.
+                # One failed send shouldn't stop the run
                 logger.exception("Failed to send daily-log reminder to owner_id=%s", owner.pk)
                 continue
 
@@ -79,8 +66,7 @@ class Command(BaseCommand):
         subject = "".join(
             render_to_string("farm/daily_log_reminder_subject.txt").splitlines()
         )
-        # No request here (this runs from a timer), so the button's absolute URL is
-        # built from settings.SITE_URL; if that's unset the email simply omits it.
+        # No request here, so the link comes from settings.SITE_URL (omitted if unset)
         log_url = f"{settings.SITE_URL}{reverse('log_daily_data')}" if settings.SITE_URL else ""
         context = {"user": owner, "flock": flock, "log_url": log_url}
         send_mail(

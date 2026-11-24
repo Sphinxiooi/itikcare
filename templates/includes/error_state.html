@@ -1,0 +1,25 @@
+{% load itik_icons %}
+{% comment %}
+Error state: what went wrong, whose fault it is, how to fix it -- and a wiggle so it
+draws the eye (static/css/states.css; client-side twin: ItikStates.renderError).
+Usage:
+  {% include 'includes/error_state.html' with title=_("...") what=_("...") whose=_("...") fix=_("...") %}
+Optional: action_url + action_label for one button (e.g. "Try again", "Back to ItikCare").
+{% endcomment %}
+{% load i18n %}
+<div class="itik-error itik-wiggle" role="alert">
+    <div class="itik-error__head">
+        {% icon "alert-triangle" "w-6 h-6" %}
+        <h1 class="itik-error__title">{{ title }}</h1>
+    </div>
+    <dl class="itik-error__rows">
+        <div><dt>{% translate "What went wrong" %}</dt><dd>{{ what }}</dd></div>
+        <div><dt>{% translate "Whose fault" %}</dt><dd>{{ whose }}</dd></div>
+        <div><dt>{% translate "How to fix it" %}</dt><dd>{{ fix }}</dd></div>
+    </dl>
+    {% if action_url and action_label %}
+    <div class="itik-error__actions">
+        <a href="{{ action_url }}" class="itik-error__btn">{{ action_label }}</a>
+    </div>
+    {% endif %}
+</div>

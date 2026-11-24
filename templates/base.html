@@ -1,6 +1,6 @@
 {% load static %}
 {% load i18n %}
-{% load itik_icons %}
+{% load itik_icons itik_feedback %}
 <!DOCTYPE html>
 <html lang="{{ LANGUAGE_CODE|default:'en' }}">
 <head>
@@ -10,6 +10,7 @@
     <title>{% block title %}ItikCare{% endblock %}</title>
     <link rel="stylesheet" href="{% static 'dist/output.css' %}{% if not use_hashed_static %}?v={% now 'U' %}{% endif %}">
     {% include 'includes/duck_loader.html' %}
+    {% include 'includes/feedback_assets.html' %}
     <style>
         /* Subtle page-load entrance so navigating between pages doesn't feel like
            a hard cut -- header/sidebar stay put (they're fixed chrome shared
@@ -203,6 +204,7 @@
                       data-confirm-title="{% translate "Log out of ItikCare?" %}"
                       data-confirm-label="{% translate "Log out" %}"
                       data-confirm-danger="true"
+                      data-clear-drafts="1"
                       data-loader-text="{% translate "Signing you out…" %}">
                     {% csrf_token %}
                     <button type="submit"
@@ -220,18 +222,44 @@
             </div>
         </aside>
 
-        <main class="min-w-0 min-h-[calc(100vh-3.5rem)] p-6 lg:p-8 md:ml-64 mt-14">
+        <main data-skeleton-host class="min-w-0 min-h-[calc(100vh-3.5rem)] p-6 lg:p-8 md:ml-64 mt-14">
             {% if messages %}
-            <div class="space-y-2 mb-6">
-                {% for message in messages %}
+            <div class="space-y-3 mb-6">
+                {% comment %}
+                Success first, as a card: check mark, what was saved, and (when the view
+                gave any, see itikcare/feedback.py) a short "what happens next" list.
+                Other notices (forecast caveats, warm-up progress...) follow underneath.
+                {% endcomment %}
+                {% for message in messages %}{% if message.level_tag == 'success' %}
+                {% with lines=message.message|message_lines %}
+                <div class="itik-success" role="status" aria-live="polite">
+                    <svg class="itik-success__icon" viewBox="0 0 36 36" aria-hidden="true">
+                        <circle class="itik-success__ring" cx="18" cy="18" r="18"/>
+                        <path class="itik-success__tick" d="M10.5 18.5l5.5 5.5L26 12.5"/>
+                    </svg>
+                    <div>
+                        <p class="itik-success__title">{{ lines.0 }}</p>
+                        {% if lines|length > 1 %}
+                        <p class="itik-success__next-label">{% translate "What happens next" %}</p>
+                        <ul class="itik-success__next">
+                            {% for step in lines|slice:"1:" %}<li>{{ step }}</li>{% endfor %}
+                        </ul>
+                        {% endif %}
+                    </div>
+                    <button type="button" class="itik-success__close" aria-label="{% translate "Dismiss" %}">&times;</button>
+                </div>
+                {% endwith %}
+                {% endif %}{% endfor %}
+                {% for message in messages %}{% if message.level_tag != 'success' %}
                 <div class="text-sm rounded-md px-4 py-2.5
-                    {% if message.tags == 'error' %}bg-red-50 text-red-800 border border-red-200
-                    {% elif message.tags == 'warning' %}bg-amber-50 text-amber-800 border border-amber-200
-                    {% elif message.tags == 'info' %}bg-sky-50 text-sky-800 border border-sky-200
-                    {% else %}bg-emerald-50 text-emerald-800 border border-emerald-200{% endif %}">
+                    {% if message.level_tag == 'error' %}bg-red-50 text-red-800 border border-red-200
+                    {% elif message.level_tag == 'warning' %}bg-amber-50 text-amber-800 border border-amber-200
+                    {% elif message.level_tag == 'info' %}bg-sky-50 text-sky-800 border border-sky-200
+                    {% else %}bg-emerald-50 text-emerald-800 border border-emerald-200{% endif %}"
+                    {% if message.level_tag == 'error' %}role="alert"{% endif %}>
                     {{ message }}
                 </div>
-                {% endfor %}
+                {% endif %}{% endfor %}
             </div>
             {% endif %}
             {% block content %}{% endblock %}
@@ -350,6 +378,11 @@
                     }
                     // .submit() bypasses the "submit" event entirely, so this does not
                     // re-trigger the listener above and loop.
+                    // A deliberate logout (unlike an expired session) wipes unsaved drafts
+                    // from this device -- the next person on a shared phone shouldn't see them.
+                    if (formToSubmit.dataset.clearDrafts && window.ItikFeedback) {
+                        window.ItikFeedback.clearUserDrafts();
+                    }
                     formToSubmit.submit();
                 });
                 confirmCancelBtn.addEventListener("click", closeConfirmModal);
@@ -500,15 +533,34 @@
                     headers: { "X-Requested-With": "XMLHttpRequest" },
                 })
                     .then(function (response) {
+                        // An expired session makes fetch follow the redirect to the login
+                        // page and "succeed" -- swapping that page into the form would be
+                        // a mess. Treat it as an expiry: the typed values are already
+                        // saved as a draft by static/js/itik-feedback.js.
+                        if (response.redirected && response.url.indexOf("{% url 'login' %}") !== -1) {
+                            var expired = new Error("session expired");
+                            expired.sessionExpired = true;
+                            throw expired;
+                        }
                         if (!response.ok) {
                             throw new Error("Account settings save failed");
                         }
                         return response.text();
                     })
                     .then(function (html) {
+                        var banner0 = /id="account-saved-banner"/.test(html);
+                        if (banner0 && window.ItikFeedback) {
+                            // Saved for real: the draft has done its job.
+                            window.ItikFeedback.clearDraft(form);
+                        }
                         container.outerHTML = html;
                         if (window.ItikDuckLoader) {
                             window.ItikDuckLoader.hide();
+                        }
+                        if (window.ItikFeedback) {
+                            // Re-run field validation styling on the swapped-in form (server errors).
+                            var flagged = window.ItikFeedback.scan(document.getElementById("account-settings-content"));
+                            if (flagged.length) { flagged[0].focus(); }
                         }
                         var banner = document.getElementById("account-saved-banner");
                         if (!banner) {
@@ -525,7 +577,13 @@
                             });
                         }, 1800);
                     })
-                    .catch(function () {
+                    .catch(function (error) {
+                        if (error && error.sessionExpired) {
+                            if (window.ItikDuckLoader) { window.ItikDuckLoader.hide(); }
+                            if (submitBtn) { submitBtn.disabled = false; }
+                            if (window.ItikFeedback) { window.ItikFeedback.sessionExpired(); }
+                            return;
+                        }
                         form.submit();
                     });
             }, true);

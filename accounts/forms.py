@@ -33,13 +33,7 @@ LIBMANAN_SUFFIX = ", Libmanan, Camarines Sur, Philippines"
 
 
 def barangay_choice_field(label=_("Farm address")):
-    """The barangay dropdown shared by SignupForm and AccountSettingsForm below --
-    every farmer in this single-farm-context app is in Libmanan, so restricting to a
-    fixed choice list (rather than trusting typed text) guarantees every address is
-    both in-bounds and spelled consistently. Pair with expand_barangay_address()/
-    barangay_from_address() to convert to/from the full string actually stored on
-    User.address.
-    """
+    """Barangay dropdown shared by signup and account settings (Libmanan only)."""
     return forms.ChoiceField(
         choices=[("", _("Select your barangay"))] + [(b, b) for b in BARANGAYS],
         label=label,
@@ -47,33 +41,19 @@ def barangay_choice_field(label=_("Farm address")):
 
 
 def expand_barangay_address(barangay):
-    """Turn a picked barangay into the full string actually geocoded and stored on
-    User.address -- see barangay_choice_field's docstring."""
+    """Turn a picked barangay into the full address stored on User.address."""
     return f"{barangay}{LIBMANAN_SUFFIX}"
 
 
 def barangay_from_address(address):
-    """Inverse of expand_barangay_address: recover the bare barangay name from a
-    stored User.address string, so a form editing an existing user can pre-select the
-    right dropdown option instead of showing "Select your barangay" every time."""
+    """Recover the barangay name from a stored address (empty if it doesn't match)."""
     if address and address.endswith(LIBMANAN_SUFFIX):
         return address[: -len(LIBMANAN_SUFFIX)]
     return ""
 
 
 class StyledAuthenticationForm(AuthenticationForm):
-    """AuthenticationForm with Tailwind classes on its widgets, plus a relaxed login
-    identifier: accounts.auth_backends.UsernameEmailOrFullNameBackend accepts a full
-    name, a first name, an email, a mobile number, or a username in the "username"
-    field's value -- all case-insensitive. A name that matches more than one account
-    can't be resolved there (names aren't unique) -- it's treated as a plain failed
-    login by that backend. This override runs the same lookup first so that specific
-    case gets its own, more useful error message instead of the generic "didn't
-    match" one.
-
-    Django's built-in LoginView doesn't add CSS classes to its fields, so this is a
-    thin subclass rather than hand-rendering the whole form field by field.
-    """
+    """Login form with Tailwind classes and a clear error for names that match several accounts."""
 
     error_messages = {
         **AuthenticationForm.error_messages,
@@ -104,14 +84,7 @@ class StyledAuthenticationForm(AuthenticationForm):
 
 
 class AccountLookupForm(forms.Form):
-    """Step 1 of the password-reset flow (accounts/views.py's request_reset_code): the
-    same "name, email, or phone number" the login form accepts, resolved through the
-    same lookup (accounts.auth_backends.find_user_by_login_identifier). Signup no
-    longer asks for a username (it's generated -- see SignupForm), so asking for one
-    here would lock newer farmers out of self-service reset.
-
-    The field is still named "username" so the reset form template and any bookmarked
-    POSTs keep working unchanged."""
+    """Password reset step 1: name, email or phone number (field kept named "username")."""
 
     username = forms.CharField(
         label=_("Name, email, or phone number"),
@@ -120,11 +93,7 @@ class AccountLookupForm(forms.Form):
 
 
 class VerifyResetCodeForm(SetPasswordForm):
-    """Step 2 of the password-reset flow (accounts/views.py's verify_reset_code):
-    SetPasswordForm's new_password1/new_password2 (with Django's usual password
-    validators) plus the 6-digit code emailed in step 1. The code itself is checked
-    against the stored PasswordResetCode by the view, not here — this form only
-    validates that it looks like a 6-digit code and that the new password is valid."""
+    """Password reset step 2: new password plus the emailed 6-digit code (code is checked in the view)."""
 
     code = forms.CharField(
         label=_("Verification code"),
@@ -150,11 +119,7 @@ class VerifyResetCodeForm(SetPasswordForm):
 
 
 def _check_email_available(email, exclude_pk=None):
-    """Shared by SignupForm and AccountSettingsForm: an email must belong to at most one
-    account (it's a login identifier -- accounts/auth_backends.py -- and two accounts
-    sharing one would make that login ambiguous), and its domain must be able to
-    receive mail (accounts.contact.email_domain_accepts_mail), which catches typos like
-    "gmial.com" before they're saved."""
+    """Email must be unused and its domain able to receive mail."""
     already_taken = User.objects.filter(email__iexact=email).exclude(pk=exclude_pk).exists()
     if already_taken:
         raise forms.ValidationError(_("That email is already in use by another account."))
@@ -166,53 +131,13 @@ def _check_email_available(email, exclude_pk=None):
 
 
 def _check_phone_available(phone, exclude_pk=None):
-    """Same idea as _check_email_available, for the mobile number (also a login
-    identifier). The DB unique constraint on User.phone_number is the real guarantee;
-    this just turns a clash into a readable form error instead of an IntegrityError."""
+    """Mobile number must not belong to another account."""
     if User.objects.filter(phone_number=phone).exclude(pk=exclude_pk).exists():
         raise forms.ValidationError(_("That mobile number is already in use by another account."))
 
 
 class SignupForm(UserCreationForm):
-    """Self-service farmer signup.
-
-    Asks for a full name, not a username: farmers forget usernames, but not their own
-    name. save() generates the username behind the scenes
-    (accounts.contact.generate_unique_username), and login accepts the full name, first
-    name, email, or phone number instead (accounts/auth_backends.py). The full name is
-    split into first_name (first word) and last_name (the rest); a farmer can fix the
-    split later in Account Settings, and login matching doesn't depend on it.
-
-    "Email or phone number" is ONE field (`contact`) that accepts either, sorted into
-    User.email or User.phone_number by accounts.contact.split_contact. It may be left
-    blank -- signup keeps its low barrier, and User.missing_profile_items lets the
-    notification bell remind the farmer to add one later. An email is checked for
-    uniqueness and that its domain can receive mail (_check_email_available); there is
-    no emailed code at signup -- the 6-digit code is only used for password reset.
-
-    privacy_consent is required: the app collects personal information (name,
-    contact, location, farm records), so the Data Privacy Act of 2012 (RA 10173) needs
-    the farmer's informed consent. accounts.views.signup stamps
-    User.privacy_consented_at when it saves the account.
-
-    role/is_foundation_farmer are both deliberately left untouched here: User.role
-    already defaults to Role.FARMER, and this form never sets is_superuser, so
-    User.save()'s auto-promote-to-admin branch never fires for a self-registered
-    account. There is exactly one foundation farmer (accounts.User.is_foundation_farmer,
-    a one-time data migration), never assigned through signup.
-
-    address is a required dropdown of Libmanan barangays (accounts.libmanan_barangays.
-    BARANGAYS), not free text — every farmer in this single-farm-context app is in
-    Libmanan, so restricting to a fixed choice list (rather than trusting typed text)
-    guarantees every address is both in-bounds and spelled consistently. clean_address
-    below expands the picked barangay into a full "<Barangay>, Libmanan, Camarines Sur,
-    Philippines" string before it's saved, since that's what actually gets geocoded.
-    accounts.views.signup geocodes it into User.latitude/longitude via
-    farm.weather.geocode_address so weather prefill in farm/weather.py can use the
-    farmer's own coordinates instead of always falling back to the global
-    FARM_LATITUDE/FARM_LONGITUDE settings. An unresolvable address still never blocks
-    signup — it just leaves latitude/longitude unset.
-    """
+    """Farmer signup: full name, optional email/phone, barangay, password and privacy consent."""
 
     full_name = forms.CharField(label=_("Full name"), max_length=150)
     contact = forms.CharField(label=_("Email or phone number"), max_length=254, required=False)
@@ -244,7 +169,7 @@ class SignupForm(UserCreationForm):
         )
 
     def clean_full_name(self):
-        # Collapse repeated spaces so "Juan  Dela Cruz" is stored the way it'll be typed.
+        # Collapse repeated spaces
         full_name = " ".join(self.cleaned_data["full_name"].split())
         if not full_name:
             raise forms.ValidationError(_("Enter your full name."))
@@ -256,7 +181,7 @@ class SignupForm(UserCreationForm):
             _check_email_available(email)
         if phone:
             _check_phone_available(phone)
-        # Stashed for _post_clean() -- `contact` itself isn't a model field.
+        # Stashed for _post_clean (contact is not a model field)
         self.contact_email, self.contact_phone = email, phone
         return email or phone or ""
 
@@ -264,9 +189,7 @@ class SignupForm(UserCreationForm):
         return expand_barangay_address(self.cleaned_data["address"])
 
     def _post_clean(self):
-        # Copy the non-model fields onto the instance *before* UserCreationForm's own
-        # _post_clean runs its password validation, so UserAttributeSimilarityValidator
-        # ("password too similar to your name/email") actually sees them.
+        # Copy name/contact onto the instance before password validation runs
         first_name, _, last_name = self.cleaned_data.get("full_name", "").partition(" ")
         self.instance.first_name = first_name
         self.instance.last_name = last_name
@@ -283,25 +206,7 @@ class SignupForm(UserCreationForm):
 
 
 class AccountSettingsForm(forms.ModelForm):
-    """Lets a logged-in farmer edit their own personal data from Account Settings
-    (accounts/views.py's account_settings) -- name, username, email, mobile number,
-    farm address, and profile picture. Reused unchanged as the "finish setting up your
-    account" form a brand-new Google sign-in is redirected to (accounts/views.py's
-    google_callback), since a Google account is created with no name/address at all.
-
-    Email and mobile number are separate fields here (signup has one combined field),
-    so a farmer who gave only one at signup can add the other later. Both run the same
-    checks as signup (_check_email_available / _check_phone_available); neither is
-    required, matching signup.
-
-    address works the same "dropdown in, full string out" way as SignupForm above
-    (see barangay_choice_field's docstring) -- __init__ additionally reverses that on
-    the way *in*, via barangay_from_address, so editing an existing user shows their
-    current barangay selected instead of the placeholder every time.
-
-    username keeps the model's own unique=True validation for free (ModelForm already
-    excludes `instance` from that check).
-    """
+    """Personal-data settings form (also used to finish setting up a new Google account)."""
 
     class Meta:
         model = User
@@ -312,10 +217,7 @@ class AccountSettingsForm(forms.ModelForm):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.fields["address"] = barangay_choice_field()
-        # ModelForm.__init__ already populated self.initial["address"] from the
-        # instance's full stored address string (via model_to_dict) -- that dict entry
-        # takes priority over field.initial when the form is unbound, so the override
-        # has to land there too, not just on the field.
+        # Pre-select the saved barangay in the dropdown
         self.initial["address"] = barangay_from_address(self.instance.address)
         self.fields["address"].required = False
         self.fields["first_name"].required = False
@@ -336,9 +238,7 @@ class AccountSettingsForm(forms.ModelForm):
     def clean_email(self):
         email = self.cleaned_data["email"].strip().lower()
         if email and email != (self.instance.email or "").lower():
-            # Only re-check an email that actually changed -- an existing address
-            # shouldn't start failing the DNS check just because the farmer edited
-            # their name.
+            # Re-check the email only if it changed
             _check_email_available(email, exclude_pk=self.instance.pk)
         return email
 
@@ -358,16 +258,7 @@ class AccountSettingsForm(forms.ModelForm):
 
 
 class AccountDeletionForm(forms.Form):
-    """Confirms self-service account deletion (accounts/views.py's delete_account)
-    before it proceeds. Some accounts have no local password at all -- a Google-only
-    sign-in gets User.set_unusable_password() (see google_callback) -- so "confirm with
-    your password" isn't always possible. This form picks the strongest confirmation
-    the account actually supports: the current password when there is one, otherwise
-    typing the username, rather than offering both as if either always worked.
-
-    confirmation_mode is exposed for the template to label the single field correctly
-    ("Current password" vs "Type your username to confirm").
-    """
+    """Confirms account deletion by password, or by typing the username when no password is set."""
 
     confirmation = forms.CharField(label=_("Confirm"), widget=forms.PasswordInput)
 

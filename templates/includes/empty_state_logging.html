@@ -1,0 +1,23 @@
+{% load i18n %}
+{% comment %}
+Empty state for anything that fills up once the farmer starts logging (records, trend
+chart, forecasts, recommendations). The next step depends on where the farmer is:
+  no flock yet      -> register one
+  flock in the field -> open the flock profile (daily logging is paused until it is caged)
+  otherwise         -> log today's data
+Needs `active_flock` and `flock_is_caged` in the page context; pass icon, title and why
+(the "why" shown in the normal case) like includes/empty_state.html. compact is optional.
+{% endcomment %}
+{% if not active_flock %}
+{% url 'flock_profile' as next_url %}
+{% translate "Register a flock" as next_label %}
+{% translate "Every record, forecast and recommendation belongs to a flock, and you have not registered one yet." as why_text %}
+{% elif not flock_is_caged %}
+{% url 'flock_profile' as next_url %}
+{% translate "Open flock profile" as next_label %}
+{% translate "Your flock is marked as free-range, so daily logging is paused. Mark it as caged to start logging again." as why_text %}
+{% else %}
+{% url 'log_daily_data' as next_url %}
+{% translate "Log daily data" as next_label %}
+{% endif %}
+{% include "includes/empty_state.html" with icon=icon title=title why=why_text|default:why action_url=next_url action_label=next_label compact=compact %}

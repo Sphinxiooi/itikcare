@@ -1,16 +1,6 @@
-"""Email backend that sends through Brevo's HTTPS API instead of SMTP.
+"""Email backend that sends through Brevo's HTTPS API (for hosts that block outbound SMTP).
 
-Why this exists: Railway blocks outbound SMTP on its non-Pro plans, so the stock SMTP
-backend can't reach Gmail/any mail server from there. An HTTPS call to an email
-provider's API isn't blocked. Brevo has a free tier (~300 emails/day), more than one
-farm needs for password-reset codes and the daily log reminder.
-
-Django's `send_mail` / `EmailMessage` API is unchanged: callers (accounts.views,
-send_daily_log_reminders) don't know or care which backend delivers the message, and the
-message a farmer receives is the same one the console backend prints on localhost.
-
-Selected in settings.py when BREVO_API_KEY is set. The From address (DEFAULT_FROM_EMAIL)
-must be a sender you have verified in your Brevo account, or Brevo rejects the request.
+Selected when BREVO_API_KEY is set; DEFAULT_FROM_EMAIL must be a sender verified in Brevo.
 """
 
 import base64
@@ -29,11 +19,11 @@ REQUEST_TIMEOUT_SECONDS = 15
 
 
 class BrevoAPIError(Exception):
-    """Brevo answered with a non-2xx status (bad key, unverified sender, invalid address...)."""
+    """Brevo returned a non-2xx status."""
 
 
 def _address(raw):
-    """'Name <a@b.com>' or 'a@b.com' -> Brevo's {"email": ..., "name": ...} (name optional)."""
+    """'Name <a@b.com>' or 'a@b.com' -> Brevo's {"email", "name"} dict."""
     name, email = parseaddr(raw)
     entry = {"email": email}
     if name:
@@ -47,7 +37,7 @@ def _addresses(raw_list):
 
 
 class BrevoEmailBackend(BaseEmailBackend):
-    """Sends each EmailMessage as one POST to Brevo's transactional-email endpoint."""
+    """Sends each EmailMessage as one POST to Brevo."""
 
     def __init__(self, api_key=None, fail_silently=False, **kwargs):
         super().__init__(fail_silently=fail_silently, **kwargs)
@@ -56,8 +46,7 @@ class BrevoEmailBackend(BaseEmailBackend):
             raise ImproperlyConfigured("BrevoEmailBackend needs BREVO_API_KEY to be set.")
 
     def send_messages(self, email_messages):
-        """Returns how many messages were sent. Like Django's SMTP backend, an error
-        propagates unless fail_silently=True (callers here catch and log it themselves)."""
+        """Return the number sent; errors propagate unless fail_silently=True."""
         sent = 0
         for message in email_messages:
             try:
@@ -85,11 +74,10 @@ class BrevoEmailBackend(BaseEmailBackend):
         if message.bcc:
             payload["bcc"] = _addresses(message.bcc)
         if message.reply_to:
-            # Brevo accepts a single reply-to address.
+            # Brevo accepts a single reply-to address
             payload["replyTo"] = _address(message.reply_to[0])
 
-        # Body: send_mail() without html_message is text/plain; EmailMultiAlternatives may
-        # add a text/html alternative; an EmailMessage with content_subtype="html" is HTML.
+        # Body: plain text, with an HTML alternative or HTML-only message
         if message.content_subtype == "html":
             payload["htmlContent"] = message.body
         else:
@@ -125,6 +113,5 @@ class BrevoEmailBackend(BaseEmailBackend):
             timeout=REQUEST_TIMEOUT_SECONDS,
         )
         if not 200 <= response.status_code < 300:
-            # Brevo's error body ("message" field) explains the cause; the api-key header
-            # is never logged or included here.
+            # Include Brevo's error text (never the api-key)
             raise BrevoAPIError(f"Brevo API returned {response.status_code}: {response.text[:300]}")
