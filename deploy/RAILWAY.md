@@ -25,19 +25,32 @@ cron behaviour. Those are covered by the checklist at the bottom.
   (`static/dist/output.css` is committed on purpose, Railway has no Tailwind binary.)
 - Run the full suite: `python manage.py test --keepdb`.
 - Commit **all** new files: migrations (`farm/migrations/0012_*`,
-  `recommendations/migrations/0003_*`), `static/images/*`, `railway.toml`,
+  `recommendations/migrations/0003_*`), `static/images/*`,
   `.python-version`, `deploy/`, `accounts/ratelimit.py`, `accounts/templatetags/`.
 - Do **not** commit `.env` or `deploy/farm_data.json` (both gitignored).
 
 ## 2. Create the project **(Railway UI)**
 
-1. New Project → Deploy from GitHub repo → this repo. That creates the web service and
-   reads `railway.toml` (start command: migrate → createcachetable → collectstatic →
-   gunicorn).
+1. New Project → Deploy from GitHub repo → this repo. That creates the web service. In
+   its Settings → Deploy, set (see "Service settings" below):
+   - Custom start command (one line):
+     `sh -c 'python manage.py migrate --noinput && python manage.py createcachetable && python manage.py collectstatic --noinput && exec gunicorn -c deploy/gunicorn_conf.py itikcare.wsgi:application'`
+   - Restart policy: On Failure, 5 retries.
 2. Add → Database → PostgreSQL.
 3. Web service → Settings → Volumes → add a volume mounted at `/data`.
 4. Web service → Settings → Networking → Generate Domain. Region: Singapore, for both
    the service and the database if the option is offered.
+
+### Service settings
+
+Start commands, restart policy and the cron schedule live in each service's settings on
+Railway, not in a repo file. (`railway.toml` was removed on 2026-11-25 because Railway
+stops reading those files on 2026-12-01.)
+
+The web start command runs in this order: schema migrations, the rate-limit cache table,
+static files, then gunicorn. It runs in the *running* container (not a separate
+pre-deploy one), so `collectstatic`'s output and the mounted volume are exactly what
+gunicorn then serves. The three prep steps are idempotent, so a restart is safe.
 
 ## 3. Web service variables
 
@@ -131,13 +144,13 @@ tri-day MAE 6.79%/RMSE 8.33%/R² 0.903 — comfortable margin on all four thresh
 
 No `railway ssh`? Temporarily set the web service's start command to
 `sh -c 'python manage.py train_forecast_model --owner-id 2 --strict && python manage.py train_forecast_model --owner-id 3 --strict'`
-(one deploy), then remove the override so `railway.toml` applies again.
+(one deploy), then put the normal start command (section 2) back.
 
 ## 6. Daily reminder cron service
 
 1. Add another service from the same repo.
-2. Settings → Config file path → `/deploy/railway-cron.toml` (runs
-   `send_daily_log_reminders` at 09:00 UTC = 17:00 Manila).
+2. Settings → Deploy: custom start command `python manage.py send_daily_log_reminders`,
+   cron schedule `0 9 * * *` (09:00 UTC = 17:00 Manila, no DST), restart policy Never.
 3. Give it the same variables as the web service (copy them, or use shared variables).
    It needs no volume and no domain.
 

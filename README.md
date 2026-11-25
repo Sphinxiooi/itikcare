@@ -103,8 +103,8 @@ prototype in `prototype/`.
 
 ## Deployment
 
-**Railway:** follow `deploy/RAILWAY.md` (config: `railway.toml`,
-`deploy/railway-cron.toml`). `static/dist/output.css` is committed so the Railway
+**Railway:** follow `deploy/RAILWAY.md` (start commands and the cron schedule are set
+in each service's settings on Railway). `static/dist/output.css` is committed so the Railway
 build needs no Tailwind binary — rebuild it with the `--minify` command above
 before deploying any template/CSS change.
 
