@@ -1,0 +1,281 @@
+<meta charset="utf-8">
+<meta name="claude:viewport-fit-sides" content="cover">
+<title>Hybrid Gap Filling</title>
+<style>
+/* Layout: one reading column; charts and tables inside it, wide tables scroll on their own. */
+:root{--bg:#f7f8f6;--surface:#fcfcfb;--fg:#16201d;--soft:#55605c;--line:#dde2de;--accent:#17695a;
+  --real:#2a78d6;--fill:#eb6834;--muted:#9a9994;--good:#0b6b2e;--warn:#8a5300;
+  --head:'Source Serif 4',Georgia,serif;--body:'Source Sans 3',system-ui,sans-serif}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#121615;--surface:#1a1f1d;--fg:#ebefed;--soft:#b3bdb9;--line:#2f3835;--accent:#63c2ac;--real:#3987e5;--fill:#d95926;--muted:#7d7c77;--good:#6fd08c;--warn:#f0b357;color-scheme:dark}}
+:root[data-theme="dark"]{--bg:#121615;--surface:#1a1f1d;--fg:#ebefed;--soft:#b3bdb9;--line:#2f3835;--accent:#63c2ac;--real:#3987e5;--fill:#d95926;--muted:#7d7c77;--good:#6fd08c;--warn:#f0b357;color-scheme:dark}
+body{background:var(--bg);color:var(--fg);font:16px/1.6 var(--body)}
+main{max-width:880px;margin:0 auto;padding-block:32px 64px;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px))}
+h1,h2,h3{font-family:var(--head);line-height:1.25;text-wrap:balance}
+h1{font-size:2rem;margin:0 0 6px}
+h2{font-size:1.4rem;margin:44px 0 8px;padding-top:16px;border-top:1px solid var(--line)}
+h3{font-size:1.05rem;margin:22px 0 6px}
+p,li{max-width:70ch}
+.sub{color:var(--soft);margin:0}
+.status{border:2px solid var(--warn);border-radius:6px;padding:10px 14px;margin:18px 0}
+.status b{color:var(--warn)}
+.scroll{overflow-x:auto;margin:10px 0}
+table{border-collapse:collapse;width:100%;font-size:.9rem;font-variant-numeric:tabular-nums;background:var(--surface)}
+th,td{border:1px solid var(--line);padding:6px 9px;text-align:left;vertical-align:top}
+th{font-weight:600}
+.pass{color:var(--good);font-weight:600;white-space:nowrap}
+.fail,.invalid{color:var(--warn);font-weight:600;white-space:nowrap}
+.card{background:var(--surface);border:1px solid var(--line);border-radius:6px;padding:12px;margin:12px 0;min-width:0}
+.card h4{margin:0 0 6px;font-size:.95rem}
+.legend{display:flex;flex-wrap:wrap;gap:14px;font-size:.85rem;color:var(--soft);margin-bottom:4px}
+.legend i{display:inline-block;width:14px;height:4px;vertical-align:middle;margin-right:5px}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,360px),1fr));gap:12px}
+.grid .card{margin:0}
+.bar{display:grid;grid-template-columns:minmax(0,38%) minmax(0,1fr) 56px;gap:8px;align-items:center;font-size:.82rem;margin:5px 0}
+.track{position:relative;height:15px}
+.track span{position:absolute;inset:0 auto 0 0;border-radius:0 4px 4px 0}
+.track em{position:absolute;top:-3px;bottom:-3px;border-left:2px dashed var(--fg)}
+.num{text-align:right;font-variant-numeric:tabular-nums}
+svg{display:block;width:100%;overflow:visible}
+svg text{fill:var(--soft);font:11px var(--body)}
+.tip{font-size:.82rem;color:var(--soft);min-height:1.5em;font-variant-numeric:tabular-nums}
+blockquote{margin:10px 0;padding:12px 16px;background:var(--surface);border:1px solid var(--line);border-radius:6px}
+code,pre{font-family:ui-monospace,Consolas,monospace;font-size:.85rem}
+pre{background:var(--surface);border:1px solid var(--line);padding:10px;overflow-x:auto}
+a{color:var(--accent)}
+</style>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Source+Sans+3:wght@400;600&family=Source+Serif+4:wght@600&display=swap">
+
+<main>
+<h1>Hybrid Gap Filling</h1>
+<p class="sub">ItikCare egg-yield forecasting. Change record, training parameters and test results.</p>
+<div class="status"><b>Status: tested in a dry run only.</b> The ItikCare system and its database are unchanged. Applying this change needs adviser approval.</div>
+
+<h2>1. Summary</h2>
+<ul>
+<li>The panel asked for a daily dataset without gaps. We filled three of the four gaps (192 days) with a hybrid method.</li>
+<li>The hybrid model <b>passes all four forecasting thresholds</b> for daily and tri-day yield.</li>
+<li>On the full test set it is <b>slightly less accurate</b> than the model trained on real data only.</li>
+<li><b>Check the source data before submitting.</b> Some egg counts form straight lines that look estimated, including 42 of the 97 test days. See section 9.</li>
+<li>The simple rule "same as yesterday" is more accurate than both models.</li>
+<li>One gap stays empty because the flock was replaced during it.</li>
+</ul>
+<div class="scroll"><table id="summary"></table></div>
+
+<h2>2. What changed</h2>
+<div class="scroll"><table>
+<tr><th>Item</th><th>Before (real data only)</th><th>After (hybrid fill)</th></tr>
+<tr><td>Days in the dataset</td><td>666 observed</td><td>858 (666 observed + 192 synthetic, 22.4%)</td></tr>
+<tr><td>Continuous segments</td><td>5 caging periods</td><td>2 series, one per flock generation</td></tr>
+<tr><td>Daily training / test rows</td><td>554 / 97</td><td>755 / 97</td></tr>
+<tr><td>Tri-day training / test rows</td><td>544 / 97</td><td>745 / 97</td></tr>
+<tr><td>Model inputs and target</td><td colspan="2">Unchanged: 5 daily inputs, lag1 and roll3; predicts egg yield</td></tr>
+</table></div>
+<p>Training rows rise by 201: the 192 filled days, plus 9 real days at the start of periods 2, 4 and 5 that now have a 3-day history.</p>
+<div class="scroll"><table>
+<tr><th>Gap</th><th>Empty dates</th><th>Days</th><th>Action</th></tr>
+<tr><td>1</td><td>2024-06-18 to 2024-08-03</td><td>47</td><td>Filled</td></tr>
+<tr><td>2</td><td>2024-10-29 to 2025-02-08</td><td>103</td><td><b>Left empty.</b> The old flock was retired and a younger flock brought in.</td></tr>
+<tr><td>3</td><td>2025-07-09 to 2025-08-19</td><td>42</td><td>Filled</td></tr>
+<tr><td>4</td><td>2025-10-30 to 2026-02-09</td><td>103</td><td>Filled</td></tr>
+</table></div>
+
+<h2>3. The filled dataset</h2>
+<p>Black is observed farm data. Orange is synthetic. The blank stretch is gap 2. Move over a chart to read a day. This is the dataset used for the daily model; the tri-day version differs slightly because its test window starts earlier. Where an orange line starts away from the last black point, it begins from the last training value instead of a test value.</p>
+<div class="card"><h4>Egg yield (eggs per day)</h4><div id="egg"></div></div>
+<div class="card"><h4>Temperature (°C)</h4><div id="temp"></div></div>
+<div class="card"><h4>Humidity (%)</h4><div id="hum"></div></div>
+<p>Filled values vary less than real ones. Standard deviation, observed vs filled: egg yield [EGG_REAL] vs [EGG_FILL], temperature [TEMP_REAL] vs [TEMP_FILL], humidity [HUM_REAL] vs [HUM_FILL]. Filling makes the series continuous, but it does not recover the fluctuations that happened on those days.</p>
+
+<h2>4. Fill method</h2>
+<div class="scroll"><table>
+<tr><th>Columns</th><th>Method</th><th>How it works</th></tr>
+<tr><td>Egg yield, flock size, flock age, feed intake</td><td>Linear interpolation</td><td>A straight line from the last usable day before the gap to the first real day after it. Egg yield, flock size and age are rounded to whole numbers.</td></tr>
+<tr><td>Temperature, humidity</td><td>Iterative imputer with Extra Trees</td><td>Estimates each from the trend (days since the first record), the day of the year, and the other weather value. Rounded to one decimal.</td></tr>
+</table></div>
+<h3>Imputer settings</h3>
+<div class="scroll"><table>
+<tr><th>Setting</th><th>Value</th></tr>
+<tr><td>Imputer</td><td>scikit-learn <code>IterativeImputer</code>, <code>max_iter=10</code>, <code>random_state=42</code></td></tr>
+<tr><td>Estimator</td><td><code>ExtraTreesRegressor(n_estimators=100, random_state=42)</code></td></tr>
+<tr><td>Inputs</td><td>trend, day_of_year, temperature_c, humidity_pct</td></tr>
+<tr><td>Other settings</td><td>scikit-learn defaults (initial fill: mean)</td></tr>
+<tr><td>Iterations run</td><td>10, the maximum. The imputer used its full limit, so it may not have fully converged.</td></tr>
+</table></div>
+<h3>Keeping test data out of the fill</h3>
+<p>Data leakage happens when information from the test days reaches training. Here the test days are the last 15% of each caging period, right next to the gaps.</p>
+<ol>
+<li>Split the real data into training and test days first.</li>
+<li>Start each straight line from the last <b>training</b> day's values, placed at the end of the period.</li>
+<li>Fit the weather imputer without any test-window day.</li>
+<li>Keep filled rows out of the test set. Score only on real days.</li>
+</ol>
+<p>The line still ends at the first real day after the gap, which is later in time than the test days.</p>
+
+<h2>5. Training and parameters</h2>
+<p>Both models use the project's existing pipeline in <code>forecasting/pipeline.py</code>:</p>
+<ol>
+<li>Build <code>lag1</code> (yesterday's yield) and <code>roll3</code> (mean of the previous 3 days) inside each continuous segment.</li>
+<li>Split each caging period by date: first 85% for training, last 15% for testing.</li>
+<li>Estimator: median <code>SimpleImputer</code>, then <code>StandardScaler</code>, then <code>RandomForestRegressor</code>.</li>
+<li>Tune with <code>RandomizedSearchCV</code>: 120 candidates, 4 time-ordered folds inside the training data, scored by mean absolute error, seed 42.</li>
+</ol>
+<p>Daily and tri-day yield have separate models.</p>
+<h3>Parameters searched and chosen</h3>
+<div class="scroll"><table id="params"></table></div>
+
+<h2>6. Results</h2>
+<p>All scores come from the same 97 real test days. The dashed line is the acceptance threshold.</p>
+<div id="metrics"></div>
+<h3>Actual vs predicted</h3>
+<div id="preds"></div>
+<h3>All metrics</h3>
+<div class="scroll"><table id="full"></table></div>
+
+<h2>7. Feature importance</h2>
+<p>The recommendations use the <b>daily</b> model's importances only. There, yesterday's yield and the 3-day average stay on top. Two lower pairs swap order: feed intake moves above flock size, and temperature moves just above humidity. The three prescriptive thresholds have not been re-tested.</p>
+<p>The tri-day importances change more (lag1 0.540 to 0.333, flock size 0.072 to 0.154, feed intake 0.037 to 0.135). The recommendations do not read them. <b>Team decision:</b> low priority, no change, since tri-day passes 4/4.</p>
+<div class="grid" id="imp"></div>
+
+<h2>8. Other experiments</h2>
+<h3>What leakage does</h3>
+<p>When the straight lines started from the test days themselves, error appeared to drop. The drop disappeared once the leak was removed, so those numbers are not valid.</p>
+<div class="grid" id="leak"></div>
+<h3>Delta targeting (not adopted)</h3>
+<p>Delta targeting predicts the change from yesterday and adds yesterday's value back. It lowers error, mostly toward the level of the "same as yesterday" rule, and it changes feature importance heavily. It is recorded here for reference.</p>
+<div class="scroll"><table id="delta"></table></div>
+
+<h2>9. Limitations</h2>
+<h3>Straight-line egg counts in the source data</h3>
+<p>In <code>ItikCareDataSet.csv</code>, 88 of 666 days sit in runs where egg yield changes by almost the same amount every day, while temperature and humidity still vary. This pattern usually comes from estimating or interpolating. The file alone cannot show whether these counts were recorded. <b>Compare them with the farm's original records.</b></p>
+<div class="scroll"><table>
+<tr><th>Dates</th><th>Days</th><th>Egg yield</th></tr>
+<tr><td>2024-05-01 to 2024-06-02</td><td>33</td><td>198 to 129</td></tr>
+<tr><td>2024-06-02 to 2024-06-17</td><td>16</td><td>129 to 112</td></tr>
+<tr><td>2025-05-30 to 2025-06-30</td><td>32</td><td>283 to 220</td></tr>
+<tr><td>2025-07-01 to 2025-07-08</td><td>8</td><td>238 to 252</td></tr>
+</table></div>
+<p>42 of the 97 test days fall in these runs. Rescoring the same trained models on each group changes which model looks better:</p>
+<div class="scroll"><table>
+<tr><th>MAE in eggs</th><th>Daily: straight days (42)</th><th>Daily: other days (55)</th><th>Tri-day: straight days (42)</th><th>Tri-day: other days (55)</th></tr>
+<tr><td>Real data only</td><td>13.14</td><td>11.75</td><td>46.96</td><td>41.56</td></tr>
+<tr><td>Hybrid fill</td><td>15.44</td><td>10.62</td><td>56.44</td><td>39.67</td></tr>
+<tr><td>Same as yesterday</td><td>2.07</td><td>9.00</td><td>11.86</td><td>23.55</td></tr>
+</table></div>
+<p>The models were not retrained without these days. Run <code>check_straight_runs.py</code> to repeat this check.</p>
+<h3>Other limitations</h3>
+<ul>
+<li>192 of 858 days (22.4%) are estimates, not farm records. They must stay labelled and out of the <code>DailyLog</code> table.</li>
+<li>Filled weather was not compared with recorded weather for those dates.</li>
+<li>"Same as yesterday" (3 × yesterday for tri-day) passes all thresholds and beats both models.</li>
+<li>In the existing pipeline, the last two tri-day training rows of each period include egg counts from the first test days (10 rows in total). Removing them and retraining raises tri-day MAE from 43.90 to 49.32 (real data) and from 46.93 to 48.00 (hybrid). Both still pass 4/4. <b>Team decision:</b> accepted, not fixed, disclosed here.</li>
+<li>Results come from one chronological split and one random seed.</li>
+<li>Seasonality was not tested.</li>
+<li>Project spec section 10 says gaps are expected and features must not span them. Spec section 10 and Chapter 3 need updating if this change is adopted.</li>
+</ul>
+
+<h2>10. For the manuscript and defense</h2>
+<h3>Suggested Chapter 3 text</h3>
+<blockquote>Gaps from non-monitoring periods within a flock generation were filled using linear interpolation for egg yield, flock size, flock age and feed intake, and an iterative imputer with an Extra Trees estimator, using trend and day of year, for temperature and humidity. The gap in which the flock was replaced was not filled. Filled values are synthetic estimates, used only for training, and were computed without test-window values. Models were evaluated only on observed data. The hybrid model met all forecasting thresholds but did not improve accuracy on the full test set compared with observed data alone. For the tri-day model, a small number of training targets overlap the first test days; the thresholds were still met when those rows were removed.</blockquote>
+<p>Settle the straight-line check in section 9 before using this text.</p>
+<h3>Likely questions</h3>
+<p><b>Is the filled data real?</b><br>No. It is labelled synthetic and used only to make the series continuous for training.</p>
+<p><b>Why is one gap still there?</b><br>It separates two different flocks. A line between them would describe ducks that did not exist.</p>
+<p><b>Did filling improve the model?</b><br>Not on the full test set. It passes the thresholds and is slightly less accurate than real data alone.</p>
+<p><b>Why use a model if yesterday's value is more accurate?</b><br>Egg yield changes slowly, so yesterday is a strong predictor. The model also provides the feature importance that the recommendations use. The accuracy limitation remains and should be stated.</p>
+
+<h2>11. Reproducing the results</h2>
+<pre>venv/Scripts/python docs/hybrid_fill/hybrid_fill_experiment.py
+venv/Scripts/python docs/hybrid_fill/build_report.py
+venv/Scripts/python docs/hybrid_fill/check_straight_runs.py
+venv/Scripts/python docs/hybrid_fill/check_triday_leak.py
+venv/Scripts/python docs/hybrid_fill/build_docx.py</pre>
+<p>Files in <code>docs/hybrid_fill/</code>: <code>results.json</code>, <code>filled_dataset_daily.csv</code>, <code>filled_dataset_triday.csv</code> and <code>figures/</code> (PNG charts for the manuscript).</p>
+<p class="sub" id="versions"></p>
+</main>
+
+<script>
+const P=/*DATA*/;
+const R=P.results, D=P.data, T=R.targets;
+const H={daily:"Daily yield",triday:"Tri-day yield"};
+const $=id=>document.getElementById(id);
+const el=(html)=>{const t=document.createElement("template");t.innerHTML=html.trim();return t.content.firstChild};
+const rows=(head,body)=>"<tr>"+head.map(h=>"<th>"+h+"</th>").join("")+"</tr>"+body.map(r=>"<tr>"+r.map(c=>"<td>"+c+"</td>").join("")+"</tr>").join("");
+const pct=v=>(v*100).toFixed(2)+"%";
+const verdict=(m,invalid)=>{const n=Object.values(m.passes).filter(Boolean).length;
+  return invalid?`<span class="invalid">${n}/4, not valid</span>`:`<span class="${n==4?"pass":"fail"}">${n==4?"Passed":"Failed"} ${n}/4</span>`};
+const metricRow=(h,run,label,invalid)=>{const m=T[h].runs[run].metrics;
+  return [H[h],label,`${m.mae.toFixed(2)} (${pct(m.mae_pct)})`,pct(m.rmse_pct),pct(m.mape),m.r2.toFixed(3),verdict(m,invalid)]};
+const HEAD=["Horizon","Setup","MAE in eggs (% of mean)","RMSE %","MAPE","R²","Result"];
+const MAIN=[["real_level","Real data only"],["hybrid_level","Hybrid fill"],["persistence","Same as yesterday (no model)"]];
+const list=(runs)=>Object.keys(H).flatMap(h=>runs.map(([r,l,x])=>metricRow(h,r,l,x)));
+
+$("summary").innerHTML=rows(HEAD,list(MAIN.slice(0,2)));
+$("full").innerHTML=rows(HEAD,list(MAIN))+'<tr><td colspan="7">Thresholds: MAE at most 8% · RMSE at most 10% · MAPE at most 15% · R² at least 0.75</td></tr>';
+$("delta").innerHTML=rows(HEAD,list([["real_delta","Real data, delta"],["hybrid_delta","Hybrid fill, delta"]]));
+
+const space=R.settings.search_space, show=v=>v===null?"None":v;
+const PN={rf__n_estimators:["n_estimators","Number of trees"],rf__max_depth:["max_depth","Deepest a tree can grow"],
+  rf__min_samples_leaf:["min_samples_leaf","Fewest rows in a final leaf"],rf__min_samples_split:["min_samples_split","Fewest rows needed to split"],
+  rf__max_features:["max_features","Inputs tried at each split"]};
+$("params").innerHTML=rows(["Parameter","Meaning","Values searched","Daily: real","Daily: hybrid","Tri-day: real","Tri-day: hybrid"],
+  Object.entries(PN).map(([k,[n,d]])=>["<code>"+n+"</code>",d,space[k].map(show).join(", "),
+    ...Object.keys(H).flatMap(h=>["real_level","hybrid_level"].map(r=>show(T[h].runs[r].best_params[k])))]));
+
+function bars(title,items,limit){
+  const max=Math.max(...items.map(i=>i[1]),limit||0)*1.05;
+  return el(`<div class="card"><h4>${title}</h4>`+items.map(([l,v,c,t])=>
+    `<div class="bar" title="${l}: ${t}"><span>${l}</span><div class="track"><span style="width:${v/max*100}%;background:var(--${c})"></span>${limit?`<em style="left:${limit/max*100}%"></em>`:""}</div><span class="num">${t}</span></div>`).join("")+"</div>");
+}
+const COL={real_level:"real",hybrid_level:"fill",persistence:"muted"};
+Object.keys(H).forEach(h=>{
+  const g=el('<div class="grid"></div>');
+  [["mae_pct","MAE % of mean (at most 8)",8],["rmse_pct","RMSE % of mean (at most 10)",10],["mape","MAPE % (at most 15)",15],["r2","R² (at least 0.75)",.75]]
+  .forEach(([k,t,lim])=>g.append(bars(t,MAIN.map(([r,l])=>{const v=T[h].runs[r].metrics[k]*(k=="r2"?1:100);return [l,v,COL[r],v.toFixed(k=="r2"?3:2)]}),lim)));
+  $("metrics").append(el(`<h3>${H[h]}</h3>`),g);
+  $("leak").append(bars(H[h]+": MAE in eggs, lower is better",[["real_level","Real data only","real"],["leaky_level","Hybrid with leak (invalid)","muted"],["hybrid_level","Hybrid, no leak","fill"]]
+    .map(([r,l,c])=>{const v=T[h].runs[r].metrics.mae;return [l,v,c,v.toFixed(2)]})));
+  const F={lag1:"Yesterday's yield",roll3:"3-day average",flock_size:"Flock size",flock_age_weeks:"Flock age",feed_intake_kg:"Feed intake",temperature_c:"Temperature",humidity_pct:"Humidity"};
+  const items=Object.entries(F).flatMap(([k,n])=>[["real_level","real","real"],["hybrid_level","hybrid","fill"]].map(([r,s,c])=>{const v=T[h].runs[r].importances[k];return [n+" ("+s+")",v,c,v.toFixed(3)]}));
+  $("imp").append(bars(H[h],items));
+});
+
+/* Line chart: x is a number per point; a new path starts after a null or an x jump. */
+function line(host,xs,series,label,ticks,breaks){
+  host.innerHTML=`<div class="legend">${series.map(s=>`<span><i style="background:${s.color}"></i>${s.name}</span>`).join("")}</div><div class="plot"></div><div class="tip">&nbsp;</div>`;
+  const plot=host.querySelector(".plot"),tip=host.querySelector(".tip");
+  const draw=()=>{
+    const W=plot.clientWidth||600,Hh=190,L=36,B=18,all=series.flatMap(s=>s.values.filter(v=>v!==null));
+    const lo=Math.min(...all),hi=Math.max(...all),pad=(hi-lo)*.06||1,x0=xs[0],x1=xs[xs.length-1];
+    const X=v=>L+(v-x0)/(x1-x0)*(W-L-4),Y=v=>(Hh-B)-(v-lo+pad)/(hi-lo+2*pad)*(Hh-B-6);
+    let s="";
+    [0,.5,1].forEach(f=>{const v=lo+(hi-lo)*f;s+=`<line x1="${L}" x2="${W}" y1="${Y(v)}" y2="${Y(v)}" stroke="var(--line)"/><text x="${L-6}" y="${Y(v)+4}" text-anchor="end">${Math.round(v)}</text>`});
+    ticks(W).forEach(([v,t])=>s+=`<text x="${X(v)}" y="${Hh-3}" text-anchor="middle">${t}</text>`);
+    (breaks||[]).forEach(v=>s+=`<line x1="${X(v)}" x2="${X(v)}" y1="0" y2="${Hh-B}" stroke="var(--muted)"/>`);
+    series.forEach(q=>{let d="",prev=null;q.values.forEach((v,i)=>{if(v===null){prev=null;return}
+      d+=(prev!==null&&xs[i]-prev<=1?"L":"M")+X(xs[i]).toFixed(1)+" "+Y(v).toFixed(1);prev=xs[i]});
+      s+=`<path d="${d}" fill="none" stroke="${q.color}" stroke-width="1.6" stroke-linejoin="round"/>`});
+    plot.innerHTML=`<svg viewBox="0 0 ${W} ${Hh}" height="${Hh}" role="img" aria-label="${host.closest(".card").querySelector("h4").textContent}">${s}<line class="cross" y1="0" y2="${Hh-B}" stroke="var(--fg)" opacity="0"/></svg>`;
+    const svg=plot.firstChild,cross=svg.querySelector(".cross");
+    svg.onpointermove=e=>{const r=svg.getBoundingClientRect(),v=x0+((e.clientX-r.left)*W/r.width-L)/(W-L-4)*(x1-x0);
+      let i=0;xs.forEach((x,j)=>{if(Math.abs(x-v)<Math.abs(xs[i]-v))i=j});
+      cross.setAttribute("x1",X(xs[i]));cross.setAttribute("x2",X(xs[i]));cross.setAttribute("opacity",".4");
+      tip.textContent=label(i)+": "+series.filter(q=>q.values[i]!==null).map(q=>q.name+" "+(+q.values[i].toFixed(1))).join(" · ")};
+  };
+  draw();new ResizeObserver(()=>{if(plot.firstChild&&plot.firstChild.viewBox.baseVal.width!==plot.clientWidth)draw()}).observe(plot);
+}
+const day=d=>Math.round(Date.parse(d)/864e5), xs=D.date.map(day);
+const months=W=>{const out=[],step=W<520?12:6;for(let m=3;m<36;m+=step){const d=new Date(Date.UTC(2024,m,1));out.push([d/864e5,d.toLocaleDateString("en-US",{month:"short",year:"numeric",timeZone:"UTC"})])}return out};
+["egg","temp","hum"].forEach(k=>line($(k),xs,[
+  {name:"Observed",color:"var(--fg)",values:D[k].map((v,i)=>D.filled[i]?null:v)},
+  {name:"Filled (synthetic)",color:"var(--fill)",values:D[k].map((v,i)=>D.filled[i]?v:null)}],i=>D.date[i],months));
+Object.keys(H).forEach(h=>{
+  const t=T[h].test,idx=t.map((_,i)=>i),card=el(`<div class="card"><h4>${H[h]} on test days (vertical lines separate caging periods)</h4><div></div></div>`);
+  $("preds").append(card);
+  line(card.lastElementChild,idx,[{name:"Actual",color:"var(--fg)",values:t.map(r=>r.actual)},
+    {name:"Real data only",color:"var(--real)",values:T[h].runs.real_level.predictions},
+    {name:"Hybrid fill",color:"var(--fill)",values:T[h].runs.hybrid_level.predictions}],
+    i=>t[i].date,()=>[0,24,48,72,96].filter(i=>i<t.length).map(i=>[i,"day "+(i+1)]),
+    idx.filter(i=>i&&t[i].period!==t[i-1].period).map(i=>i-.5));
+});
+const V=R.versions;$("versions").textContent=`Built with scikit-learn ${V["scikit-learn"]}, pandas ${V.pandas}, NumPy ${V.numpy}. Source data: ItikCareDataSet.csv.`;
+</script>

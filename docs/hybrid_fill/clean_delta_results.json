@@ -1,0 +1,129 @@
+{
+ "model_version": "hybrid-delta-clean-v1",
+ "target_type": "delta",
+ "prediction_rule": {
+  "daily_model": "predict(X) + lag1",
+  "tri_day_model": "predict(X) + 3 * lag1"
+ },
+ "versions": {
+  "scikit-learn": "1.9.0",
+  "pandas": "3.0.3",
+  "numpy": "2.5.1"
+ },
+ "targets": {
+  "daily": {
+   "n_train": 746,
+   "n_test": 97,
+   "rows_removed": {
+    "history_leak": 9,
+    "target_leak": 0
+   },
+   "leak_test_passed": true,
+   "metrics": {
+    "n": 97,
+    "target_mean": 236.2657450076805,
+    "mae": 6.414134062285213,
+    "mae_pct": 0.027147964517990973,
+    "rmse": 10.168983890832301,
+    "rmse_pct": 0.04304044960263592,
+    "mape": 0.02914771934576354,
+    "r2": 0.9740762677308372,
+    "passes": {
+     "mae": true,
+     "rmse": true,
+     "mape": true,
+     "r2": true
+    }
+   },
+   "persistence_metrics": {
+    "n": 97,
+    "target_mean": 236.2657450076805,
+    "mae": 6.0,
+    "mae_pct": 0.025395132924601292,
+    "rmse": 9.657004295264805,
+    "rmse_pct": 0.04087348462194922,
+    "mape": 0.026941805490330952,
+    "r2": 0.9766209285615475,
+    "passes": {
+     "mae": true,
+     "rmse": true,
+     "mape": true,
+     "r2": true
+    }
+   },
+   "best_params": {
+    "rf__n_estimators": 600,
+    "rf__min_samples_split": 25,
+    "rf__min_samples_leaf": 8,
+    "rf__max_features": "log2",
+    "rf__max_depth": 16
+   },
+   "importances": {
+    "lag1": 0.20577136897536302,
+    "roll3": 0.1640558715559159,
+    "humidity_pct": 0.14216503523683757,
+    "flock_age_weeks": 0.1333970904286212,
+    "temperature_c": 0.13269099925075392,
+    "flock_size": 0.11603210452128546,
+    "feed_intake_kg": 0.10588753003122293
+   }
+  },
+  "triday": {
+   "n_train": 726,
+   "n_test": 97,
+   "rows_removed": {
+    "history_leak": 9,
+    "target_leak": 10
+   },
+   "leak_test_passed": true,
+   "metrics": {
+    "n": 97,
+    "target_mean": 709.8159126365055,
+    "mae": 25.95380736190332,
+    "mae_pct": 0.03656413853206216,
+    "rmse": 37.21888756330569,
+    "rmse_pct": 0.05243456352656519,
+    "mape": 0.040159342681264934,
+    "r2": 0.9615828641312468,
+    "passes": {
+     "mae": true,
+     "rmse": true,
+     "mape": true,
+     "r2": true
+    }
+   },
+   "persistence_metrics": {
+    "n": 97,
+    "target_mean": 709.8159126365055,
+    "mae": 18.484536082474225,
+    "mae_pct": 0.02604130980075689,
+    "rmse": 27.290533081570405,
+    "rmse_pct": 0.03844733908571278,
+    "mape": 0.028721666881106833,
+    "r2": 0.9793451405050598,
+    "passes": {
+     "mae": true,
+     "rmse": true,
+     "mape": true,
+     "r2": true
+    }
+   },
+   "best_params": {
+    "rf__n_estimators": 800,
+    "rf__min_samples_split": 2,
+    "rf__min_samples_leaf": 6,
+    "rf__max_features": "sqrt",
+    "rf__max_depth": 4
+   },
+   "importances": {
+    "flock_age_weeks": 0.1987319846079472,
+    "flock_size": 0.1893425107946134,
+    "lag1": 0.1623014379498425,
+    "roll3": 0.15068894592668547,
+    "feed_intake_kg": 0.118158234889866,
+    "humidity_pct": 0.09912117411788435,
+    "temperature_c": 0.08165571171316098
+   }
+  }
+ }
+}
