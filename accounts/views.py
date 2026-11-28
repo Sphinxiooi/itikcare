@@ -22,6 +22,7 @@ from django_ratelimit.decorators import ratelimit
 
 from farm.views import flock_profile_context
 from farm.weather import geocode_address
+from notifications.push import push_enabled
 
 from . import google_oauth
 from .auth_backends import find_user_by_login_identifier
@@ -139,6 +140,8 @@ def account_settings(request):
         # Read-only flock summary; flock actions live on /flock/
         "compact": True,
         "just_saved": just_saved,
+        # For the phone-notification switch; blank means the server isn't set up for it
+        "vapid_public_key": settings.VAPID_PUBLIC_KEY if push_enabled() else "",
         **flock_profile_context(request.user),
     }
     return render(request, template_name, context)
@@ -181,6 +184,8 @@ def delete_account(request):
         user.set_unusable_password()
         user.is_active = False
         user.save()
+        # Soft delete doesn't cascade, so stop phone notifications explicitly
+        user.push_subscriptions.all().delete()
 
     logout(request)
     messages.info(request, _("Your account has been deleted."))

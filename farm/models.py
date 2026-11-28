@@ -155,7 +155,10 @@ class DailyLog(models.Model):
 
 
 class DailyLogReminder(models.Model):
-    """Log of reminder emails sent (one per owner per day), so the daily command is idempotent."""
+    """Log of daily reminders sent (one row per owner per day), so the daily command is idempotent.
+
+    Email and phone notification are tracked separately, so a rerun retries only what failed.
+    """
 
     owner = models.ForeignKey(
         settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name="daily_log_reminders"
@@ -163,6 +166,9 @@ class DailyLogReminder(models.Model):
     flock = models.ForeignKey(Flock, on_delete=models.PROTECT, related_name="daily_log_reminders")
     reminder_date = models.DateField(help_text="The date this reminder was for (owner had no DailyLog for it yet).")
     sent_at = models.DateTimeField(auto_now_add=True)
+    # Rows from before phone notifications existed were all emails, hence the default
+    email_sent = models.BooleanField(default=True)
+    push_sent_at = models.DateTimeField(null=True, blank=True)
 
     class Meta:
         ordering = ["-reminder_date"]

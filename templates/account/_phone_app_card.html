@@ -1,0 +1,52 @@
+{% load static i18n %}
+{% comment %}
+"ItikCare on your phone": install the home-screen app and turn phone notifications on or
+off. Both are per phone. Kept outside _settings_panel.html because that partial is swapped
+by AJAX, which would drop these script listeners. Behaviour: static/js/itik-pwa.js.
+{% endcomment %}
+<div id="phone-app-card" class="bg-white border border-gray-200 rounded-xl p-6 max-w-3xl mt-6"
+     data-public-key="{{ vapid_public_key }}"
+     data-status-url="{% url 'push_status' %}"
+     data-subscribe-url="{% url 'push_subscribe' %}"
+     data-unsubscribe-url="{% url 'push_unsubscribe' %}"
+     data-test-url="{% url 'push_test' %}"
+     data-msg-android-only="{% translate "Phone notifications are available on Android phones. Open ItikCare on your Android phone to turn them on." %}"
+     data-msg-unsupported="{% translate "This browser can't receive notifications. Open ItikCare in Chrome on your Android phone." %}"
+     data-msg-not-configured="{% translate "Phone notifications aren't set up on this server yet." %}"
+     data-msg-blocked="{% translate "Notifications are blocked. Allow them for this site in your browser settings, then reload this page." %}"
+     data-msg-on="{% translate "On for this phone." %}"
+     data-msg-off="{% translate "Off for this phone." %}"
+     data-msg-working="{% translate "Please wait…" %}"
+     data-msg-failed="{% translate "That didn't work. Check your internet connection and try again." %}"
+     data-msg-test-sent="{% translate "Test notification sent. It should appear in a few seconds." %}">
+    {% csrf_token %}
+    <h2 class="text-2xl font-bold text-gray-900">{% translate "ItikCare on your phone" %}</h2>
+    <p class="text-sm text-gray-500 mb-5">{% translate "These settings apply only to the phone you are using now." %}</p>
+
+    <div class="flex items-start justify-between gap-4">
+        <div>
+            <p id="push-label" class="text-sm font-semibold text-gray-900">{% translate "Phone notifications" %}</p>
+            <p class="text-sm text-gray-600">{% translate "Get a reminder at 5:00 PM if today's log is still missing." %}</p>
+        </div>
+        <button type="button" id="push-toggle" role="switch" aria-checked="false" aria-labelledby="push-label" disabled
+                class="group relative shrink-0 inline-flex h-7 w-12 items-center rounded-full bg-gray-300 aria-checked:bg-emerald-700 disabled:opacity-50 transition-colors">
+            <span class="inline-block h-5 w-5 translate-x-1 rounded-full bg-[#ffffff] shadow transition-transform group-aria-checked:translate-x-6"></span>
+        </button>
+    </div>
+    <p id="push-message" class="text-xs text-gray-500 mt-2" role="status" aria-live="polite"></p>
+    <button type="button" id="push-test" class="hidden mt-2 text-sm font-medium text-emerald-700 hover:text-emerald-800">
+        {% translate "Send a test notification" %}
+    </button>
+
+    <div class="mt-5 pt-5 border-t border-gray-100">
+        <p class="text-sm font-semibold text-gray-900">{% translate "Install the app" %}</p>
+        <p class="text-sm text-gray-600">{% translate "Add the ItikCare icon to your home screen so it opens with one tap." %}</p>
+        <button type="button" id="app-install"
+                class="hidden mt-3 bg-emerald-700 text-white font-semibold rounded-lg px-6 py-2.5 hover:bg-emerald-800">
+            {% translate "Install ItikCare" %}
+        </button>
+        <p id="app-install-help" class="text-xs text-gray-500 mt-2">{% translate "In Chrome, open the ⋮ menu and tap “Add to Home screen” or “Install app”." %}</p>
+        <p id="app-installed" class="hidden text-xs font-medium text-emerald-700 mt-2">{% translate "ItikCare is installed on this phone." %}</p>
+    </div>
+</div>
+<script src="{% static 'js/itik-pwa.js' %}" defer></script>

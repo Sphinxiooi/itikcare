@@ -22,3 +22,25 @@ class NotificationReceipt(models.Model):
 
     def __str__(self):
         return f"{self.user} — {self.key}"
+
+
+class PushSubscription(models.Model):
+    """One phone (browser) that turned on phone notifications for a farmer.
+
+    The endpoint and two keys come from the browser's Push API and are all that is needed
+    to send it an encrypted message (notifications/push.py).
+    """
+
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="push_subscriptions"
+    )
+    # Unique per browser: if another farmer turns it on, the row moves to them
+    endpoint = models.URLField(max_length=500, unique=True)
+    p256dh = models.CharField(max_length=120)
+    auth = models.CharField(max_length=40)
+    # The scheduled job has no request, so the farmer's language is saved here
+    language = models.CharField(max_length=10, default="en")
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return f"{self.user} — push subscription {self.pk}"

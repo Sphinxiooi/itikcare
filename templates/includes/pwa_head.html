@@ -1,0 +1,16 @@
+{% comment %}
+Makes ItikCare installable on a phone's home screen and registers the service worker
+used for phone notifications. Include inside <head>.
+{% endcomment %}
+<link rel="manifest" href="{% url 'web_manifest' %}">
+<meta name="theme-color" content="#047857">
+<script>
+    // Chrome offers "install" once, early in page load; keep it for the settings button
+    window.addEventListener("beforeinstallprompt", function (event) {
+        window.itikInstallPrompt = event;
+        window.dispatchEvent(new Event("itik:installable"));
+    });
+    if ("serviceWorker" in navigator) {
+        navigator.serviceWorker.register("{% url 'service_worker' %}").catch(function () {});
+    }
+</script>

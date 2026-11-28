@@ -1645,3 +1645,63 @@ msgstr "Walang pang-araw-araw na log na na-save sa buwang pinili mo, halimbawa d
 
 msgid "Show all months"
 msgstr "Ipakita ang lahat ng buwan"
+
+msgid "ItikCare on your phone"
+msgstr "ItikCare sa iyong cellphone"
+
+msgid "These settings apply only to the phone you are using now."
+msgstr "Para lang sa cellphone na gamit mo ngayon ang mga setting na ito."
+
+msgid "Phone notifications"
+msgstr "Mga abiso sa cellphone"
+
+msgid "Get a reminder at 5:00 PM if today's log is still missing."
+msgstr "Makatanggap ng paalala sa 5:00 PM kung wala pa ang tala ngayong araw."
+
+msgid "Send a test notification"
+msgstr "Magpadala ng pansubok na abiso"
+
+msgid "Test"
+msgstr "Pagsubok"
+
+msgid "Install the app"
+msgstr "I-install ang app"
+
+msgid "Add the ItikCare icon to your home screen so it opens with one tap."
+msgstr "Idagdag ang icon ng ItikCare sa iyong home screen para mabuksan ito sa isang pindot."
+
+msgid "Install ItikCare"
+msgstr "I-install ang ItikCare"
+
+msgid "In Chrome, open the ⋮ menu and tap “Add to Home screen” or “Install app”."
+msgstr "Sa Chrome, buksan ang ⋮ menu at pindutin ang “Add to Home screen” o “Install app”."
+
+msgid "ItikCare is installed on this phone."
+msgstr "Naka-install na ang ItikCare sa cellphone na ito."
+
+msgid "Phone notifications are available on Android phones. Open ItikCare on your Android phone to turn them on."
+msgstr "Sa mga Android na cellphone lang ang mga abiso. Buksan ang ItikCare sa iyong Android na cellphone para i-on ang mga ito."
+
+msgid "This browser can't receive notifications. Open ItikCare in Chrome on your Android phone."
+msgstr "Hindi makatanggap ng abiso ang browser na ito. Buksan ang ItikCare sa Chrome sa iyong Android na cellphone."
+
+msgid "Phone notifications aren't set up on this server yet."
+msgstr "Hindi pa naka-set up sa server na ito ang mga abiso sa cellphone."
+
+msgid "Notifications are blocked. Allow them for this site in your browser settings, then reload this page."
+msgstr "Naka-block ang mga abiso. Payagan ang mga ito para sa site na ito sa settings ng browser, saka i-reload ang pahina."
+
+msgid "On for this phone."
+msgstr "Naka-on sa cellphone na ito."
+
+msgid "Off for this phone."
+msgstr "Naka-off sa cellphone na ito."
+
+msgid "Please wait…"
+msgstr "Sandali lang…"
+
+msgid "That didn't work. Check your internet connection and try again."
+msgstr "Hindi ito gumana. Suriin ang iyong internet at subukang muli."
+
+msgid "Test notification sent. It should appear in a few seconds."
+msgstr "Naipadala na ang pansubok na abiso. Lalabas ito sa loob ng ilang segundo."

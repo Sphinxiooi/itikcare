@@ -43,6 +43,7 @@
     </script>
     <link rel="icon" type="image/png" href="{% static 'images/favicon.png' %}">
     <link rel="apple-touch-icon" href="{% static 'images/apple-touch-icon.png' %}">
+    {% include 'includes/pwa_head.html' %}
 </head>
 <body class="bg-white text-gray-900">
     {% url 'dashboard' as dashboard_url %}

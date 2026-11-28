@@ -276,6 +276,14 @@ ADMINS = [
 SERVER_EMAIL = os.environ.get('DJANGO_SERVER_EMAIL', DEFAULT_FROM_EMAIL)
 
 
+# ---------- phone notifications (Web Push) ----------
+# Key pair from `manage.py generate_vapid_keys`; the feature stays off while either is blank
+VAPID_PUBLIC_KEY = os.environ.get('VAPID_PUBLIC_KEY', '')
+VAPID_PRIVATE_KEY = os.environ.get('VAPID_PRIVATE_KEY', '')
+# Contact address push services require (mailto: or https:)
+VAPID_SUBJECT = os.environ.get('VAPID_SUBJECT') or 'mailto:admin@example.com'
+
+
 # ---------- logging ----------
 LOGGING = {
     'version': 1,

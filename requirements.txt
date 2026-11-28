@@ -16,3 +16,5 @@ django-ratelimit>=4.1
 Pillow>=10.0
 # MX lookup for the signup email check (accounts/contact.py's email_domain_accepts_mail).
 dnspython>=2.6
+# Phone notifications (Web Push), notifications/push.py.
+pywebpush>=2.0

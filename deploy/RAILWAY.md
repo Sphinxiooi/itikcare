@@ -155,6 +155,23 @@ No `railway ssh`? Temporarily set the web service's start command to
 3. Give it the same variables as the web service (copy them, or use shared variables).
    It needs no volume and no domain.
 
+## Phone notifications (Android)
+
+The 17:00 reminder also reaches Android phones that turned on **Account Settings → Phone
+notifications**. To enable it:
+
+1. Create the key pair once, on any machine with the project installed:
+   `python manage.py generate_vapid_keys`
+2. Set `VAPID_PUBLIC_KEY` and `VAPID_PRIVATE_KEY` to the **same values on both** the web
+   service (phones subscribe there) and the cron service (it sends). Optionally set
+   `VAPID_SUBJECT` to `mailto:<contact address>`.
+3. Redeploy both services. Cron redeploys separately:
+   `railway redeploy --from-source --service itikcare-reminders --yes`
+
+Never commit the private key. Replacing the pair later means every phone has to turn the
+switch on again. To test: on the phone, turn the switch on and tap **Send a test
+notification**.
+
 ## Email (Brevo over HTTPS)
 
 Password-reset codes and the daily reminder go through Django's email backend. Railway

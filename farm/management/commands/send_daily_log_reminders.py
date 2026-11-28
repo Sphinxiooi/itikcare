@@ -1,7 +1,8 @@
-"""Daily reminder email for farmers with an active, caged flock and no log today.
+"""Daily reminder (email and phone notification) for farmers with an active, caged flock and no log today.
 
 Records a DailyLogReminder so a rerun the same day doesn't send duplicates. Meant to run once a day
-from a timer (deploy/).
+from a timer (deploy/). Email and phone notification are independent: if one fails, the other still
+goes out, and a rerun retries only the one that failed.
 
 Usage: python manage.py send_daily_log_reminders
 """
@@ -14,9 +15,11 @@ from django.core.mail import send_mail
 from django.core.management.base import BaseCommand
 from django.template.loader import render_to_string
 from django.urls import reverse
+from django.utils import timezone
 
 from farm.models import DailyLog, DailyLogReminder, Flock
 from farm.services import get_active_flock, operational_today
+from notifications.push import send_missing_log_push
 
 logger = logging.getLogger(__name__)
 
@@ -24,7 +27,7 @@ User = get_user_model()
 
 
 class Command(BaseCommand):
-    help = "Email + record a reminder for every farmer with an active, caged flock who hasn't logged today's data yet."
+    help = "Email and notify every farmer with an active, caged flock who hasn't logged today's data yet."
 
     def handle(self, *args, **options):
         # Today's farm date
@@ -35,32 +38,54 @@ class Command(BaseCommand):
             Flock.objects.filter(is_active=True).values_list("owner_id", flat=True).distinct()
         )
 
-        sent_count = 0
+        email_count = 0
+        push_count = 0
         skipped_count = 0
-        for owner in User.objects.filter(pk__in=owner_ids):
+        # Deleted (deactivated) accounts are never reminded
+        for owner in User.objects.filter(pk__in=owner_ids, is_active=True):
             active_flock = get_active_flock(owner)
             if active_flock is None or not active_flock.is_caged:
                 continue
             if DailyLog.objects.filter(flock=active_flock, date=today).exists():
                 continue
-            if DailyLogReminder.objects.filter(owner=owner, reminder_date=today).exists():
-                # Already reminded today
-                skipped_count += 1
+
+            reminder = DailyLogReminder.objects.filter(owner=owner, reminder_date=today).first()
+            need_email = bool(owner.email) and not (reminder and reminder.email_sent)
+            need_push = not (reminder and reminder.push_sent_at)
+
+            emailed = need_email and self._try_email(owner, active_flock)
+            pushed = need_push and send_missing_log_push(owner, today) > 0
+
+            if not (emailed or pushed):
+                if reminder:
+                    # Already reminded today
+                    skipped_count += 1
                 continue
 
-            try:
-                self._send_reminder_email(owner, active_flock)
-            except Exception:
-                # One failed send shouldn't stop the run
-                logger.exception("Failed to send daily-log reminder to owner_id=%s", owner.pk)
-                continue
-
-            DailyLogReminder.objects.create(owner=owner, flock=active_flock, reminder_date=today)
-            sent_count += 1
+            if reminder is None:
+                reminder = DailyLogReminder(
+                    owner=owner, flock=active_flock, reminder_date=today, email_sent=False
+                )
+            reminder.email_sent = reminder.email_sent or emailed
+            if pushed:
+                reminder.push_sent_at = timezone.now()
+            reminder.save()
+            email_count += emailed
+            push_count += pushed
 
         self.stdout.write(self.style.SUCCESS(
-            f"Sent {sent_count} reminder(s); skipped {skipped_count} already reminded today."
+            f"Sent {email_count} email reminder(s) and notified {push_count} farmer(s) by phone; "
+            f"skipped {skipped_count} already reminded today."
         ))
+
+    def _try_email(self, owner, flock):
+        try:
+            self._send_reminder_email(owner, flock)
+        except Exception:
+            # One failed send shouldn't stop the run
+            logger.exception("Failed to send daily-log reminder to owner_id=%s", owner.pk)
+            return False
+        return True
 
     def _send_reminder_email(self, owner, flock):
         subject = "".join(
