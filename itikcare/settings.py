@@ -59,6 +59,12 @@ SESSION_COOKIE_SECURE = not DEBUG
 CSRF_COOKIE_SECURE = not DEBUG
 
 
+# ---------- forecasting ----------
+# True = train on real logs plus filled free-range gaps (forecasting/gapfill.py).
+# Off until the adviser approves it; synthetic days are never saved to the database.
+FORECAST_GAP_FILL = os.environ.get('FORECAST_GAP_FILL', 'False') == 'True'
+
+
 # ---------- optional integrations ----------
 # Farm coordinates for the weather prefill (farm/weather.py); unset = prefill disabled
 FARM_LATITUDE = os.environ.get('FARM_LATITUDE')

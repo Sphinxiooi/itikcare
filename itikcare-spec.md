@@ -79,6 +79,10 @@ Known variable relationships to keep in mind when building/validating the model:
   thresholds below must be re-validated on the held-out test set after this change.
 - Library: scikit-learn
 - Designed for **periodic rolling retraining** as the farmer adds new daily data (not a one-time trained model)
+- **Hybrid gap filling** (adviser-approved, recorded 2026-11-28; setting `FORECAST_GAP_FILL`):
+  training rows may include filled free-range gap days (section 10). The test set and the
+  threshold means come from real logs only. If either filled model misses any threshold, that
+  run is retrained on real logs alone (`forecasting/gapfill.py`, `train_forecast_model`)
 - Must expose **feature importance scores** — these feed directly into the prescriptive module's rule logic
 
 **Acceptance thresholds (from thesis Chapter 3 — use these to validate any model you build):**
@@ -148,7 +152,16 @@ Known variable relationships to keep in mind when building/validating the model:
 
 The farm operates a **semi-intensive setup**: ducks are let out to free-range roughly every 3 months, then caged again for a period of close monitoring. Daily logs only exist for the caged periods — this is why the historical dataset (`ItikCareDataSet.csv`) has several multi-week/multi-month gaps in the date sequence, marked by the `Caging_Period` column. These gaps are **expected and correct, not missing/corrupted data.**
 
-Implication for the model: treat each caged period as its own contiguous segment. Do not build lag/rolling features (e.g. "yesterday's yield," 7-day rolling average) that span across a gap — the days on either side aren't operationally connected.
+Implication for the model: without gap filling, treat each caged period as its own contiguous segment. Do not build lag/rolling features (e.g. "yesterday's yield," 7-day rolling average) that span an unfilled gap — the days on either side aren't operationally connected.
+
+**Exception: hybrid gap filling (adviser-approved, recorded 2026-11-28).** With `FORECAST_GAP_FILL` on, training (only) fills the days between two consecutive caging periods of the **same flock**, so lag features may run through those filled days:
+
+- Egg yield, flock size, flock age and feed intake: linear interpolation. Temperature and humidity: iterative imputer (Extra Trees) on trend and day of year.
+- Never filled: a flock replacement, a free-range stay that hasn't ended (no day after the gap yet), a gap longer than 120 days, or missed logs inside one caging period.
+- Filled days are synthetic estimates. They exist only in memory during training: never saved as DailyLogs, never shown to the farmer, never in the test set. Training rows that touch a test day are removed.
+- Prediction time is unchanged: lag1/roll3 still come only from real logs in the current caging period, with the same warm-up.
+- Limits to disclose: each straight line ends on the first real day after the gap; inner tuning folds include synthetic rows; filled weather was not validated against recorded weather.
+- Measured on the CSV (same 97 real test days): all four thresholds pass tuned and untuned; tri-day error is higher than with real logs only, and "same as yesterday" remains more accurate than either model.
 
 **Flock generation resets:** occasionally flock age drops sharply in the data (e.g. from 107 weeks back down to 23 weeks). This reflects a real event — the previous flock was retired and a new, younger flock brought in — not a data entry error. The model/pipeline should be aware of which "generation" a row belongs to (a simple derived batch/generation ID based on age resets works), since a fresh flock and a mature flock behave differently even before accounting for age numerically.
 

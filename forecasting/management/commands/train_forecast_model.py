@@ -6,7 +6,7 @@ Run as:
                                           [--output-dir DIR]
                                           [--tune [--tune-iter N] [--cv-folds K]
                                                   [--fallback-untuned]]
-                                          [--force]
+                                          [--force] [--gap-fill | --no-gap-fill]
 
 There is no single global model: every farmer (User) gets a separate artifact, and
 ``--owner-id`` says whose. The foundation farmer (accounts.User.is_foundation_farmer,
@@ -31,6 +31,13 @@ is then persisted if it passes (or refused under ``--strict``, leaving the previ
 artifact in place). A tuned model that passes everything is always preferred. This is
 what the automatic retrain (forecasting/services.py::trigger_retrain) uses.
 
+``--gap-fill`` (default: ``settings.FORECAST_GAP_FILL``, off) trains on the real logs plus
+filled free-range gaps — see ``forecasting/gapfill.py``. The test rows and the threshold
+means still come from real logs only. If either hybrid model misses any threshold, the whole
+run is redone on real logs alone. The champion/challenger check below applies unchanged, so
+switching an existing farmer over needs one ``--force`` run if the hybrid model passes but
+does not beat the saved one.
+
 Per CLAUDE.md, retraining must be a repeatable command (not a one-off notebook) so it
 can run periodically as new DailyLog data comes in. This command is the orchestration
 layer only — the modelling logic lives in ``forecasting/pipeline.py`` and is unit-tested
@@ -43,7 +50,8 @@ there. Stages:
    flock/farm is pooled) and build the daily and tri-day datasets. The tri-day target is
    a 3-day forward sum that never spans a caging-period gap (itikcare-spec.md §10).
 3. Chronological 85:15 split within each segment (adviser-approved 2026-09-06, was 80:20
-   — see pipeline.chronological_split's docstring).
+   — see pipeline.chronological_split's docstring). With gap filling on, the training side
+   is then rebuilt from real plus filled days; the test side is left as it is.
 4. Fit a RandomForestRegressor for daily yield and a separate one for tri-day yield.
 5. Evaluate both against the §5 thresholds (MAE ≤ 8%, RMSE ≤ 10%, MAPE ≤ 15%, R² ≥ 0.75),
    alongside a mean-predictor baseline.
@@ -60,6 +68,7 @@ there. Stages:
    can prioritise by importance.
 """
 
+import argparse
 import json
 import os
 from datetime import datetime
@@ -71,6 +80,7 @@ from django.core.management.base import BaseCommand, CommandError
 
 from accounts.models import User
 from farm.models import DailyLog
+from forecasting import gapfill
 from forecasting import pipeline as ml
 
 
@@ -148,6 +158,14 @@ class Command(BaseCommand):
                 "applies). For deliberate manual replacements only."
             ),
         )
+        parser.add_argument(
+            "--gap-fill", action=argparse.BooleanOptionalAction, default=None,
+            help=(
+                "Train on real logs plus filled free-range gaps (see forecasting/"
+                "gapfill.py), falling back to real logs if any threshold is missed. "
+                "Default: the FORECAST_GAP_FILL setting."
+            ),
+        )
 
     def handle(self, *args, **options):
         owner_id = options["owner_id"]
@@ -165,19 +183,21 @@ class Command(BaseCommand):
 
         df = ml.build_feature_frame(records)
 
-        tuned = options["tune"]
-        result = self._train_all(df, options, tune=tuned)
+        gap_fill = options["gap_fill"]
+        if gap_fill is None:
+            gap_fill = settings.FORECAST_GAP_FILL
 
-        fell_back_from_tuned = False
-        if tuned and not result["all_pass"] and options["fallback_untuned"]:
+        result = self._train_with_fallback(df, options, gap_fill)
+        fell_back_from_hybrid = False
+        if gap_fill and not result["all_pass"]:
             self.stdout.write(self.style.WARNING(
-                "\nThe tuned models missed at least one threshold; discarding them and "
-                "retraining with the fixed default hyperparameters (--fallback-untuned)."
+                "\nThe gap-filled models missed at least one threshold; discarding them and "
+                "retraining on real logs only."
             ))
-            result = self._train_all(df, options, tune=False)
-            tuned = False
-            fell_back_from_tuned = True
+            result = self._train_with_fallback(df, options, gap_fill=False)
+            fell_back_from_hybrid = True
 
+        tuned = result["tuned"]
         daily_model, tri_model = result["daily_model"], result["tri_model"]
         daily_metrics, tri_metrics = result["daily_metrics"], result["tri_metrics"]
         daily_importances, tri_importances = result["daily_importances"], result["tri_importances"]
@@ -198,11 +218,19 @@ class Command(BaseCommand):
             "features": ml.MODEL_FEATURES,
             "thresholds": ml.THRESHOLDS,
             "tuned": tuned,
-            "fell_back_from_tuned": fell_back_from_tuned,
+            "fell_back_from_tuned": result["fell_back_from_tuned"],
+            # "hybrid" = real logs plus filled gaps; "real" = real logs only.
+            "data_method": result["data_method"],
+            "gap_fill_requested": gap_fill,
+            "fell_back_from_hybrid": fell_back_from_hybrid,
+            "synthetic_days": result["synthetic_days"],
+            "training_rows": result["training_rows"],
             "best_params": {"daily": result["daily_best_params"], "tri_day": result["tri_best_params"]},
             "daily": {"metrics": daily_metrics, "baseline": result["daily_baseline"],
+                      "same_as_yesterday": result["daily_persistence"],
                       "feature_importances": daily_importances},
             "tri_day": {"metrics": tri_metrics, "baseline": result["tri_baseline"],
+                        "same_as_yesterday": result["tri_persistence"],
                         "feature_importances": tri_importances},
             # Which model this one replaced and by how much it beat it (None when there
             # was no comparable model to beat, or --force was used).
@@ -230,20 +258,44 @@ class Command(BaseCommand):
                       daily_model, tri_model, daily_importances, tri_importances, len(records))
         self._lock_records(owner)
 
-    def _train_all(self, df, options, tune):
+    def _train_with_fallback(self, df, options, gap_fill):
+        """_train_all, redone untuned if --tune --fallback-untuned and a threshold fails."""
+        tune = options["tune"]
+        result = self._train_all(df, options, tune, gap_fill)
+
+        fell_back_from_tuned = False
+        if tune and not result["all_pass"] and options["fallback_untuned"]:
+            self.stdout.write(self.style.WARNING(
+                "\nThe tuned models missed at least one threshold; discarding them and "
+                "retraining with the fixed default hyperparameters (--fallback-untuned)."
+            ))
+            result = self._train_all(df, options, False, gap_fill)
+            tune = False
+            fell_back_from_tuned = True
+
+        return {**result, "tuned": tune, "fell_back_from_tuned": fell_back_from_tuned}
+
+    def _train_all(self, df, options, tune, gap_fill):
         """Fit, evaluate and report both the daily and the tri-day model once.
 
-        Pure orchestration of pipeline.py's functions, with no persistence side effects,
-        so handle() can call it a second time (untuned) for --fallback-untuned. The
-        chronological split is deterministic, so both attempts are scored on exactly the
-        same held-out rows.
+        Pure orchestration of pipeline.py's and gapfill.py's functions, with no
+        persistence side effects, so handle() can call it again for the fallbacks. The
+        chronological split is made on real rows and is deterministic, so every attempt
+        (tuned or not, gap-filled or not) is scored on exactly the same held-out rows.
         """
         feats = ml.MODEL_FEATURES
+        synthetic_days = {"daily": 0, "tri_day": 0}
+        if gap_fill:
+            self.stdout.write(self.style.NOTICE("\nTraining data: real logs plus filled gaps."))
 
         # --- Daily model -------------------------------------------------------------
         daily_df = ml.add_lag_features(df)
         daily_train, daily_test = ml.chronological_split(daily_df, options["test_fraction"])
         daily_mean = float(daily_df[ml.DAILY_TARGET].mean())
+        if gap_fill:
+            daily_train, synthetic_days["daily"] = gapfill.hybrid_training_frame(
+                df, daily_test, ml.DAILY_TARGET,
+            )
         daily_model, daily_best_params = self._fit(daily_train, feats, ml.DAILY_TARGET, options, tune)
         daily_metrics = ml.evaluate(
             daily_test[ml.DAILY_TARGET],
@@ -261,6 +313,10 @@ class Command(BaseCommand):
         tri_df = ml.add_lag_features(ml.add_tri_day_target(df))
         tri_train, tri_test = ml.chronological_split(tri_df, options["test_fraction"])
         tri_mean = float(tri_df[ml.TRI_DAY_TARGET].mean())
+        if gap_fill:
+            tri_train, synthetic_days["tri_day"] = gapfill.hybrid_training_frame(
+                df, tri_test, ml.TRI_DAY_TARGET,
+            )
         tri_model, tri_best_params = self._fit(tri_train, feats, ml.TRI_DAY_TARGET, options, tune)
         tri_metrics = ml.evaluate(
             tri_test[ml.TRI_DAY_TARGET],
@@ -273,9 +329,21 @@ class Command(BaseCommand):
         )
         tri_importances = ml.feature_importances(tri_model)
 
+        # "Same as yesterday" (3 x yesterday for tri-day), reported next to the model so
+        # its accuracy is always read against this simple rule.
+        daily_persistence = ml.evaluate(daily_test[ml.DAILY_TARGET], daily_test["lag1"], daily_mean)
+        tri_persistence = ml.evaluate(tri_test[ml.TRI_DAY_TARGET], 3 * tri_test["lag1"], tri_mean)
+
         # --- Report ------------------------------------------------------------------
-        self._report("DAILY yield", len(daily_train), daily_metrics, daily_baseline, daily_importances, daily_best_params)
-        self._report("TRI-DAY yield", len(tri_train), tri_metrics, tri_baseline, tri_importances, tri_best_params)
+        self._report("DAILY yield", len(daily_train), daily_metrics, daily_baseline,
+                     daily_persistence, daily_importances, daily_best_params)
+        self._report("TRI-DAY yield", len(tri_train), tri_metrics, tri_baseline,
+                     tri_persistence, tri_importances, tri_best_params)
+        if gap_fill:
+            self.stdout.write(
+                f"\nFilled (synthetic) days used for training: daily {synthetic_days['daily']}, "
+                f"tri-day {synthetic_days['tri_day']}."
+            )
 
         all_pass = all(daily_metrics["passes"].values()) and all(tri_metrics["passes"].values())
         if all_pass:
@@ -285,6 +353,10 @@ class Command(BaseCommand):
 
         return {
             "all_pass": all_pass,
+            "data_method": "hybrid" if gap_fill else "real",
+            "synthetic_days": synthetic_days,
+            "training_rows": {"daily": len(daily_train), "tri_day": len(tri_train)},
+            "daily_persistence": daily_persistence, "tri_persistence": tri_persistence,
             "daily_model": daily_model, "daily_metrics": daily_metrics,
             "daily_baseline": daily_baseline, "daily_importances": daily_importances,
             "daily_best_params": daily_best_params,
@@ -387,7 +459,10 @@ class Command(BaseCommand):
             DailyLog.objects
             .filter(flock__owner_id__in=owner_ids)
             .order_by("flock__owner_id", "flock__generation_number", "date")
-            .values("date", "flock_id", ml.CAGING_PERIOD_COLUMN, *ml.FEATURES, ml.DAILY_TARGET)
+            .values(
+                "date", "flock_id", ml.CAGING_PERIOD_COLUMN, *ml.FEATURES, ml.DAILY_TARGET,
+                gapfill.OWNER_COLUMN,  # gap filling fits its weather imputer per farm
+            )
         )
         return list(rows)
 
@@ -423,7 +498,8 @@ class Command(BaseCommand):
         )
         return model, best_params
 
-    def _report(self, title, n_train, metrics, baseline, importances, best_params=None):
+    def _report(self, title, n_train, metrics, baseline, persistence, importances,
+                best_params=None):
         thr = ml.THRESHOLDS
         ok = lambda passed: self.style.SUCCESS("PASS") if passed else self.style.ERROR("FAIL")
         p = metrics["passes"]
@@ -451,6 +527,10 @@ class Command(BaseCommand):
         self.stdout.write(
             f"  baseline (mean predictor): MAE {baseline['mae']:.2f}, R2 {baseline['r2']:.3f}"
         )
+        self.stdout.write(
+            f"  baseline (same as yesterday): MAE {persistence['mae']:.2f}, "
+            f"R2 {persistence['r2']:.3f}"
+        )
         self.stdout.write("  feature importances:")
         for feature, importance in importances.items():
             self.stdout.write(f"    {feature:18s} {importance:.3f}")
@@ -469,7 +549,8 @@ class Command(BaseCommand):
             "owner_id": owner_id,
             "trained_at": metrics_payload["trained_at"],
             "feature_names": ml.MODEL_FEATURES,
-            "n_samples": n_samples,
+            "n_samples": n_samples,  # real DailyLogs; filled days are never counted
+            "data_method": metrics_payload["data_method"],
             "daily_pipeline": daily_model,
             "tri_day_pipeline": tri_model,
             "feature_importances": {"daily": daily_importances, "tri_day": tri_importances},

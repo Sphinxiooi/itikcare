@@ -75,6 +75,7 @@ Use Railway reference variables (`${{ ... }}`) so credentials stay in sync. Repl
 | `DB_HOST` | `${{Postgres.PGHOST}}` |
 | `DB_PORT` | `${{Postgres.PGPORT}}` |
 | `FARM_LATITUDE` / `FARM_LONGITUDE` | copy from your local `.env` |
+| `FORECAST_GAP_FILL` | `True` to train on real logs plus filled free-range gaps (itikcare-spec.md section 10). After changing it, retrain each farmer once with `--tune --fallback-untuned --strict --force` |
 
 Optional, same as `.env.example`: `GOOGLE_OAUTH_*` (and add
 `https://<domain>/accounts/google/callback/` to the Google console's redirect URIs),

@@ -26,6 +26,7 @@ from django.test import Client, SimpleTestCase, TestCase, override_settings
 
 from farm.models import DailyLog, Flock
 from farm.services import operational_today
+from forecasting import gapfill
 from forecasting import pipeline as ml
 from forecasting import services
 from forecasting.models import Forecast
@@ -750,6 +751,187 @@ class TrainForecastModelChampionChallengerTests(TrainForecastModelFallbackTests)
                 self.assertNotEqual(joblib.load(self._model_path())["model_version"], "rf-current")
                 self.assertIsNone(self._metrics()["replaced_model"])
                 self._model_path().unlink()
+
+
+def _varied_records(start, caging_period, n, flock_id=1):
+    """_records with weather that changes day to day, so the imputer has something to fit."""
+    records = _records(start, caging_period, n, flock_id=flock_id)
+    for i, record in enumerate(records):
+        record["temperature_c"] = 25.0 + (i % 5)
+        record["humidity_pct"] = 70.0 + (i % 7)
+    return records
+
+
+def _real_test_split(real, target):
+    """The held-out real rows for target, built the way train_forecast_model builds them."""
+    frame = real if target == ml.DAILY_TARGET else ml.add_tri_day_target(real)
+    _, test = ml.chronological_split(ml.add_lag_features(frame))
+    return test
+
+
+class GapFillTests(SimpleTestCase):
+    """forecasting/gapfill.py: what gets filled, what never does, and no test-day leakage."""
+
+    def _two_periods(self, second_start=date(2024, 2, 1), second_flock=1):
+        # Period 1 is 1-20 Jan 2024.
+        return ml.build_feature_frame(
+            _varied_records(date(2024, 1, 1), 1, 20)
+            + _varied_records(second_start, 2, 20, flock_id=second_flock)
+        )
+
+    def test_fills_the_days_between_two_periods_of_one_flock(self):
+        real = self._two_periods()
+        filled = gapfill.fill_gaps(real, windows=[])
+
+        synthetic = filled[filled[gapfill.SYNTHETIC_COLUMN]]
+        self.assertEqual(
+            list(synthetic["date"]), list(pd.date_range("2024-01-21", "2024-01-31"))
+        )
+        self.assertEqual(filled[ml.SEGMENT_COLUMN].nunique(), 1)
+        # Straight line from the last day before (119 eggs) to the first day after (100).
+        self.assertTrue(synthetic["egg_count"].between(100, 119).all())
+        self.assertTrue(synthetic["egg_count"].is_monotonic_decreasing)
+        self.assertFalse(synthetic[ml.FEATURES].isna().any().any())
+
+    def test_does_not_modify_the_real_frame(self):
+        real = self._two_periods()
+        before = real.copy()
+        gapfill.fill_gaps(real, windows=[])
+        pd.testing.assert_frame_equal(real, before)
+
+    def test_never_fills_across_a_flock_replacement(self):
+        filled = gapfill.fill_gaps(self._two_periods(second_flock=2), windows=[])
+        self.assertFalse(filled[gapfill.SYNTHETIC_COLUMN].any())
+        self.assertEqual(filled[ml.SEGMENT_COLUMN].nunique(), 2)
+
+    def test_gap_longer_than_the_cap_stays_empty(self):
+        last_day = date(2024, 1, 20)
+        at_cap = last_day + timedelta(days=gapfill.MAX_FILL_GAP_DAYS + 1)
+
+        filled = gapfill.fill_gaps(self._two_periods(second_start=at_cap), windows=[])
+        self.assertEqual(filled[gapfill.SYNTHETIC_COLUMN].sum(), gapfill.MAX_FILL_GAP_DAYS)
+
+        too_long = at_cap + timedelta(days=1)
+        filled = gapfill.fill_gaps(self._two_periods(second_start=too_long), windows=[])
+        self.assertFalse(filled[gapfill.SYNTHETIC_COLUMN].any())
+        self.assertEqual(filled[ml.SEGMENT_COLUMN].nunique(), 2)
+
+    def test_nothing_is_filled_without_a_day_after_the_gap(self):
+        # A flock still out on free range has no later log, so there is nothing to fill.
+        real = ml.build_feature_frame(_varied_records(date(2024, 1, 1), 1, 20))
+        filled = gapfill.fill_gaps(real, windows=[])
+        self.assertEqual(len(filled), len(real))
+        self.assertEqual(filled["date"].max(), real["date"].max())
+
+    def test_changing_test_day_values_leaves_the_training_data_unchanged(self):
+        real = ml.build_feature_frame(
+            _varied_records(date(2024, 1, 1), 1, 30)
+            + _varied_records(date(2024, 2, 15), 2, 30)
+            + _varied_records(date(2024, 4, 1), 3, 30)
+        )
+        for target in (ml.DAILY_TARGET, ml.TRI_DAY_TARGET):
+            with self.subTest(target=target):
+                test = _real_test_split(real, target)
+                windows = gapfill.test_windows(real, test)
+                training, filled_days = gapfill.hybrid_training_frame(real, test, target)
+
+                changed = real.copy()
+                columns = ml.FEATURES + [ml.DAILY_TARGET]
+                changed[columns] = changed[columns].astype(float)
+                changed.loc[gapfill.in_windows(changed, windows, by_period=True), columns] += 500
+                rebuilt, _ = gapfill.hybrid_training_frame(
+                    changed, _real_test_split(changed, target), target
+                )
+
+                self.assertGreater(filled_days, 0)
+                self.assertFalse(gapfill.in_windows(training, windows, by_period=False).any())
+                compared = ["date", *ml.MODEL_FEATURES, target]
+                pd.testing.assert_frame_equal(
+                    training[compared], rebuilt[compared], check_dtype=False
+                )
+
+
+class TrainForecastModelGapFillTests(TestCase):
+    """train_forecast_model with gap filling: the switch, the fallback to real data, and
+    that filled days never reach the database."""
+
+    def setUp(self):
+        self.user = User.objects.create_user(
+            username="foundationfarmer", password="pw12345", is_foundation_farmer=True,
+        )
+        flock = Flock.objects.create(owner=self.user, generation_number=1, started_on=date(2024, 1, 1))
+        # Two 60-day caging periods with a 30-day gap; same learnable shape as
+        # TrainForecastModelFallbackTests (eggs a fixed share of a cyclic flock size).
+        for period, start in ((1, date(2024, 1, 1)), (2, date(2024, 3, 31))):
+            for i in range(60):
+                flock_size = 200 + (i % 7) * 10
+                DailyLog.objects.create(
+                    flock=flock, date=start + timedelta(days=i), caging_period=period,
+                    flock_size=flock_size, flock_age_weeks=25, egg_count=int(flock_size * 0.6),
+                    feed_intake_kg=str(round(flock_size / 6, 2)), temperature_c="28.0",
+                    humidity_pct="70.0", recorded_by=self.user,
+                )
+        self.tmpdir = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmpdir.cleanup)
+
+    def _train(self, **extra_options):
+        options = {
+            "owner_id": self.user.id, "n_estimators": 10, "output_dir": self.tmpdir.name,
+            "force": True,
+        }
+        options.update(extra_options)
+        call_command("train_forecast_model", **options)
+        path = Path(self.tmpdir.name) / f"forecast_metrics_{self.user.id}.json"
+        return json.loads(path.read_text(encoding="utf-8"))
+
+    @override_settings(FORECAST_GAP_FILL=False)
+    def test_switched_off_trains_on_real_logs_only(self):
+        with patch.object(gapfill, "hybrid_training_frame") as mock_fill:
+            metrics = self._train()
+        mock_fill.assert_not_called()
+        self.assertEqual(metrics["data_method"], "real")
+        self.assertEqual(metrics["synthetic_days"], {"daily": 0, "tri_day": 0})
+
+    @override_settings(FORECAST_GAP_FILL=True)
+    def test_switched_on_trains_on_filled_data_without_writing_it(self):
+        real_only = self._train(gap_fill=False)
+
+        metrics = self._train()
+
+        self.assertEqual(metrics["data_method"], "hybrid")
+        self.assertFalse(metrics["fell_back_from_hybrid"])
+        self.assertEqual(metrics["synthetic_days"], {"daily": 30, "tri_day": 30})
+        for key in ("daily", "tri_day"):
+            self.assertGreater(metrics["training_rows"][key], real_only["training_rows"][key])
+            # Same held-out real rows and the same threshold mean with or without filling.
+            self.assertEqual(metrics[key]["metrics"]["n"], real_only[key]["metrics"]["n"])
+            self.assertEqual(
+                metrics[key]["metrics"]["target_mean"], real_only[key]["metrics"]["target_mean"]
+            )
+        self.assertEqual(DailyLog.objects.count(), 120)
+        artifact = joblib.load(Path(self.tmpdir.name) / f"forecast_model_{self.user.id}.joblib")
+        self.assertEqual(artifact["data_method"], "hybrid")
+        self.assertEqual(artifact["n_samples"], 120)
+
+    @override_settings(FORECAST_GAP_FILL=False)
+    def test_the_command_flag_overrides_the_setting(self):
+        self.assertEqual(self._train(gap_fill=True)["data_method"], "hybrid")
+
+    def test_falls_back_to_real_logs_when_the_filled_model_misses_a_threshold(self):
+        build = gapfill.hybrid_training_frame
+
+        def noisy(real, test, target):
+            frame, filled_days = build(real, test, target)
+            frame[target] = np.random.default_rng(0).uniform(1, 999, len(frame))
+            return frame, filled_days
+
+        with patch.object(gapfill, "hybrid_training_frame", side_effect=noisy):
+            metrics = self._train(gap_fill=True, strict=True)
+
+        self.assertEqual(metrics["data_method"], "real")
+        self.assertTrue(metrics["gap_fill_requested"])
+        self.assertTrue(metrics["fell_back_from_hybrid"])
+        self.assertTrue(all(metrics["daily"]["metrics"]["passes"].values()))
 
 
 class PredictNextDaysTests(SimpleTestCase):
